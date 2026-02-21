@@ -281,7 +281,12 @@ async function syncIBKR(){
     const refMatch=reqXml.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/);
     if(!refMatch){
       const errMatch=reqXml.match(/<ErrorMessage>([^<]+)<\/ErrorMessage>/);
-      ibkrStatus("⚠ "+(errMatch?errMatch[1]:"No reference code"),true);return;
+      const codeMatch=reqXml.match(/<ErrorCode>(\d+)<\/ErrorCode>/);
+      const msg=errMatch?errMatch[1]:"No reference code";
+      const code=codeMatch?" (code "+codeMatch[1]+")":"";
+      ibkrStatus("⚠ "+msg+code,true);
+      document.getElementById("ibkr-preview").innerHTML=`<pre style="font-size:10px;color:var(--muted);white-space:pre-wrap;max-height:200px;overflow:auto;padding:8px;background:var(--bg);border-radius:6px;margin-top:8px">${reqXml.replace(/</g,"&lt;")}</pre>`;
+      return;
     }
     const refCode=refMatch[1];
     ibkrStatus(`Got ref ${refCode}, waiting...`);
@@ -398,6 +403,7 @@ async function syncIBKR(){
 
   }catch(err){
     ibkrStatus("⚠ "+err.message,true);
+    document.getElementById("ibkr-preview").innerHTML=`<pre style="font-size:10px;color:var(--red);white-space:pre-wrap;padding:8px;background:var(--bg);border-radius:6px;margin-top:8px">${err.stack||err.message}</pre>`;
   }
 }
 
