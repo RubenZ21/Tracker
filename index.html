@@ -315,25 +315,38 @@ async function fetchPrices(){
   if(!settings.apiKey){document.getElementById("refresh-status").textContent="⚠ Set API key";return;}
   const el=document.getElementById("refresh-status");el.textContent="Fetching...";
   const map={};Object.keys(stocks).forEach(t=>{if(stocks[t].tdSymbol)map[stocks[t].tdSymbol]=t;});
-  const syms=Object.keys(map);const batches=[];for(let i=0;i<syms.length;i+=8)batches.push(syms.slice(i,i+8));
-  let ok=0,err=0;
+  // Add FX pairs as virtual entries
+  const FX_PAIRS=["EUR/USD","GBP/EUR"];
+  const syms=[...Object.keys(map),...FX_PAIRS];
+  const batches=[];for(let i=0;i<syms.length;i+=8)batches.push(syms.slice(i,i+8));
+  let ok=0,err=0,fxOk=0;
   for(const b of batches){
     try{const r=await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(b.join(","))}&apikey=${settings.apiKey}`);const d=await r.json();
-      if(b.length===1){if(d.price){stocks[map[b[0]]].currentPrice=parseFloat(d.price)*stocks[map[b[0]]].priceMult;stocks[map[b[0]]].lastUpdate=Date.now();updateSignals(map[b[0]]);ok++;}else err++;}
-      else b.forEach(s=>{const e=d[s];if(e?.price){stocks[map[s]].currentPrice=parseFloat(e.price)*stocks[map[s]].priceMult;stocks[map[s]].lastUpdate=Date.now();updateSignals(map[s]);ok++;}else err++;});
+      if(b.length===1){
+        const s=b[0];
+        if(d.price){
+          if(s==="EUR/USD"){settings.fxRate=parseFloat(parseFloat(d.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
+          else if(s==="GBP/EUR"){settings.fxGBP=parseFloat(parseFloat(d.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
+          else{stocks[map[s]].currentPrice=parseFloat(d.price)*stocks[map[s]].priceMult;stocks[map[s]].lastUpdate=Date.now();stocks[map[s]].priceSource="api";updateSignals(map[s]);ok++;}
+        }else err++;
+      } else {
+        b.forEach(s=>{
+          const e=d[s];
+          if(e?.price){
+            if(s==="EUR/USD"){settings.fxRate=parseFloat(parseFloat(e.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
+            else if(s==="GBP/EUR"){settings.fxGBP=parseFloat(parseFloat(e.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
+            else{stocks[map[s]].currentPrice=parseFloat(e.price)*stocks[map[s]].priceMult;stocks[map[s]].lastUpdate=Date.now();stocks[map[s]].priceSource="api";updateSignals(map[s]);ok++;}
+          }else if(!FX_PAIRS.includes(s))err++;
+        });
+      }
       if(batches.indexOf(b)<batches.length-1)await new Promise(r=>setTimeout(r,1200));
-    }catch(e){err+=b.length;}
+    }catch(e){err+=b.filter(s=>!FX_PAIRS.includes(s)).length;}
   }
   settings.lastFetch=Date.now();
-  // Fetch FX rates (EUR/USD and GBP/EUR)
-  try{const fxR=await fetch(`https://api.twelvedata.com/price?symbol=EUR/USD,GBP/EUR&apikey=${settings.apiKey}`);
-    const fxD=await fxR.json();
-    if(fxD["EUR/USD"]?.price){settings.fxRate=parseFloat(parseFloat(fxD["EUR/USD"].price).toFixed(4));settings.lastFxUpdate=Date.now();}
-    if(fxD["GBP/EUR"]?.price){settings.fxGBP=parseFloat(parseFloat(fxD["GBP/EUR"].price).toFixed(4));settings.lastFxUpdate=Date.now();}
-  }catch(e){}
   save();render();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
-  el.textContent=err?`⚠ ${ok} ok, ${err} fail — ${t}`:`✓ ${ok} — ${t}`;
+  const fxStr=fxOk?` · FX✓`:"";
+  el.textContent=err?`⚠ ${ok} ok, ${err} fail${fxStr} — ${t}`:`✓ ${ok}${fxStr} — ${t}`;
 }
 
 // ============ IBKR FLEX SYNC ============
@@ -535,7 +548,7 @@ function applyIBKR(pfKey){
     }
 
     // Update current price if IBKR has newer
-    if(p.mktVal&&stocks[p.t]){stocks[p.t].currentPrice=p.mktVal;updateSignals(p.t);}
+    if(p.mktVal&&stocks[p.t]){stocks[p.t].currentPrice=p.mktVal;stocks[p.t].lastUpdate=Date.now();stocks[p.t].priceSource="ibkr";updateSignals(p.t);}
   });
 
   // Update cash as dry powder
@@ -849,7 +862,7 @@ function render(){
   const pfLabel=currentPf==="personal"?"🧑":"🧓";
   document.getElementById("pf-total-val").textContent=pfLabel+" €"+Math.round(totalV).toLocaleString();
   const fxEl=document.getElementById("fx-display");
-  if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);fxEl.textContent=`$/€${settings.fxRate} · £/€${settings.fxGBP} · ${fxAge}`;}
+  if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);fxEl.textContent=`1€=$${settings.fxRate} · 1£=€${settings.fxGBP} · ${fxAge}`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
   checkAlerts();
@@ -898,7 +911,7 @@ function renderPortfolio(c){
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"var(--green)":"var(--red)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${timeAgo(s.lastUpdate)}</div></div></div>`;
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"var(--green)":"var(--red)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
     h+=`<div class="stat-row" style="margin:8px 0">
@@ -1014,7 +1027,7 @@ function renderWatchlist(c){
     tickers.forEach(t=>{const s=stocks[t];const g=gapPct(t);const gStr=g!=null?g+"%":"—";const gCol=g!=null&&g<15?"var(--amber)":"var(--muted)";
       h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span></div>
-        <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${timeAgo(s.lastUpdate)}</div></div></div>
+        <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":""}${timeAgo(s.lastUpdate)}</div></div></div>
       <div style="display:flex;gap:4px;margin-bottom:4px">`;
       [{l:"MOS",v:s.cons.mos,p:s.phil?.mos},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap},{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt}].forEach(({l,v,p})=>{
         const on=v&&s.currentPrice<=v;h+=`<div class="wl-trig"><div class="wl-trig-label">${l}</div><div class="wl-trig-val" style="color:${on?"var(--green)":"var(--muted)"}">${v?fmt(v,s.currency):"—"}</div>${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
