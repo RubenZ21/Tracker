@@ -69,7 +69,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .modal-done{width:100%;padding:12px;background:var(--blue-bg);color:var(--accent);border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);margin-top:8px}
 .navbar{position:fixed;bottom:0;left:0;right:0;background:#0d1117;border-top:1px solid var(--border);display:flex;justify-content:center;z-index:50}
 .navbar-inner{display:flex;max-width:960px;width:100%}
-.nav-btn{flex:1;padding:8px 0 10px;background:transparent;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--font)}
+.nav-btn{flex:1;padding:8px 0 10px;background:transparent;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--font);position:relative}
 .nav-btn .nav-icon{font-size:18px}.nav-btn .nav-label{font-size:10px}
 .settings-section{padding:16px}
 .settings-card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid var(--border)}
@@ -97,6 +97,9 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .alert-item.watch{background:linear-gradient(135deg,#332d0d40,#332d0d80);border:1px solid #fbbf2440}
 .alert-item.info{background:linear-gradient(135deg,#0d1a3340,#0d1a3380);border:1px solid #60a5fa40}
 .alert-item.critical{background:linear-gradient(135deg,#33000040,#33000080);border:1px solid #ef444480;animation:alertSlide .3s ease-out,alertPulse 2s ease-in-out infinite}
+.alert-item.watchlist-buy{background:linear-gradient(135deg,#1a330d40,#1a330d80);border:2px solid #34d399;animation:alertSlide .3s ease-out,alertPulse 2s ease-in-out infinite;font-size:14px}
+.nav-badge{position:absolute;top:2px;right:2px;min-width:16px;height:16px;border-radius:8px;background:#34d399;color:#000;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;animation:navBadgePulse 2s ease-in-out infinite}
+@keyframes navBadgePulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.2);opacity:.8}}
 @keyframes alertPulse{0%,100%{opacity:1}50%{opacity:.7}}
 .alert-icon{font-size:20px;flex-shrink:0}
 .alert-text{flex:1;line-height:1.35}
@@ -125,7 +128,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.07</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.08</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -140,7 +143,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="content" id="content"></div>
 <nav class="navbar"><div class="navbar-inner">
   <button class="nav-btn" onclick="switchTab('portfolio')"><span class="nav-icon">📊</span><span class="nav-label" id="nav-portfolio">Portfolio</span></button>
-  <button class="nav-btn" onclick="switchTab('watchlist')"><span class="nav-icon">👁</span><span class="nav-label" id="nav-watchlist">Watch</span></button>
+  <button class="nav-btn" onclick="switchTab('watchlist')"><span class="nav-icon">👁</span><span class="nav-label" id="nav-watchlist">Watch</span><span id="watch-badge" class="nav-badge" style="display:none"></span></button>
   <button class="nav-btn" onclick="switchTab('allocator')"><span class="nav-icon">💰</span><span class="nav-label" id="nav-allocator">Allocator</span></button>
   <button class="nav-btn" onclick="switchTab('settings')"><span class="nav-icon">⚙️</span><span class="nav-label" id="nav-settings">Settings</span></button>
 </div></nav>
@@ -963,8 +966,15 @@ function checkAlerts(){
     const gap=(s.currentPrice-nt)/s.currentPrice;
     if(gap>0&&gap<=0.10){const k=`watch-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"👁",
       html:`<strong>${s.flag} ${t}</strong> approaching buy zone — ${fmt(s.currentPrice,s.currency)} is ${Math.round(gap*100)}% above trigger ${fmt(nt,s.currency)}`});}
-    else if(gap<=0){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"⚡",
-      html:`<strong>${s.flag} ${t}</strong> on watchlist just hit a trigger! Price ${fmt(s.currentPrice,s.currency)} ≤ ${fmt(nt,s.currency)} — consider adding to grid`});}
+    else if(gap<=0){
+      // Build list of ALL firing signals for this watchlist stock
+      const p=s.currentPrice,c=s.cons,fires=[];
+      if(c.mos&&p<=c.mos)fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
+      if(c.tenCap&&p<=c.tenCap)fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
+      if(c.pbt&&p<=c.pbt)fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
+      const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:"🔥",
+        html:`<strong>${s.flag} ${t}</strong> WATCHLIST BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals — add to grid!</strong>`});
+    }
   });
 
   // Render
@@ -990,22 +1000,25 @@ function showBuyModals(){
   if(!buyModalQueue.length){document.getElementById("buy-modal").innerHTML="";return;}
   const q=buyModalQueue[0]; // Show one at a time
   const s=stocks[q.ticker];if(!s)return;
+  const isWL=(s.status==="watchlist");
   const sigNames={mos:"MOS — Margin of Safety",tenCap:"10Cap — Owner's Earnings",pbt:"PBT — Payback Time"};
   const sigColors={mos:"#34d399",tenCap:"#60a5fa",pbt:"#a78bfa"};
   const sigIcons={mos:"🟢",tenCap:"🔵",pbt:"🟣"};
   const triggerPrice=q.signal==="mos"?s.cons.mos:q.signal==="tenCap"?s.cons.tenCap:s.cons.pbt;
   const discount=triggerPrice?Math.round((1-s.currentPrice/triggerPrice)*100):0;
+  const borderColor=isWL?"#fbbf24":"#34d399";
+  const glowColor=isWL?"#fbbf24":"#34d399";
   document.getElementById("buy-modal").innerHTML=`
     <div class="buy-modal-overlay" onclick="if(event.target===this)dismissBuyModal()">
-      <div class="buy-modal">
-        <div class="buy-modal-icon">${sigIcons[q.signal]||"🚀"}</div>
-        <div class="buy-modal-title">New Buy Signal!</div>
+      <div class="buy-modal" style="border-color:${borderColor};box-shadow:0 0 40px ${glowColor}40,0 0 80px ${glowColor}20">
+        <div class="buy-modal-icon">${isWL?"🔥":sigIcons[q.signal]||"🚀"}</div>
+        <div class="buy-modal-title" ${isWL?'style="color:#fbbf24"':''}>${isWL?"Watchlist Opportunity!":"New Buy Signal!"}</div>
         <div class="buy-modal-stock">${s.flag} ${q.ticker}</div>
         <div style="font-size:13px;color:var(--muted)">${s.name}</div>
         <div class="buy-modal-signal" style="background:${sigColors[q.signal]}20;color:${sigColors[q.signal]};border:1px solid ${sigColors[q.signal]}40">${sigNames[q.signal]||q.signal}</div>
         <div class="buy-modal-price">${fmt(s.currentPrice,s.currency)}</div>
         <div class="buy-modal-detail">Trigger: ${fmt(triggerPrice,s.currency)}${discount>0?` · ${discount}% below`:" · at trigger"}</div>
-        <div class="buy-modal-detail">Grid now: ${totalSignals()}/${gridSize()} signals</div>
+        <div class="buy-modal-detail">${isWL?"Consider adding to grid!":"Grid now: "+totalSignals()+"/"+gridSize()+" signals"}</div>
         <button class="buy-modal-dismiss" onclick="dismissBuyModal()">GOT IT</button>
       </div>
     </div>`;
@@ -1037,6 +1050,9 @@ function render(){
     fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
+  // Update watchlist nav badge — count watchlist stocks with any buy signal firing
+  const wlFiring=getWatchlist().filter(t=>{const s=stocks[t];return s?.currentPrice&&s.gate!==false&&(s.signals?.mos||s.signals?.tenCap||s.signals?.pbt);}).length;
+  const wb=document.getElementById("watch-badge");if(wb){if(wlFiring>0){wb.textContent=wlFiring;wb.style.display="flex";}else{wb.style.display="none";}}
   checkAlerts();
 }
 function switchTab(t){currentTab=t;render();window.scrollTo(0,0);}
