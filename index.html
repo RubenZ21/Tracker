@@ -315,38 +315,25 @@ async function fetchPrices(){
   if(!settings.apiKey){document.getElementById("refresh-status").textContent="⚠ Set API key";return;}
   const el=document.getElementById("refresh-status");el.textContent="Fetching...";
   const map={};Object.keys(stocks).forEach(t=>{if(stocks[t].tdSymbol)map[stocks[t].tdSymbol]=t;});
-  // Add FX pairs as virtual entries
-  const FX_PAIRS=["EUR/USD","GBP/EUR"];
-  const syms=[...Object.keys(map),...FX_PAIRS];
-  const batches=[];for(let i=0;i<syms.length;i+=8)batches.push(syms.slice(i,i+8));
-  let ok=0,err=0,fxOk=0;
+  const syms=Object.keys(map);const batches=[];for(let i=0;i<syms.length;i+=8)batches.push(syms.slice(i,i+8));
+  let ok=0;
   for(const b of batches){
     try{const r=await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(b.join(","))}&apikey=${settings.apiKey}`);const d=await r.json();
-      if(b.length===1){
-        const s=b[0];
-        if(d.price){
-          if(s==="EUR/USD"){settings.fxRate=parseFloat(parseFloat(d.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
-          else if(s==="GBP/EUR"){settings.fxGBP=parseFloat(parseFloat(d.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
-          else{stocks[map[s]].currentPrice=parseFloat(d.price)*stocks[map[s]].priceMult;stocks[map[s]].lastUpdate=Date.now();stocks[map[s]].priceSource="api";updateSignals(map[s]);ok++;}
-        }else err++;
-      } else {
-        b.forEach(s=>{
-          const e=d[s];
-          if(e?.price){
-            if(s==="EUR/USD"){settings.fxRate=parseFloat(parseFloat(e.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
-            else if(s==="GBP/EUR"){settings.fxGBP=parseFloat(parseFloat(e.price).toFixed(4));settings.lastFxUpdate=Date.now();fxOk++;}
-            else{stocks[map[s]].currentPrice=parseFloat(e.price)*stocks[map[s]].priceMult;stocks[map[s]].lastUpdate=Date.now();stocks[map[s]].priceSource="api";updateSignals(map[s]);ok++;}
-          }else if(!FX_PAIRS.includes(s))err++;
-        });
-      }
+      if(b.length===1){if(d.price){stocks[map[b[0]]].currentPrice=parseFloat(d.price)*stocks[map[b[0]]].priceMult;stocks[map[b[0]]].lastUpdate=Date.now();stocks[map[b[0]]].priceSource="api";updateSignals(map[b[0]]);ok++;}}
+      else b.forEach(s=>{const e=d[s];if(e?.price){stocks[map[s]].currentPrice=parseFloat(e.price)*stocks[map[s]].priceMult;stocks[map[s]].lastUpdate=Date.now();stocks[map[s]].priceSource="api";updateSignals(map[s]);ok++;}});
       if(batches.indexOf(b)<batches.length-1)await new Promise(r=>setTimeout(r,1200));
-    }catch(e){err+=b.filter(s=>!FX_PAIRS.includes(s)).length;}
+    }catch(e){}
   }
-  settings.lastFetch=Date.now();
-  save();render();
+  // Fetch FX from ECB via frankfurter.app (free, no key)
+  let fxOk=false;
+  try{const fxR=await fetch("https://api.frankfurter.app/latest?from=EUR&to=USD,GBP");
+    const fxD=await fxR.json();
+    if(fxD.rates?.USD){settings.fxRate=parseFloat(fxD.rates.USD.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
+    if(fxD.rates?.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
+  }catch(e){}
+  settings.lastFetch=Date.now();save();render();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
-  const fxStr=fxOk?` · FX✓`:"";
-  el.textContent=err?`⚠ ${ok} ok, ${err} fail${fxStr} — ${t}`:`✓ ${ok}${fxStr} — ${t}`;
+  el.textContent=`✓ ${ok} prices${fxOk?" · FX✓":""} — ${t}`;
 }
 
 // ============ IBKR FLEX SYNC ============
@@ -862,7 +849,7 @@ function render(){
   const pfLabel=currentPf==="personal"?"🧑":"🧓";
   document.getElementById("pf-total-val").textContent=pfLabel+" €"+Math.round(totalV).toLocaleString();
   const fxEl=document.getElementById("fx-display");
-  if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);fxEl.textContent=`1€=$${settings.fxRate} · 1£=€${settings.fxGBP} · ${fxAge}`;}
+  if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · ${fxAge}`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
   checkAlerts();
