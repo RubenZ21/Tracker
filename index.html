@@ -125,7 +125,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.02</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.03</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -222,7 +222,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncome:9900,lastFetch:null,fetchInterval:7200000};
+let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncome:9900,lastFetch:null,fetchInterval:1800000};
 let currentTab="portfolio",currentPf="personal",sellPf="personal";
 const DATA_VERSION=8;
 
@@ -294,6 +294,8 @@ function load(){
     if(st)settings={...settings,...JSON.parse(st)};
     Object.keys(STOCK_DEFAULTS).forEach(k=>{if(!stocks[k])stocks[k]=JSON.parse(JSON.stringify(STOCK_DEFAULTS[k]));});
   }catch(e){stocks=JSON.parse(JSON.stringify(STOCK_DEFAULTS));portfolios=JSON.parse(JSON.stringify(PF_DEFAULTS));}
+  // Restore API/IBKR credentials preserved through wipe
+  try{const kept=localStorage.getItem("r1-keep");if(kept){const k=JSON.parse(kept);Object.assign(settings,k);localStorage.removeItem("r1-keep");}}catch(e){}
   // Migration: add gate field (default PASS) and prevSticker if missing
   Object.values(stocks).forEach(s=>{
     if(s.gate===undefined)s.gate=true;
@@ -1232,7 +1234,7 @@ function renderSettings(c){
 
     <div class="settings-card"><div class="settings-title" style="color:var(--red)">🗑 Factory Reset</div>
       <div class="settings-desc">Wipes ALL data (positions, triggers, settings, IBKR keys). After reset, re-import your CSV or Excel backup to restore.</div>
-      <button class="settings-save" style="background:#3b1111;color:var(--red)" onclick="if(confirm('⚠ Delete ALL data and reset to defaults?')&&confirm('This cannot be undone. Are you sure?')){localStorage.clear();location.reload();}">Wipe & Reset</button></div>
+      <button class="settings-save" style="background:#3b1111;color:var(--red)" onclick="if(confirm('⚠ Delete ALL data and reset to defaults?')&&confirm('This cannot be undone. Are you sure?')){const keep={apiKey:settings.apiKey,ibkrWorker:settings.ibkrWorker,ibkrTokenPersonal:settings.ibkrTokenPersonal,ibkrQueryPersonal:settings.ibkrQueryPersonal,ibkrTokenNl:settings.ibkrTokenNl,ibkrQueryNl:settings.ibkrQueryNl};localStorage.clear();localStorage.setItem('r1-keep',JSON.stringify(keep));location.reload();}">Wipe & Reset</button></div>
   </div>`;c.innerHTML=h;
 }
 
@@ -1386,8 +1388,8 @@ function showModal(title,fields,onSave,onDelete){
 
 // ============ INIT ============
 load();render();
-setInterval(()=>{if(settings.apiKey)fetchPrices();},settings.fetchInterval||7200000);
-if(settings.apiKey&&(!settings.lastFetch||Date.now()-settings.lastFetch>settings.fetchInterval))fetchPrices();
+setInterval(()=>{if(settings.apiKey)fetchPrices();},settings.fetchInterval||1800000);
+if(settings.apiKey)fetchPrices();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
 </script>
 </body>
