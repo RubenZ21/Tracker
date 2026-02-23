@@ -125,7 +125,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.06</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.07</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -337,7 +337,7 @@ function load(){
 function save(){localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));}
 
 async function fetchPrices(){
-  if(!settings.apiKey&&!settings.finnhubKey){document.getElementById("refresh-status").textContent="⚠ Set API key";return;}
+  if(!settings.apiKey&&!settings.ibkrWorker){document.getElementById("refresh-status").textContent="⚠ Set API key or Worker URL";return;}
   const el=document.getElementById("refresh-status");el.textContent="Fetching...";
 
   // 1. IBKR auto-sync (silent — gets positions + prices for all held stocks)
@@ -352,18 +352,22 @@ async function fetchPrices(){
     if(fxD.rates?.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
   }catch(e){}
 
-  // 3. Finnhub for European stocks (WKL, ASML, AUTO, RMV, REL, ITRK, LSEG, SAP)
-  let fhOk=0;
-  if(settings.finnhubKey){
-    const fhStocks=Object.entries(stocks).filter(([t,s])=>s.finnhubSymbol);
-    for(const [t,s] of fhStocks){
+  // 3. Yahoo Finance for European stocks via Cloudflare Worker proxy (no API key needed)
+  let yfOk=0;
+  if(settings.ibkrWorker){
+    const yfStocks=Object.entries(stocks).filter(([t,s])=>s.finnhubSymbol);
+    if(yfStocks.length>0){
       try{
-        const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s.finnhubSymbol)}&token=${settings.finnhubKey}`);
+        const syms=yfStocks.map(([t,s])=>s.finnhubSymbol).join(",");
+        const r=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(syms)}`);
         const d=await r.json();
-        if(d.c&&d.c>0){
-          s.currentPrice=d.c*s.priceMult;s.lastUpdate=Date.now();s.priceSource="finnhub";
-          updateSignals(t);fhOk++;
-        }
+        yfStocks.forEach(([t,s])=>{
+          const q=d[s.finnhubSymbol];
+          if(q&&q.price>0){
+            s.currentPrice=q.price*s.priceMult;s.lastUpdate=Date.now();s.priceSource="yahoo";
+            updateSignals(t);yfOk++;
+          }
+        });
       }catch(e){}
     }
   }
@@ -385,7 +389,7 @@ async function fetchPrices(){
   showBuyModals();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
   const parts=[`${ok} prices`];
-  if(fhOk)parts.push(`FH✓${fhOk}`);
+  if(yfOk)parts.push(`YF✓${yfOk}`);
   if(ibkrOk)parts.push(`IBKR✓`);
   if(fxOk)parts.push(`FX✓`);
   el.textContent=`✓ ${parts.join(" · ")} — ${t}`;
@@ -751,7 +755,7 @@ function exportExcel(){
   // Sheet 3: Settings
   const stRows=[
     {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},
-    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"apiKey",value:settings.apiKey||""},{key:"finnhubKey",value:settings.finnhubKey||""},
+    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"apiKey",value:settings.apiKey||""},
     {key:"ibkrWorker",value:settings.ibkrWorker||""},{key:"ibkrTokenPersonal",value:settings.ibkrTokenPersonal||""},{key:"ibkrQueryPersonal",value:settings.ibkrQueryPersonal||""},
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
     {key:"dryPowder_personal",value:portfolios.personal?.dryPowder||0},
@@ -843,7 +847,6 @@ function handleExcelImport(e){
           if(k==="fxGBP"&&val!=null)settings.fxGBP=Number(val);
           if(k==="monthlyIncome"&&val!=null)settings.monthlyIncome=Number(val);
           if(k==="apiKey"&&val!=null)settings.apiKey=String(val);
-          if(k==="finnhubKey"&&val!=null)settings.finnhubKey=String(val);
           if(k==="dryPowder_personal"&&val!=null)portfolios.personal.dryPowder=Number(val);
           if(k==="dryPowder_nl"&&val!=null)portfolios.nl.dryPowder=Number(val);
           nSet++;
@@ -1080,7 +1083,7 @@ function renderPortfolio(c){
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"var(--green)":"var(--red)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="finnhub"?"FH ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"var(--green)":"var(--red)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
     h+=`<div class="stat-row" style="margin:8px 0">
@@ -1196,7 +1199,7 @@ function renderWatchlist(c){
     tickers.forEach(t=>{const s=stocks[t];const g=gapPct(t);const gStr=g!=null?g+"%":"—";const gCol=g!=null&&g<15?"var(--amber)":"var(--muted)";
       h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span></div>
-        <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="finnhub"?"FH ":""}${timeAgo(s.lastUpdate)}</div></div></div>
+        <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
       <div style="display:flex;gap:4px;margin-bottom:4px">`;
       [{l:"MOS",v:s.cons.mos,p:s.phil?.mos},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap},{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt}].forEach(({l,v,p})=>{
         const on=v&&s.currentPrice<=v;h+=`<div class="wl-trig"><div class="wl-trig-label">${l}</div><div class="wl-trig-val" style="color:${on?"var(--green)":"var(--muted)"}">${v?fmt(v,s.currency):"—"}</div>${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
@@ -1217,12 +1220,11 @@ function renderWatchlist(c){
 function renderSettings(c){
   const GRID=getGrid(),wl=getWatchlist();
   let h=`<div class="settings-section"><div style="font-size:16px;font-weight:700;margin-bottom:16px">Settings</div>
-    <div class="settings-card"><div class="settings-title">📡 API Keys</div>
+    <div class="settings-card"><div class="settings-title">📡 API Key</div>
       <div style="margin:4px 0"><div class="settings-desc">TwelveData (US stocks)</div>
       <input class="settings-input" id="api-key-input" type="text" placeholder="twelvedata.com key" value="${settings.apiKey||""}"></div>
-      <div style="margin:4px 0"><div class="settings-desc">Finnhub (EU/UK stocks)</div>
-      <input class="settings-input" id="finnhub-key-input" type="text" placeholder="finnhub.io key" value="${settings.finnhubKey||""}"></div>
-      <button class="settings-save" onclick="settings.apiKey=document.getElementById('api-key-input').value.trim();settings.finnhubKey=document.getElementById('finnhub-key-input').value.trim();save();render();if(settings.apiKey||settings.finnhubKey)fetchPrices();">Save</button></div>
+      <div style="font-size:9px;color:var(--muted);margin:2px 0">EU/UK prices auto-fetch via Worker (Yahoo Finance proxy)</div>
+      <button class="settings-save" onclick="settings.apiKey=document.getElementById('api-key-input').value.trim();save();render();if(settings.apiKey||settings.ibkrWorker)fetchPrices();">Save</button></div>
 
     <div class="settings-card"><div class="settings-title">🏦 IBKR Sync</div>
       <div class="settings-desc">Auto-sync positions & cash from IBKR. Each portfolio has its own account.</div>
@@ -1264,7 +1266,7 @@ function renderSettings(c){
 
     <div class="settings-card"><div class="settings-title" style="color:var(--red)">🗑 Factory Reset</div>
       <div class="settings-desc">Wipes ALL data (positions, triggers, settings, IBKR keys). After reset, re-import your CSV or Excel backup to restore.</div>
-      <button class="settings-save" style="background:#3b1111;color:var(--red)" onclick="if(confirm('⚠ Delete ALL data and reset to defaults?')&&confirm('This cannot be undone. Are you sure?')){const keep={apiKey:settings.apiKey,finnhubKey:settings.finnhubKey,ibkrWorker:settings.ibkrWorker,ibkrTokenPersonal:settings.ibkrTokenPersonal,ibkrQueryPersonal:settings.ibkrQueryPersonal,ibkrTokenNl:settings.ibkrTokenNl,ibkrQueryNl:settings.ibkrQueryNl};localStorage.clear();localStorage.setItem('r1-keep',JSON.stringify(keep));location.reload();}">Wipe & Reset</button></div>
+      <button class="settings-save" style="background:#3b1111;color:var(--red)" onclick="if(confirm('⚠ Delete ALL data and reset to defaults?')&&confirm('This cannot be undone. Are you sure?')){const keep={apiKey:settings.apiKey,ibkrWorker:settings.ibkrWorker,ibkrTokenPersonal:settings.ibkrTokenPersonal,ibkrQueryPersonal:settings.ibkrQueryPersonal,ibkrTokenNl:settings.ibkrTokenNl,ibkrQueryNl:settings.ibkrQueryNl};localStorage.clear();localStorage.setItem('r1-keep',JSON.stringify(keep));location.reload();}">Wipe & Reset</button></div>
   </div>`;c.innerHTML=h;
 }
 
@@ -1285,7 +1287,7 @@ function openEditStock(t){
   showModal(`Edit — ${t}`,[
     {id:"es-name",label:"Name",val:s.name},
     {id:"es-td",label:"TwelveData Symbol",val:s.tdSymbol},
-    {id:"es-fh",label:"Finnhub Symbol",val:s.finnhubSymbol||"",placeholder:"WKL.AS or AUTO.L"},
+    {id:"es-fh",label:"Yahoo Symbol",val:s.finnhubSymbol||"",placeholder:"WKL.AS or AUTO.L"},
     {id:"es-price",label:"Current Price",val:s.currentPrice,type:"number"},
     {id:"es-moat",label:"Moat (Wide/Narrow)",val:s.moat},
     {id:"es-gr",label:"Growth %",val:s.cons.gr,type:"number"},
@@ -1329,7 +1331,7 @@ function openAddStock(){
     {id:"ns-ccy",label:"Currency",val:"USD",select:["USD","EUR","GBp"]},
     {id:"ns-moat",label:"Moat",val:"Wide",select:["Wide","Narrow"]},
     {id:"ns-td",label:"TwelveData Symbol",val:"",placeholder:"COST or AUTO:LSE"},
-    {id:"ns-fh",label:"Finnhub Symbol",val:"",placeholder:"WKL.AS or AUTO.L"},
+    {id:"ns-fh",label:"Yahoo Symbol",val:"",placeholder:"WKL.AS or AUTO.L"},
     {id:"ns-price",label:"Current Price",val:"",type:"number"},
     "— Cash Flow Inputs —",
     {id:"ns-oe",label:"OE/share (→ Ten Cap)",val:"",type:"number"},
