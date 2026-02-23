@@ -125,7 +125,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.01</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.02</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -331,6 +331,20 @@ function save(){localStorage.setItem("r1-version",String(DATA_VERSION));localSto
 async function fetchPrices(){
   if(!settings.apiKey){document.getElementById("refresh-status").textContent="⚠ Set API key";return;}
   const el=document.getElementById("refresh-status");el.textContent="Fetching...";
+
+  // 1. IBKR auto-sync (silent — gets positions + prices for all held stocks)
+  let ibkrOk=0;
+  try{ibkrOk=await autoSyncAll();}catch(e){}
+
+  // 2. Fetch FX from ECB via frankfurter.app (free, no key)
+  let fxOk=false;
+  try{const fxR=await fetch("https://api.frankfurter.app/latest?from=EUR&to=USD,GBP");
+    const fxD=await fxR.json();
+    if(fxD.rates?.USD){settings.fxRate=parseFloat(fxD.rates.USD.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
+    if(fxD.rates?.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
+  }catch(e){}
+
+  // 3. Twelve Data for US watchlist stocks (not held in IBKR)
   const map={};Object.keys(stocks).forEach(t=>{if(stocks[t].tdSymbol)map[stocks[t].tdSymbol]=t;});
   const syms=Object.keys(map);const batches=[];for(let i=0;i<syms.length;i+=8)batches.push(syms.slice(i,i+8));
   let ok=0;
@@ -341,17 +355,14 @@ async function fetchPrices(){
       if(batches.indexOf(b)<batches.length-1)await new Promise(r=>setTimeout(r,1200));
     }catch(e){}
   }
-  // Fetch FX from ECB via frankfurter.app (free, no key)
-  let fxOk=false;
-  try{const fxR=await fetch("https://api.frankfurter.app/latest?from=EUR&to=USD,GBP");
-    const fxD=await fxR.json();
-    if(fxD.rates?.USD){settings.fxRate=parseFloat(fxD.rates.USD.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
-    if(fxD.rates?.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
-  }catch(e){}
   settings.lastFetch=Date.now();save();render();
-  showBuyModals(); // Flash buy signals if any new ones fired
+  if(!window._initialLoadDone){window._initialLoadDone=true;buyModalQueue=[];}// Suppress modals on first load
+  else showBuyModals();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
-  el.textContent=`✓ ${ok} prices${fxOk?" · FX✓":""} — ${t}`;
+  const parts=[`${ok} prices`];
+  if(ibkrOk)parts.push(`IBKR✓`);
+  if(fxOk)parts.push(`FX✓`);
+  el.textContent=`✓ ${parts.join(" · ")} — ${t}`;
 }
 
 // ============ IBKR FLEX SYNC ============
@@ -564,6 +575,87 @@ function applyIBKR(pfKey){
   ibkrStatus(`✓ Applied to ${pf.name}`,false,pfKey);
   document.getElementById("ibkr-preview-"+pfKey).innerHTML="";
   window["_ibkrData_"+pfKey]=null;
+}
+
+// ============ AUTO IBKR SYNC (silent, no preview/confirm) ============
+async function autoSyncIBKR(pfKey){
+  const w=settings.ibkrWorker;
+  const tok=pfKey==="nl"?settings.ibkrTokenNl:settings.ibkrTokenPersonal;
+  const qid=pfKey==="nl"?settings.ibkrQueryNl:settings.ibkrQueryPersonal;
+  if(!w||!tok||!qid)return false; // silently skip if not configured
+
+  try{
+    // Step 1: Request report
+    const reqResp=await fetch(`${w}/?action=request&token=${encodeURIComponent(tok)}&queryId=${encodeURIComponent(qid)}`);
+    const reqXml=await reqResp.text();
+    const refMatch=reqXml.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/);
+    if(!refMatch)return false;
+
+    // Step 2: Poll for result
+    let xml=null;
+    for(let attempt=0;attempt<8;attempt++){
+      await new Promise(r=>setTimeout(r,3000));
+      const fResp=await fetch(`${w}/?action=fetch&token=${encodeURIComponent(tok)}&referenceCode=${refMatch[1]}`);
+      const fText=await fResp.text();
+      if(fText.includes("<FlexQueryResponse")||fText.includes("<FlexStatements")){xml=fText;break;}
+      if(fText.includes("Statement generation in progress"))continue;
+      return false;
+    }
+    if(!xml)return false;
+
+    // Step 3: Parse + apply directly (no preview)
+    const parser=new DOMParser();
+    const doc=parser.parseFromString(xml,"text/xml");
+    if(doc.querySelector("parsererror"))return false;
+
+    const tickerMap={};
+    Object.keys(stocks).forEach(t=>{tickerMap[t]=t;if(stocks[t].tdSymbol){tickerMap[stocks[t].tdSymbol.split(":")[0]]=t;}});
+    const resolveT=sym=>tickerMap[sym]||tickerMap[sym.replace(/\s+/g,"")]||null;
+
+    // Parse positions
+    const pf=portfolios[pfKey];
+    doc.querySelectorAll("OpenPosition").forEach(p=>{
+      const sym=p.getAttribute("symbol");
+      const qty=parseFloat(p.getAttribute("position")||p.getAttribute("quantity")||0);
+      const cost=parseFloat(p.getAttribute("costBasisPrice")||p.getAttribute("costPrice")||0);
+      const mktVal=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
+      if(qty===0)return;
+      const t=resolveT(sym);if(!t)return;
+
+      const existing=pf.positions[t];
+      const existingShares=existing?posShares(existing):0;
+      if(existing&&Math.abs(existingShares-qty)<0.5){
+        existing.tranches.forEach(tr=>{tr.buyPrice=cost;});
+      }else{
+        const sigs=[];
+        if(stocks[t]?.signals?.mos)sigs.push("MOS");
+        if(stocks[t]?.signals?.tenCap)sigs.push("10Cap");
+        if(stocks[t]?.signals?.pbt)sigs.push("PBT");
+        if(!sigs.length)sigs.push("PBT");
+        const per=qty/sigs.length;
+        pf.positions[t]={tranches:sigs.map((sig,i)=>({signal:sig,bought:i===sigs.length-1?qty-per*(sigs.length-1):Math.floor(per*100)/100,sold:0,buyPrice:cost,state:"accumulating"}))};
+      }
+      if(mktVal&&stocks[t]){stocks[t].currentPrice=mktVal;stocks[t].lastUpdate=Date.now();stocks[t].priceSource="ibkr";updateSignals(t);}
+    });
+
+    // Parse cash
+    let cashEUR=0,cashUSD=0;
+    doc.querySelectorAll("CashReportCurrency").forEach(cn=>{const ccy=cn.getAttribute("currency"),bal=parseFloat(cn.getAttribute("endingCash")||cn.getAttribute("endingSettledCash")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
+    if(!cashEUR&&!cashUSD)doc.querySelectorAll("CashBalance").forEach(cb=>{const ccy=cb.getAttribute("currency"),bal=parseFloat(cb.getAttribute("balance")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
+    const totalCash=cashEUR+(cashUSD/settings.fxRate);
+    if(totalCash>0)pf.dryPowder=Math.round(totalCash);
+
+    return true;
+  }catch(e){return false;}
+}
+
+async function autoSyncAll(){
+  // Sync both portfolios silently, return count of successes
+  let ok=0;
+  if(await autoSyncIBKR("personal"))ok++;
+  if(await autoSyncIBKR("nl"))ok++;
+  if(ok>0){settings.lastIbkrSync=Date.now();save();render();}
+  return ok;
 }
 
 function exportCSV(){
@@ -909,7 +1001,8 @@ function render(){
   const pfLabel=currentPf==="personal"?"🧑":"🧓";
   document.getElementById("pf-total-val").textContent=pfLabel+" €"+Math.round(totalV).toLocaleString();
   const fxEl=document.getElementById("fx-display");
-  if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · ${fxAge}`;}
+  if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);const ibkrAge=settings.lastIbkrSync?timeAgo(settings.lastIbkrSync):"";
+    fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
   checkAlerts();

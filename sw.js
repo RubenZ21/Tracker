@@ -1,4 +1,4 @@
-const CACHE = 'r1-v14';
+const CACHE = 'r1-v101';
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./index.html', './manifest.json', './icon-192.png', './icon-512.png'])));
   self.skipWaiting();
