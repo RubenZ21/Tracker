@@ -125,7 +125,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.05</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.06</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -303,6 +303,10 @@ function load(){
     // Migration: add oe/fcf fields if missing
     if(s.cons&&s.cons.oe===undefined)s.cons.oe=null;
     if(s.cons&&s.cons.fcf===undefined)s.cons.fcf=null;
+  });
+  // Migration: backfill finnhubSymbol from defaults for existing stocks
+  Object.entries(STOCK_DEFAULTS).forEach(([k,def])=>{
+    if(def.finnhubSymbol&&stocks[k]&&!stocks[k].finnhubSymbol)stocks[k].finnhubSymbol=def.finnhubSymbol;
   });
   // Migration: add state to tranches if missing
   ["personal","nl"].forEach(pk=>{
