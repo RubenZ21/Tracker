@@ -125,7 +125,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.03</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.04</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -245,7 +245,7 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
   if(!s._sigChanges)s._sigChanges=[];
   ["mos","tenCap","pbt"].forEach(sig=>{
     if(prev[sig]&&!s.signals[sig])s._sigChanges.push({sig,dir:"off"});
-    else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(s.status==="grid"||s.status==="watchlist")queueBuyModal(t,sig);}
+    else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(!window._suppressBuyModal&&(s.status==="grid"||s.status==="watchlist"))queueBuyModal(t,sig);}
   });
   // Track per-tranche state machine + ATH
   ["personal","nl"].forEach(pk=>{
@@ -311,8 +311,10 @@ function load(){
       pos.tranches.forEach(tr=>{if(!tr.state)tr.state=(tr.bought-tr.sold)>0?"accumulating":"sold";});
     });
   });
-  // Recalculate all signals from current prices/triggers
+  // Recalculate all signals from current prices/triggers (suppress buy modals — these aren't new signals)
+  window._suppressBuyModal=true;
   Object.keys(stocks).forEach(t=>updateSignals(t));
+  window._suppressBuyModal=false;
   // Clean up invalid ATH values (from previous versions or manual testing)
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -358,8 +360,7 @@ async function fetchPrices(){
     }catch(e){}
   }
   settings.lastFetch=Date.now();save();render();
-  if(!window._initialLoadDone){window._initialLoadDone=true;buyModalQueue=[];}// Suppress modals on first load
-  else showBuyModals();
+  showBuyModals();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
   const parts=[`${ok} prices`];
   if(ibkrOk)parts.push(`IBKR✓`);
@@ -949,10 +950,10 @@ function checkAlerts(){
 
 // ============ BUY SIGNAL MODAL ============
 let buyModalQueue=[];
+let buyModalShown={}; // session-only: tracks signals already shown this page load
 function queueBuyModal(ticker,signal){
-  // Only queue if not already dismissed recently (1 hour cooldown per signal)
-  const k=`buymodal-${ticker}-${signal}`;
-  if(dismissedAlerts[k]&&Date.now()-dismissedAlerts[k]<3600000)return;
+  const k=`${ticker}-${signal}`;
+  if(buyModalShown[k])return; // already shown this session
   if(!buyModalQueue.find(q=>q.ticker===ticker&&q.signal===signal))
     buyModalQueue.push({ticker,signal});
 }
@@ -983,9 +984,9 @@ function showBuyModals(){
 function dismissBuyModal(){
   if(buyModalQueue.length){
     const q=buyModalQueue.shift();
-    dismissAlert(`buymodal-${q.ticker}-${q.signal}`);
+    buyModalShown[`${q.ticker}-${q.signal}`]=true; // mark shown this session
   }
-  if(buyModalQueue.length)showBuyModals(); // Show next in queue
+  if(buyModalQueue.length)showBuyModals();
   else document.getElementById("buy-modal").innerHTML="";
 }
 
