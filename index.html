@@ -128,7 +128,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.09</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.10</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -997,6 +997,8 @@ function queueBuyModal(ticker,signal){
     buyModalQueue.push({ticker,signal});
 }
 function showBuyModals(){
+  // Filter out stale signals (e.g., IBKR stale price triggered it, then API corrected)
+  buyModalQueue=buyModalQueue.filter(q=>{const s=stocks[q.ticker];return s?.signals?.[q.signal];});
   if(!buyModalQueue.length){document.getElementById("buy-modal").innerHTML="";return;}
   const q=buyModalQueue[0]; // Show one at a time
   const s=stocks[q.ticker];if(!s)return;
