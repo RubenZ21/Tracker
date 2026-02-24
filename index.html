@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0a0e17">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Rule #1 Tracker</title>
+<title>Target Tracker</title>
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -19,7 +19,7 @@
 body{font-family:var(--font);background:var(--bg);color:var(--text);max-width:960px;margin:0 auto;min-height:100vh;overflow-x:hidden}
 input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .header{padding:14px 16px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:50}
-.header-top{display:flex;justify-content:space-between;align-items:center}
+.header-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .header h1{font-size:17px;font-weight:700;letter-spacing:-0.3px}
 .header-sub{font-size:11px;color:var(--muted);margin-top:2px}
 .signal-badge{font-family:var(--mono);font-size:13px;font-weight:700;padding:4px 10px;border-radius:6px}
@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.21</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Target Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.22</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -250,6 +250,28 @@ function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/600
 function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+
+// RingMark — live signal mark SVG. Three concentric rings: outer=PBT(purple), middle=10Cap(blue), inner=MOS(green)
+function ringMark(size, pbt, tenCap, mos, uid) {
+  const s=size, cx=s/2, cy=s/2, R=s*0.44;
+  const rP=R*0.82, rT=R*0.63, rM=R*0.43;
+  const wD=R*0.042, wO=R*0.078;
+  const bl=Math.max(0.6, R*0.055);
+  const id=uid||Math.random().toString(36).slice(2,6);
+  const dim='rgba(255,255,255,0.09)';
+  const flt=(fid)=>`<filter id="${fid}" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur in="SourceGraphic" stdDeviation="${bl}" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="flex-shrink:0;vertical-align:middle">
+    <defs>
+      <radialGradient id="rb${id}" cx="38%" cy="32%"><stop offset="0%" stop-color="#141e38"/><stop offset="60%" stop-color="#0b1228"/><stop offset="100%" stop-color="#060a18"/></radialGradient>
+      ${pbt?flt('rp'+id):''}${tenCap?flt('rt'+id):''}${mos?flt('rm'+id):''}
+    </defs>
+    <circle cx="${cx}" cy="${cy}" r="${R}" fill="url(#rb${id})"/>
+    <circle cx="${cx}" cy="${cy}" r="${rP}" fill="none" stroke="${pbt?'#a78bfa':dim}" stroke-width="${pbt?wO:wD}" ${pbt?`filter="url(#rp${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
+    <circle cx="${cx}" cy="${cy}" r="${rT}" fill="none" stroke="${tenCap?'#60a5fa':dim}" stroke-width="${tenCap?wO:wD}" ${tenCap?`filter="url(#rt${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
+    <circle cx="${cx}" cy="${cy}" r="${rM}" fill="none" stroke="${mos?'#4ade80':dim}" stroke-width="${mos?wO:wD}" ${mos?`filter="url(#rm${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
+    <circle cx="${cx}" cy="${cy}" r="${R*0.985}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="${R*0.02}"/>
+  </svg>`;
+}
 function totalSignals(){return getGrid().reduce((s,t)=>s+sigCount(t),0);}
 function gridSize(){return getGrid().length*3;}
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
@@ -1052,11 +1074,17 @@ function dismissBuyModal(){
 // ============ RENDER ============
 function render(){
   const ts=totalSignals(),gs=gridSize();
-  document.getElementById("grid-count").textContent=ts;
-  document.getElementById("grid-total").textContent=gs; // FIX #1
   const b=document.getElementById("grid-badge");b.textContent=ts+"/"+gs;
+  document.getElementById("grid-count").textContent=ts;
+  document.getElementById("grid-total").textContent=gs;
   b.style.background=ts>0?"#0d3320":"#1a1a2e";
   b.style.color=ts>0?"#34d399":"var(--muted)";
+  // Header RingMark — shows which signal types are active across entire grid
+  const GRID_H=getGrid();
+  const hPbt=GRID_H.some(t=>stocks[t]?.signals?.pbt);
+  const hTc=GRID_H.some(t=>stocks[t]?.signals?.tenCap);
+  const hMos=GRID_H.some(t=>stocks[t]?.signals?.mos);
+  document.getElementById("header-ringmark").innerHTML=ringMark(36, hPbt, hTc, hMos, "hdr");
   if(settings.lastFetch){document.getElementById("refresh-status").textContent="✓ "+new Date(settings.lastFetch).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}
   // Show selected portfolio value
   const totalV=pfValueEUR(currentPf);
@@ -1123,10 +1151,10 @@ function renderPortfolio(c){
   </div>`;
 
   // Signal summary grid (compact lifecycle view)
-  h+=`<div class="signal-grid" style="margin-bottom:16px"><div class="sig-header"><div>Stock</div><div>MOS</div><div>10Cap</div><div>PBT</div><div>#</div></div>`;
+  h+=`<div class="signal-grid" style="margin-bottom:16px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   GRID.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}</div></div>`;
-    ["mos","tenCap","pbt"].forEach(key=>{
+    ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key);
       h+=`<div class="sig-cell"><div class="sig-ind ${st.cls}">${st.label}</div><div class="sig-sub ${st.subCls||""}">${st.sub}</div></div>`;
     });
@@ -1139,9 +1167,9 @@ function renderPortfolio(c){
   // Totals row
   const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k).cls==="buy").length;
   h+=`<div class="sig-total-row"><div style="font-size:12px;font-weight:700;color:var(--muted)">TOTAL</div>
-    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("mos")}/${GRID.length}</div>
-    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("tenCap")}/${GRID.length}</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("pbt")}/${GRID.length}</div>
+    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("tenCap")}/${GRID.length}</div>
+    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("mos")}/${GRID.length}</div>
     <div style="text-align:center;font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${ts}/${gs}</div></div></div>`;
 
   // Per-stock unified cards
@@ -1159,7 +1187,7 @@ function renderPortfolio(c){
       s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${ringMark(44, s.signals?.pbt, s.signals?.tenCap, s.signals?.mos, 'c'+ticker)}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"#60a5fa":"var(--green)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
@@ -1239,7 +1267,7 @@ function renderPortfolio(c){
     const sig=sigCount(ticker);
     const badge=`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`;
     h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
-      <div class="pos-header"><div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${ringMark(44, s.signals?.pbt, s.signals?.tenCap, s.signals?.mos, 'g'+ticker)}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
       <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
       <div class="btn-row">

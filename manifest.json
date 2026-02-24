@@ -1,6 +1,6 @@
 {
-  "name": "Rule #1 Tracker",
-  "short_name": "R1 Tracker",
+  "name": "Target Tracker",
+  "short_name": "Target",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0a0e17",
