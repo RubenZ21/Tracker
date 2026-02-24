@@ -42,11 +42,21 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .btn-row{display:flex;gap:6px;margin-top:8px}
 .btn-sm{padding:6px 10px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-family:var(--font);color:var(--muted);text-align:center}
 .btn-sm:active{opacity:.6}.btn-accent{color:var(--accent)}.btn-red{color:var(--red);border-color:#3b1111}
-.signal-grid{background:var(--card);border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:16px}
-.sig-header,.sig-row,.sig-total-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 50px;padding:10px 12px}
-.sig-header{border-bottom:1px solid var(--border)}.sig-header div{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.sig-row{border-bottom:1px solid var(--bg);align-items:center}.sig-total-row{background:#0d1117}
-.sig-dot{font-size:16px;text-align:center}.sig-price{font-size:9px;color:var(--muted);font-family:var(--mono);text-align:center}
+.signal-grid{background:var(--card);border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:16px;max-width:640px}
+.sig-header,.sig-row,.sig-total-row{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 56px;padding:10px 12px;align-items:center}
+.sig-header{border-bottom:1px solid var(--border)}.sig-header div{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center}.sig-header div:first-child{text-align:left}
+.sig-row{border-bottom:1px solid var(--bg)}.sig-total-row{background:#0d1117}
+.sig-cell{text-align:center}
+.sig-ind{width:18px;height:18px;border-radius:50%;margin:0 auto 2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000}
+.sig-ind.buy{background:#34d399;box-shadow:0 0 8px #34d39950}
+.sig-ind.hold{background:transparent;border:2px solid #555;color:#888}
+.sig-ind.track{background:#60a5fa;box-shadow:0 0 8px #60a5fa50}
+.sig-ind.warn{background:#fbbf24;box-shadow:0 0 8px #fbbf2450}
+.sig-ind.sell{background:#f87171;box-shadow:0 0 8px #f8717150;animation:sigPulse 1.5s ease-in-out infinite}
+.sig-ind.none{background:transparent;border:2px solid #333}
+@keyframes sigPulse{0%,100%{box-shadow:0 0 8px #f8717150}50%{box-shadow:0 0 16px #f87171aa}}
+.sig-sub{font-size:8px;color:var(--muted);font-family:var(--mono);text-align:center;line-height:1.2}
+.sig-sub.buy-sub{color:#34d399}.sig-sub.track-sub{color:#60a5fa}.sig-sub.warn-sub{color:#fbbf24}.sig-sub.sell-sub{color:#f87171}
 .sell-card{background:var(--card);border-radius:8px;padding:12px;margin-bottom:8px}
 .wl-card{background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--border)}
 .wl-trig{flex:1;background:var(--bg);border-radius:4px;padding:4px;text-align:center}
@@ -85,7 +95,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 @media(min-width:580px){
   .header{padding:16px 24px 12px}.section-pad{padding:16px 24px}.pf-toggle{margin:16px 24px 0}
   .pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .sig-header,.sig-row,.sig-total-row{grid-template-columns:1.4fr 1fr 1fr 1fr 60px;padding:12px 16px}
+  .sig-header,.sig-row,.sig-total-row{grid-template-columns:1.4fr 1fr 1fr 1fr 64px;padding:12px 16px}
   .wl-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .alloc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .modal-sheet{max-width:500px;border-radius:16px;margin:auto}.modal-overlay{align-items:center}
@@ -98,7 +108,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .alert-item.info{background:linear-gradient(135deg,#0d1a3340,#0d1a3380);border:1px solid #60a5fa40}
 .alert-item.critical{background:linear-gradient(135deg,#33000040,#33000080);border:1px solid #ef444480;animation:alertSlide .3s ease-out,alertPulse 2s ease-in-out infinite}
 .alert-item.watchlist-buy{background:linear-gradient(135deg,#1a330d40,#1a330d80);border:2px solid #34d399;animation:alertSlide .3s ease-out,alertPulse 2s ease-in-out infinite;font-size:14px}
-.nav-badge{position:absolute;top:2px;right:2px;min-width:16px;height:16px;border-radius:8px;background:#34d399;color:#000;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;animation:navBadgePulse 2s ease-in-out infinite}
+.nav-badge{position:absolute;top:0;right:50%;transform:translateX(20px);min-width:16px;height:16px;border-radius:8px;background:#34d399;color:#000;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;animation:navBadgePulse 2s ease-in-out infinite}
 @keyframes navBadgePulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.2);opacity:.8}}
 @keyframes alertPulse{0%,100%{opacity:1}50%{opacity:.7}}
 .alert-icon{font-size:20px;flex-shrink:0}
@@ -128,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.10</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.17</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -227,6 +237,8 @@ const PF_DEFAULTS={
 
 let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncome:9900,lastFetch:null,fetchInterval:1800000};
 let currentTab="portfolio",currentPf="personal",sellPf="personal";
+let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
+function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
 const DATA_VERSION=8;
 
 function getGrid(){return Object.keys(stocks).filter(t=>stocks[t].status==="grid");}
@@ -1046,7 +1058,7 @@ function render(){
   // Show selected portfolio value
   const totalV=pfValueEUR(currentPf);
   const pfLabel=currentPf==="personal"?"🧑":"🧓";
-  document.getElementById("pf-total-val").textContent=pfLabel+" €"+Math.round(totalV).toLocaleString();
+  document.getElementById("pf-total-val").innerHTML=hideValues?`<span onclick="toggleValues()" style="cursor:pointer;opacity:0.25;font-size:9px">👁</span>`:`${pfLabel} €${Math.round(totalV).toLocaleString()} <span onclick="toggleValues()" style="cursor:pointer;opacity:0.2;font-size:9px">👁</span>`;
   const fxEl=document.getElementById("fx-display");
   if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);const ibkrAge=settings.lastIbkrSync?timeAgo(settings.lastIbkrSync):"";
     fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
@@ -1059,6 +1071,41 @@ function render(){
 }
 function switchTab(t){currentTab=t;render();window.scrollTo(0,0);}
 
+// ============ SIGNAL CELL STATUS (lifecycle: buy → hold → tracking → sell) ============
+function sigCellStatus(ticker, sigKey){
+  // sigKey: "mos", "tenCap", "pbt"
+  const s=stocks[ticker];if(!s)return{cls:"none",label:"",sub:""};
+  const p=s.currentPrice;
+  const trigger=s.cons?.[sigKey];
+  if(!trigger||!p)return{cls:"none",label:"",sub:fmt(trigger,s.currency)||"—"};
+  // Sticker for this tranche = buy trigger × 2 (where trailing stop activates)
+  const sticker=trigger*2;
+  // BUY: signal firing — always show regardless of shares
+  if(p<=trigger)return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub"};
+  // Above trigger: check if tranche has shares
+  const sigName=sigKey==="mos"?"MOS":sigKey==="tenCap"?"10Cap":"PBT";
+  let hasShares=false,worst="hold",maxDD=0;
+  ["personal","nl"].forEach(pk=>{
+    const pos=portfolios[pk]?.positions?.[ticker];if(!pos)return;
+    pos.tranches.forEach(tr=>{
+      if(tr.signal!==sigName||(tr.bought-tr.sold)<=0)return;
+      hasShares=true;
+      if(tr.state==="stopped"){worst="sell";if(tr.ath){const dd=(tr.ath-p)/tr.ath*100;if(dd>maxDD)maxDD=dd;}}
+      else if(tr.state==="stopActive"&&worst!=="sell"){worst="track";if(tr.ath){const dd=(tr.ath-p)/tr.ath*100;if(dd>maxDD)maxDD=dd;}}
+    });
+  });
+  // No shares in this tranche type → show buy trigger as reference
+  if(!hasShares)return{cls:"none",label:"",sub:fmt(trigger,s.currency),subCls:""};
+  // Has shares — show lifecycle state
+  if(worst==="sell")return{cls:"sell",label:"S",sub:`−${Math.round(maxDD)}%`,subCls:"sell-sub"};
+  if(worst==="track"){
+    const cls=maxDD>=15?"warn":"track";
+    return{cls,label:cls==="warn"?"!":"↑",sub:`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
+  }
+  // HOLD: show sticker price (where trailing stop activates)
+  return{cls:"hold",label:"H",sub:`stk ${fmt(sticker,s.currency)}`,subCls:""};
+}
+
 // ============ PORTFOLIO (UNIFIED — B) ============
 function renderPortfolio(c){
   const pf=portfolios[currentPf];const val=pfValueEUR(currentPf);
@@ -1069,20 +1116,29 @@ function renderPortfolio(c){
   </div><div class="section-pad">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <span style="font-size:11px;color:var(--muted);background:var(--card);padding:3px 8px;border-radius:4px">${pf.type==="closed"?"Closed":"Rolling €"+settings.monthlyIncome.toLocaleString()+"/mo"}</span>
-    <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${Math.round(val).toLocaleString()}</span>
+    <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":"€"+Math.round(val).toLocaleString()} <span style="opacity:0.2;font-size:9px">👁</span></span>
   </div>`;
 
-  // Signal summary grid (compact)
+  // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:16px"><div class="sig-header"><div>Stock</div><div>MOS</div><div>10Cap</div><div>PBT</div><div>#</div></div>`;
   GRID.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.5"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}</div></div>`;
-    [{on:s.signals.mos,p:s.cons.mos},{on:s.signals.tenCap,p:s.cons.tenCap},{on:s.signals.pbt,p:s.cons.pbt}].forEach(({on,p})=>{
-      h+=`<div><div class="sig-dot">${on?"🟢":"⚫"}</div><div class="sig-price">${fmt(p,s.currency)}</div></div>`;});
-    h+=`<div style="text-align:center;font-size:14px;font-weight:700;font-family:var(--mono);color:${sig===3?"var(--green)":sig?"var(--accent)":"var(--muted)"}">${sig}/3</div></div>`;});
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}</div></div>`;
+    ["mos","tenCap","pbt"].forEach(key=>{
+      const st=sigCellStatus(t,key);
+      h+=`<div class="sig-cell"><div class="sig-ind ${st.cls}">${st.label}</div><div class="sig-sub ${st.subCls||""}">${st.sub}</div></div>`;
+    });
+    // Status column: overall stock status
+    const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="sell");
+    const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="warn");
+    const statusCol=hasSell?"var(--red)":sig===3?"var(--green)":sig?"var(--accent)":hasWarn?"var(--amber)":"var(--muted)";
+    const statusTxt=hasSell?"SELL":sig?`${sig}/3`:"0/3";
+    h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
+  // Totals row
+  const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k).cls==="buy").length;
   h+=`<div class="sig-total-row"><div style="font-size:12px;font-weight:700;color:var(--muted)">TOTAL</div>
-    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${GRID.filter(t=>stocks[t].signals.mos).length}/${GRID.length}</div>
-    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${GRID.filter(t=>stocks[t].signals.tenCap).length}/${GRID.length}</div>
-    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${GRID.filter(t=>stocks[t].signals.pbt).length}/${GRID.length}</div>
+    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("mos")}/${GRID.length}</div>
+    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("tenCap")}/${GRID.length}</div>
+    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("pbt")}/${GRID.length}</div>
     <div style="text-align:center;font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${ts}/${gs}</div></div></div>`;
 
   // Per-stock unified cards
@@ -1101,13 +1157,13 @@ function renderPortfolio(c){
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"var(--green)":"var(--red)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${hideValues?"":`<div class="pos-pnl" style="color:${pnl>=0?"var(--green)":"var(--red)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
     h+=`<div class="stat-row" style="margin:8px 0">
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
       <div class="stat-box"><div class="stat-label">Avg</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}</div></div>
-      <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${fmt(Math.round(posVal),s.currency)}</div></div></div>`;
+      <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(Math.round(posVal),s.currency)}</div></div></div>`;
 
     // Tranche rows with sell stickers inline
     const active=pos.tranches.filter(t=>(t.bought-t.sold)>0);
@@ -1191,7 +1247,7 @@ function renderPortfolio(c){
   });
 
   h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button>
-  <div style="margin-top:8px;font-size:10px;color:var(--muted);text-align:center">DP: €${pf.dryPowder.toLocaleString()}</div></div>`;
+  <div style="margin-top:8px;font-size:10px;color:var(--muted);text-align:center">DP: ${hideValues?"•••":"€"+pf.dryPowder.toLocaleString()}</div></div>`;
   c.innerHTML=h;
 }
 
