@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.19</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.20</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1065,7 +1065,7 @@ function render(){
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
   // Update watchlist nav badge — count watchlist stocks with any buy signal firing
-  const wlFiring=getWatchlist().filter(t=>{const s=stocks[t];return s?.currentPrice&&s.gate!==false&&(s.signals?.mos||s.signals?.tenCap||s.signals?.pbt);}).length;
+  const wlFiring=getWatchlist().reduce((n,t)=>{const s=stocks[t];if(!s?.currentPrice||s.gate===false)return n;return n+(s.signals?.mos?1:0)+(s.signals?.tenCap?1:0)+(s.signals?.pbt?1:0);},0);
   const wb=document.getElementById("watch-badge");if(wb){if(wlFiring>0){wb.textContent=wlFiring;wb.style.display="flex";}else{wb.style.display="none";}}
   checkAlerts();
 }
