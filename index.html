@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.17</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.19</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -247,7 +247,7 @@ function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
 function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t=>(t.bought-t.sold)>0).length;}
 function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/60000),h=Math.floor(d/3600000),dy=Math.floor(d/86400000);if(m<1)return"just now";if(m<60)return m+"m ago";if(h<24)return h+"h ago";return dy+"d ago";}
-function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{maximumFractionDigits:n>=100?0:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";return"$"+n.toLocaleString("en",{maximumFractionDigits:n>=100?0:2});}
+function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 function totalSignals(){return getGrid().reduce((s,t)=>s+sigCount(t),0);}
@@ -1052,8 +1052,8 @@ function render(){
   document.getElementById("grid-count").textContent=ts;
   document.getElementById("grid-total").textContent=gs; // FIX #1
   const b=document.getElementById("grid-badge");b.textContent=ts+"/"+gs;
-  b.style.background=ts>=gs*.66?"#0d3320":ts>=gs*.33?"#332d0d":"#331a0d";
-  b.style.color=ts>=gs*.66?"#34d399":ts>=gs*.33?"#fbbf24":"#f87171";
+  b.style.background=ts>0?"#0d3320":"#1a1a2e";
+  b.style.color=ts>0?"#34d399":"var(--muted)";
   if(settings.lastFetch){document.getElementById("refresh-status").textContent="✓ "+new Date(settings.lastFetch).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}
   // Show selected portfolio value
   const totalV=pfValueEUR(currentPf);
@@ -1157,7 +1157,7 @@ function renderPortfolio(c){
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${hideValues?"":`<div class="pos-pnl" style="color:${pnl>=0?"var(--green)":"var(--red)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"#60a5fa":"var(--green)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
     h+=`<div class="stat-row" style="margin:8px 0">
