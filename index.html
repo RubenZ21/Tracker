@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Target Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.22</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Target Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.23</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -252,25 +252,68 @@ function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.to
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 
 // RingMark — live signal mark SVG. Three concentric rings: outer=PBT(purple), middle=10Cap(blue), inner=MOS(green)
-function ringMark(size, pbt, tenCap, mos, uid) {
+// Each ring state: "buy"=full glow, "hold"=dim signal color, "track"=bright, "warn"=amber, "sell"=red, false/""=dormant
+function ringMark(size, pbtState, tcState, mosState, uid) {
   const s=size, cx=s/2, cy=s/2, R=s*0.44;
   const rP=R*0.82, rT=R*0.63, rM=R*0.43;
   const wD=R*0.042, wO=R*0.078;
   const bl=Math.max(0.6, R*0.055);
   const id=uid||Math.random().toString(36).slice(2,6);
   const dim='rgba(255,255,255,0.09)';
-  const flt=(fid)=>`<filter id="${fid}" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur in="SourceGraphic" stdDeviation="${bl}" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  const sigCols={pbt:'#a78bfa',tc:'#60a5fa',mos:'#4ade80'};
+  // Resolve state → stroke color, width, whether glow filter needed
+  function resolve(state, sigKey) {
+    const col=sigCols[sigKey];
+    if(state===true||state==="buy") return {stroke:col, w:wO, glow:true};
+    if(state==="hold") return {stroke:col+'60', w:wO*0.7, glow:false};  // 38% opacity signal color
+    if(state==="track") return {stroke:col, w:wO*0.85, glow:true};
+    if(state==="warn") return {stroke:'#fbbf24', w:wO, glow:true};
+    if(state==="sell") return {stroke:'#f87171', w:wO, glow:true};
+    return {stroke:dim, w:wD, glow:false};
+  }
+  const rPbt=resolve(pbtState,'pbt'), rTc=resolve(tcState,'tc'), rMos=resolve(mosState,'mos');
+  const flt=(fid,col)=>`<filter id="${fid}" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur in="SourceGraphic" stdDeviation="${bl}" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  const needP=rPbt.glow, needT=rTc.glow, needM=rMos.glow;
   return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="flex-shrink:0;vertical-align:middle">
     <defs>
       <radialGradient id="rb${id}" cx="38%" cy="32%"><stop offset="0%" stop-color="#141e38"/><stop offset="60%" stop-color="#0b1228"/><stop offset="100%" stop-color="#060a18"/></radialGradient>
-      ${pbt?flt('rp'+id):''}${tenCap?flt('rt'+id):''}${mos?flt('rm'+id):''}
+      ${needP?flt('rp'+id):''}${needT?flt('rt'+id):''}${needM?flt('rm'+id):''}
     </defs>
     <circle cx="${cx}" cy="${cy}" r="${R}" fill="url(#rb${id})"/>
-    <circle cx="${cx}" cy="${cy}" r="${rP}" fill="none" stroke="${pbt?'#a78bfa':dim}" stroke-width="${pbt?wO:wD}" ${pbt?`filter="url(#rp${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
-    <circle cx="${cx}" cy="${cy}" r="${rT}" fill="none" stroke="${tenCap?'#60a5fa':dim}" stroke-width="${tenCap?wO:wD}" ${tenCap?`filter="url(#rt${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
-    <circle cx="${cx}" cy="${cy}" r="${rM}" fill="none" stroke="${mos?'#4ade80':dim}" stroke-width="${mos?wO:wD}" ${mos?`filter="url(#rm${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
+    <circle cx="${cx}" cy="${cy}" r="${rP}" fill="none" stroke="${rPbt.stroke}" stroke-width="${rPbt.w}" ${needP?`filter="url(#rp${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
+    <circle cx="${cx}" cy="${cy}" r="${rT}" fill="none" stroke="${rTc.stroke}" stroke-width="${rTc.w}" ${needT?`filter="url(#rt${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
+    <circle cx="${cx}" cy="${cy}" r="${rM}" fill="none" stroke="${rMos.stroke}" stroke-width="${rMos.w}" ${needM?`filter="url(#rm${id})"`:''} style="transition:stroke .5s,stroke-width .5s"/>
     <circle cx="${cx}" cy="${cy}" r="${R*0.985}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="${R*0.02}"/>
   </svg>`;
+}
+
+// Determine ring state for a stock card — checks both buy signals and tranche lifecycle
+function ringState(ticker, pfKey) {
+  const s=stocks[ticker]; if(!s) return {pbt:false,tc:false,mos:false};
+  const pos=portfolios[pfKey]?.positions?.[ticker];
+  const result={pbt:false,tc:false,mos:false};
+  // Map signal names to ring keys
+  const keyMap={PBT:'pbt','10Cap':'tc',MOS:'mos'};
+  const sigMap={pbt:'pbt',tenCap:'tc',mos:'mos'};
+  // First: check buy signals (highest priority — overrides tranche state)
+  if(s.signals?.pbt) result.pbt="buy";
+  if(s.signals?.tenCap) result.tc="buy";
+  if(s.signals?.mos) result.mos="buy";
+  // Then: check tranche lifecycle for non-buy rings
+  if(pos){
+    pos.tranches.forEach(tr=>{
+      if((tr.bought-tr.sold)<=0) return;
+      const rk=keyMap[tr.signal]; if(!rk||result[rk]==="buy") return;
+      const state=tr.state||"accumulating";
+      if(state==="stopped") result[rk]="sell";
+      else if(state==="stopActive"){
+        const ath=tr.ath, cp=s.currentPrice;
+        const dd=ath&&cp?((ath-cp)/ath*100):0;
+        result[rk]=dd>=15?"warn":"track";
+      } else result[rk]="hold"; // accumulating or waiting
+    });
+  }
+  return result;
 }
 function totalSignals(){return getGrid().reduce((s,t)=>s+sigCount(t),0);}
 function gridSize(){return getGrid().length*3;}
@@ -1156,7 +1199,17 @@ function renderPortfolio(c){
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key);
-      h+=`<div class="sig-cell"><div class="sig-ind ${st.cls}">${st.label}</div><div class="sig-sub ${st.subCls||""}">${st.sub}</div></div>`;
+      const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
+      // Override circle colors per signal: buy/hold/track use signal color, sell/warn stay as-is
+      let indStyle="";
+      if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
+      else if(st.cls==="hold")indStyle=`background:transparent;border:2px solid ${sigCol}60;color:${sigCol}90`;
+      else if(st.cls==="track")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
+      else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
+      // sell and warn keep their CSS class colors (red/amber)
+      const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
+      const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:"";
+      h+=`<div class="sig-cell"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
     // Status column: overall stock status
     const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="sell");
@@ -1187,7 +1240,7 @@ function renderPortfolio(c){
       s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${ringMark(44, s.signals?.pbt, s.signals?.tenCap, s.signals?.mos, 'c'+ticker)}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"#60a5fa":"var(--green)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
@@ -1196,8 +1249,9 @@ function renderPortfolio(c){
       <div class="stat-box"><div class="stat-label">Avg</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}</div></div>
       <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(Math.round(posVal),s.currency)}</div></div></div>`;
 
-    // Tranche rows with sell stickers inline
-    const active=pos.tranches.filter(t=>(t.bought-t.sold)>0);
+    // Tranche rows with sell stickers inline — sorted PBT → 10Cap → MOS
+    const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
+    const active=pos.tranches.filter(t=>(t.bought-t.sold)>0).sort((a,b)=>(sigOrder[a.signal]??9)-(sigOrder[b.signal]??9));
     active.forEach((tr,i)=>{
       const origIdx=pos.tranches.indexOf(tr);
       const sh=tr.bought-tr.sold;const col=SC[tr.signal]||"var(--muted)";
@@ -1267,7 +1321,7 @@ function renderPortfolio(c){
     const sig=sigCount(ticker);
     const badge=`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`;
     h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${ringMark(44, s.signals?.pbt, s.signals?.tenCap, s.signals?.mos, 'g'+ticker)}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
       <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
       <div class="btn-row">
