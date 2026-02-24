@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.20</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.21</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -307,7 +307,10 @@ function load(){
     stocks=ss?JSON.parse(ss):JSON.parse(JSON.stringify(STOCK_DEFAULTS));
     portfolios=ps?JSON.parse(ps):JSON.parse(JSON.stringify(PF_DEFAULTS));
     if(st)settings={...settings,...JSON.parse(st)};
-    Object.keys(STOCK_DEFAULTS).forEach(k=>{if(!stocks[k])stocks[k]=JSON.parse(JSON.stringify(STOCK_DEFAULTS[k]));});
+    Object.keys(STOCK_DEFAULTS).forEach(k=>{
+      const deleted=JSON.parse(localStorage.getItem("r1-deleted")||"[]");
+      if(!stocks[k]&&!deleted.includes(k))stocks[k]=JSON.parse(JSON.stringify(STOCK_DEFAULTS[k]));
+    });
   }catch(e){stocks=JSON.parse(JSON.stringify(STOCK_DEFAULTS));portfolios=JSON.parse(JSON.stringify(PF_DEFAULTS));}
   // Restore API/IBKR credentials preserved through wipe
   try{const kept=localStorage.getItem("r1-keep");if(kept){const k=JSON.parse(kept);Object.assign(settings,k);localStorage.removeItem("r1-keep");}}catch(e){}
@@ -1378,7 +1381,9 @@ function demoteFromGrid(t){
   ["personal","nl"].forEach(pk=>{if(portfolios[pk]?.positions?.[t])delete portfolios[pk].positions[t];});
   save();render();
 }
-function removeStock(t){if(!confirm(`Delete ${t} everywhere?`))return;delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]&&portfolios[p].positions)delete portfolios[p].positions[t];});save();render();}
+function removeStock(t){if(!confirm(`Delete ${t} everywhere?`))return;delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]&&portfolios[p].positions)delete portfolios[p].positions[t];});
+  const deleted=JSON.parse(localStorage.getItem("r1-deleted")||"[]");if(!deleted.includes(t))deleted.push(t);localStorage.setItem("r1-deleted",JSON.stringify(deleted));
+  save();render();}
 function removePosition(pk,t){if(!confirm(`Remove ${t} from ${portfolios[pk].name}?`))return;delete portfolios[pk].positions[t];save();render();}
 
 // FIX #3+#4: Universal stock edit modal — triggers + metadata + 4M gate
