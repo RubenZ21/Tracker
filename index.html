@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0a0e17">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Target Tracker</title>
+<title>Triple Trigger Tracker</title>
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Target Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.23</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.25</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1189,8 +1189,11 @@ function renderPortfolio(c){
     <button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';render()">🧓 Caca</button>
   </div><div class="section-pad">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <span style="font-size:11px;color:var(--muted);background:var(--card);padding:3px 8px;border-radius:4px">${pf.type==="closed"?"Closed":"Rolling €"+settings.monthlyIncome.toLocaleString()+"/mo"}</span>
-    <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":"€"+Math.round(val).toLocaleString()} <span style="opacity:0.2;font-size:9px">👁</span></span>
+    <span style="font-size:11px;color:var(--muted);background:var(--card);padding:3px 8px;border-radius:4px;${hideValues?"visibility:hidden":""}">
+${pf.type==="closed"?"Closed":"Rolling €"+settings.monthlyIncome.toLocaleString()+"/mo"}</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":"€"+Math.round(val).toLocaleString()} <span style="opacity:0.2;font-size:9px">👁</span></span>
+    </div>
   </div>`;
 
   // Signal summary grid (compact lifecycle view)
