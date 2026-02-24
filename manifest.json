@@ -1,6 +1,6 @@
 {
   "name": "Target Tracker",
-  "short_name": "Target",
+  "short_name": "Target Tracker",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0a0e17",
