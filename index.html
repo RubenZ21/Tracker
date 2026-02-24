@@ -128,7 +128,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.08</span></div></div>
+    <div><h1>Rule #1 Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.09</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1171,6 +1171,23 @@ function renderPortfolio(c){
     </div></div>`;
   });
 
+  // Ghost cards for grid stocks NOT in this portfolio (0 shares)
+  GRID.forEach(ticker=>{
+    if(pf.positions[ticker])return; // already rendered above
+    const s=stocks[ticker];if(!s)return;
+    const sig=sigCount(ticker);
+    const badge=`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`;
+    h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
+      <div class="pos-header"><div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div>
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
+      <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
+      <div class="btn-row">
+        <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
+        <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
+        <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:var(--amber)" onclick="demoteFromGrid('${ticker}')">→ Watch</button>
+      </div></div>`;
+  });
+
   h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button>
   <div style="margin-top:8px;font-size:10px;color:var(--muted);text-align:center">DP: €${pf.dryPowder.toLocaleString()}</div></div>`;
   c.innerHTML=h;
@@ -1290,10 +1307,19 @@ function renderSettings(c){
 function promoteToGrid(t){
   const s=stocks[t];s.status="grid";
   updateSignals(t);save();
-  currentTab="signals";render();
+  currentTab="portfolio";render();
   window.scrollTo(0,0);
 }
-function demoteFromGrid(t){if(!confirm(`Move ${t} to watchlist?`))return;stocks[t].status="watchlist";save();render();}
+function demoteFromGrid(t){
+  // Check if any portfolio has shares
+  const hasShares=["personal","nl"].some(pk=>{const pos=portfolios[pk]?.positions?.[t];return pos&&pos.tranches.some(tr=>(tr.bought-tr.sold)>0);});
+  if(hasShares){alert(`${t} has shares — sell all positions first before moving to watchlist.`);return;}
+  if(!confirm(`Move ${t} to watchlist?`))return;
+  stocks[t].status="watchlist";
+  // Clean up empty position entries
+  ["personal","nl"].forEach(pk=>{if(portfolios[pk]?.positions?.[t])delete portfolios[pk].positions[t];});
+  save();render();
+}
 function removeStock(t){if(!confirm(`Delete ${t} everywhere?`))return;delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]&&portfolios[p].positions)delete portfolios[p].positions[t];});save();render();}
 function removePosition(pk,t){if(!confirm(`Remove ${t} from ${portfolios[pk].name}?`))return;delete portfolios[pk].positions[t];save();render();}
 
