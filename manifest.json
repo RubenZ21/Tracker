@@ -1,6 +1,6 @@
 {
-  "name": "Target Tracker",
-  "short_name": "Target Tracker",
+  "name": "Triple Trigger Tracker",
+  "short_name": "Triple Trigger",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0a0e17",
