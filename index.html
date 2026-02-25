@@ -49,7 +49,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .sig-cell{text-align:center}
 .sig-ind{width:18px;height:18px;border-radius:50%;margin:0 auto 2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000}
 .sig-ind.buy{background:#34d399;box-shadow:0 0 8px #34d39950}
-.sig-ind.hold{background:transparent;border:2px solid #555;color:#888;border-radius:9px;width:auto;min-width:18px;padding:0 4px;font-size:8px}
+.sig-ind.hold{background:transparent;border:none;color:#888;font-size:10px;letter-spacing:-0.3px}
 .sig-ind.track{background:#60a5fa;box-shadow:0 0 8px #60a5fa50}
 .sig-ind.warn{background:#fbbf24;box-shadow:0 0 8px #fbbf2450}
 .sig-ind.sell{background:#f87171;box-shadow:0 0 8px #f8717150;animation:sigPulse 1.5s ease-in-out infinite}
@@ -1207,7 +1207,7 @@ ${pf.type==="closed"?"Closed":"Rolling €"+settings.monthlyIncome.toLocaleStrin
       // Override circle colors per signal: buy/hold/track use signal color, sell/warn stay as-is
       let indStyle="";
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
-      else if(st.cls==="hold")indStyle=`background:transparent;border:2px solid ${sigCol}60;color:${sigCol}90`;
+      else if(st.cls==="hold")indStyle=`background:transparent;border:none;color:${sigCol}90`;
       else if(st.cls==="track")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       // sell and warn keep their CSS class colors (red/amber)
