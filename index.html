@@ -49,7 +49,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .sig-cell{text-align:center}
 .sig-ind{width:18px;height:18px;border-radius:50%;margin:0 auto 2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000}
 .sig-ind.buy{background:#34d399;box-shadow:0 0 8px #34d39950}
-.sig-ind.hold{background:transparent;border:2px solid #555;color:#888}
+.sig-ind.hold{background:transparent;border:2px solid #555;color:#888;border-radius:9px;width:auto;min-width:18px;padding:0 4px;font-size:8px}
 .sig-ind.track{background:#60a5fa;box-shadow:0 0 8px #60a5fa50}
 .sig-ind.warn{background:#fbbf24;box-shadow:0 0 8px #fbbf2450}
 .sig-ind.sell{background:#f87171;box-shadow:0 0 8px #f8717150;animation:sigPulse 1.5s ease-in-out infinite}
@@ -1176,8 +1176,9 @@ function sigCellStatus(ticker, sigKey){
     const cls=maxDD>=15?"warn":"track";
     return{cls,label:cls==="warn"?"!":"↑",sub:`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
   }
-  // HOLD: show sticker price ABOVE circle (sell target), trigger price below
-  return{cls:"hold",label:"H",topSub:`stk ${fmt(sticker,s.currency)}`,sub:fmt(trigger,s.currency),subCls:""};
+  // HOLD: circle shows current price, sticker above, trigger below
+  const sym=s.currency==="USD"?"$":s.currency==="GBP"?"£":"€";
+  return{cls:"hold",label:`${sym}${Math.round(p)}`,topSub:`stk ${fmt(sticker,s.currency)}`,sub:fmt(trigger,s.currency),subCls:""};
 }
 
 // ============ PORTFOLIO (UNIFIED — B) ============
