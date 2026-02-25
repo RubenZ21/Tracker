@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.25</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.26</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1176,8 +1176,8 @@ function sigCellStatus(ticker, sigKey){
     const cls=maxDD>=15?"warn":"track";
     return{cls,label:cls==="warn"?"!":"↑",sub:`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
   }
-  // HOLD: show sticker price (where trailing stop activates)
-  return{cls:"hold",label:"H",sub:`stk ${fmt(sticker,s.currency)}`,subCls:""};
+  // HOLD: show sticker price ABOVE circle (sell target), trigger price below
+  return{cls:"hold",label:"H",topSub:`stk ${fmt(sticker,s.currency)}`,sub:fmt(trigger,s.currency),subCls:""};
 }
 
 // ============ PORTFOLIO (UNIFIED — B) ============
@@ -1212,7 +1212,7 @@ ${pf.type==="closed"?"Closed":"Rolling €"+settings.monthlyIncome.toLocaleStrin
       // sell and warn keep their CSS class colors (red/amber)
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
       const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:"";
-      h+=`<div class="sig-cell"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
+      h+=`<div class="sig-cell">${st.topSub?`<div class="sig-sub" style="color:${sigCol}60;font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
     // Status column: overall stock status
     const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="sell");
