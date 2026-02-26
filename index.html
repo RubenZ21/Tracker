@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.27</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.28</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -782,9 +782,28 @@ function handleCSVImport(e){
   const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=function(ev){
     const lines=ev.target.result.split("\n").filter(l=>l.trim());if(lines.length<2)return alert("Empty CSV");
-    const hdr=lines[0].split(",").map(h=>h.trim().toLowerCase());let n=0;
+    const hdr=lines[0].split(",").map(h=>h.trim().toLowerCase());let nUpd=0,nNew=0;
     for(let i=1;i<lines.length;i++){const v=lines[i].split(",").map(x=>x.trim());const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
-      const t=(row.ticker||"").toUpperCase();if(!t||!stocks[t])continue;const s=stocks[t];
+      const t=(row.ticker||"").toUpperCase();if(!t)continue;
+      // Auto-create stock if ticker doesn't exist yet
+      if(!stocks[t]){
+        // Infer currency from well-known GBp and EUR tickers, default USD
+        const gbpTickers=["AUTO","RMV","REL","ITRK","LSEG","SGE","HLMA","EXPN","BNZL"];
+        const eurTickers=["WKL","ASML","SAP"];
+        let ccy="USD",flag="🇺🇸",td=t,fh=undefined;
+        if(gbpTickers.includes(t)){ccy="GBp";flag="🇬🇧";td=t+":LSE";fh=t+".L";}
+        else if(eurTickers.includes(t)){ccy="EUR";flag="🇪🇺";
+          if(t==="WKL"){td="WKL:AMS";fh="WKL.AS";}
+          else if(t==="ASML"){td="ASML:AMS";fh="ASML.AS";}
+          else if(t==="SAP"){td="SAP:XETR";fh="SAP.DE";}
+          else{td=t;}}
+        stocks[t]={name:t,currency:ccy,moat:"Wide",sector:"",flag,
+          status:"watchlist",tdSymbol:td,finnhubSymbol:fh,priceMult:1,currentPrice:0,gate:true,
+          cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,prevSticker:null},
+          phil:null,signals:{mos:false,tenCap:false,pbt:false}};
+        nNew++;
+      }
+      const s=stocks[t];
       // Empty cell = clear to null. Non-empty = set value.
       const set=(key,val)=>{if(val==="")return null;const n=+val;return isNaN(n)?null:n;};
       if(hdr.includes("sticker"))s.cons.sticker=set("sticker",row.sticker);
@@ -803,8 +822,8 @@ function handleCSVImport(e){
       if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
       // Auto-calculate PBT from FCF+gr
       if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
-      updateSignals(t);n++;}
-    save();render();alert(`Updated ${n} stocks.`);};r.readAsText(f);e.target.value="";
+      updateSignals(t);nUpd++;}
+    save();render();alert(`Updated ${nUpd} stocks${nNew?` (${nNew} new)`:""}.`);};r.readAsText(f);e.target.value="";
 }
 
 // ============ EXCEL EXPORT/IMPORT (SheetJS) ============
