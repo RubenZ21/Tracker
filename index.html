@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.28</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.29</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -390,6 +390,11 @@ function load(){
   // Migration: backfill finnhubSymbol from defaults for existing stocks
   Object.entries(STOCK_DEFAULTS).forEach(([k,def])=>{
     if(def.finnhubSymbol&&stocks[k]&&!stocks[k].finnhubSymbol)stocks[k].finnhubSymbol=def.finnhubSymbol;
+  });
+  // Migration: US stocks without finnhubSymbol get ticker as Yahoo symbol
+  Object.entries(stocks).forEach(([t,s])=>{
+    if(s.currency==="USD"&&!s.finnhubSymbol)s.finnhubSymbol=t;
+    if(s.currency==="GBp"&&!s.finnhubSymbol)s.finnhubSymbol=t+".L";
   });
   // Migration: add state to tranches if missing
   ["personal","nl"].forEach(pk=>{
@@ -790,9 +795,9 @@ function handleCSVImport(e){
         // Infer currency from well-known GBp and EUR tickers, default USD
         const gbpTickers=["AUTO","RMV","REL","ITRK","LSEG","SGE","HLMA","EXPN","BNZL"];
         const eurTickers=["WKL","ASML","SAP"];
-        let ccy="USD",flag="🇺🇸",td=t,fh=undefined;
+        let ccy="USD",flag="🇺🇸",td=t,fh=t;
         if(gbpTickers.includes(t)){ccy="GBp";flag="🇬🇧";td=t+":LSE";fh=t+".L";}
-        else if(eurTickers.includes(t)){ccy="EUR";flag="🇪🇺";
+        else if(eurTickers.includes(t)){ccy="EUR";flag="🇪🇺";fh=undefined;
           if(t==="WKL"){td="WKL:AMS";fh="WKL.AS";}
           else if(t==="ASML"){td="ASML:AMS";fh="ASML.AS";}
           else if(t==="SAP"){td="SAP:XETR";fh="SAP.DE";}
