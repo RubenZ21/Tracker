@@ -73,6 +73,8 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .mo-pill.done{background:#0d332033;color:var(--green);border-color:#34d39944}
 .mo-pill.active{background:var(--blue-bg);color:var(--accent);border-color:var(--accent);box-shadow:0 0 6px rgba(96,165,250,.2)}
 .mo-pill.all-done{background:#0d332033;color:var(--green);border-color:#34d39944}
+.alloc-waiting{opacity:.4;filter:grayscale(1);pointer-events:none;transition:all .3s ease}
+.alloc-waiting input{pointer-events:none}
 .alloc-stock{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center}
 .input-row{display:flex;gap:8px;margin-bottom:12px}
 .input-box{flex:1;background:var(--card);border-radius:8px;padding:10px}
@@ -148,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.31</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.33</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1378,7 +1380,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
 }
 
 // ============ ALLOCATOR ============
-const MONTHLY_STEPS=["Salary","Transfer","Execute","DP→XEON"];
+const MONTHLY_STEPS=["Salary","Transfer","Execute"];
 function getMonthKey(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
 function lastDayOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0).getDate();}
 function monthLabel(){const d=new Date();return d.toLocaleString("en",{month:"short"})+" "+d.getFullYear();}
@@ -1410,8 +1412,10 @@ function renderAllocator(c){
     <div class="pf-toggle" style="margin:0 0 12px"><button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';render()">🧑 Personal</button><button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';render()">🧓 Caca</button></div>`;
   if(currentPf==="personal"){
     h+=renderMonthlyBanner();
+    const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1;
     const eurFromUSD=Math.round(settings.monthlyIncomeUSD/settings.fxRate);settings.monthlyIncome=eurFromUSD;
     const pool=eurFromUSD+pf.dryPowder;const ts=totalSignals();const perTr=gs>0?Math.round(pool/gs):0;const dep=ts*perTr;
+    h+=`<div class="${salaryLanded?"":"alloc-waiting"}">`;
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly</div><div class="input-field"><span>$</span><input type="number" value="${settings.monthlyIncomeUSD}" onchange="settings.monthlyIncomeUSD=+this.value;settings.monthlyIncome=Math.round(settings.monthlyIncomeUSD/settings.fxRate);save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${eurFromUSD.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>€</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div></div></div>
@@ -1426,6 +1430,7 @@ function renderAllocator(c){
       h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig}/3 × €${Math.round(perTr).toLocaleString()}</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${sig?"var(--green)":"var(--muted)"}">${fmt(Math.round(localAlloc),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh</div></div></div>`;});
     h+=`</div>`;
+    h+=`</div>`; // close alloc-waiting wrapper
   }else h+=`<div class="alloc-card"><div style="font-size:13px;color:var(--muted)">Closed fund. DP €${pf.dryPowder.toLocaleString()} deploys at MOS only.</div></div>`;
   h+=`</div>`;c.innerHTML=h;
 }
