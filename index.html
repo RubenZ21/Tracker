@@ -138,7 +138,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.29</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.30</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -235,7 +235,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncome:9900,lastFetch:null,fetchInterval:1800000};
+let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,lastFetch:null,fetchInterval:1800000};
 let currentTab="portfolio",currentPf="personal",sellPf="personal";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -396,6 +396,8 @@ function load(){
     if(s.currency==="USD"&&!s.finnhubSymbol)s.finnhubSymbol=t;
     if(s.currency==="GBp"&&!s.finnhubSymbol)s.finnhubSymbol=t+".L";
   });
+  // Migration: derive monthlyIncomeUSD if not set
+  if(!settings.monthlyIncomeUSD&&settings.monthlyIncome){settings.monthlyIncomeUSD=Math.round(settings.monthlyIncome*settings.fxRate);}
   // Migration: add state to tranches if missing
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -862,7 +864,7 @@ function exportExcel(){
   // Sheet 3: Settings
   const stRows=[
     {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},
-    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"apiKey",value:settings.apiKey||""},
+    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"apiKey",value:settings.apiKey||""},
     {key:"ibkrWorker",value:settings.ibkrWorker||""},{key:"ibkrTokenPersonal",value:settings.ibkrTokenPersonal||""},{key:"ibkrQueryPersonal",value:settings.ibkrQueryPersonal||""},
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
     {key:"dryPowder_personal",value:portfolios.personal?.dryPowder||0},
@@ -953,6 +955,7 @@ function handleExcelImport(e){
           if(k==="fxRate"&&val!=null)settings.fxRate=Number(val);
           if(k==="fxGBP"&&val!=null)settings.fxGBP=Number(val);
           if(k==="monthlyIncome"&&val!=null)settings.monthlyIncome=Number(val);
+          if(k==="monthlyIncomeUSD"&&val!=null)settings.monthlyIncomeUSD=Number(val);
           if(k==="apiKey"&&val!=null)settings.apiKey=String(val);
           if(k==="dryPowder_personal"&&val!=null)portfolios.personal.dryPowder=Number(val);
           if(k==="dryPowder_nl"&&val!=null)portfolios.nl.dryPowder=Number(val);
@@ -1215,7 +1218,7 @@ function renderPortfolio(c){
   </div><div class="section-pad">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
     <span style="font-size:11px;color:var(--muted);background:var(--card);padding:3px 8px;border-radius:4px;${hideValues?"visibility:hidden":""}">
-${pf.type==="closed"?"Closed":"Rolling €"+settings.monthlyIncome.toLocaleString()+"/mo"}</span>
+${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleString()+" · €"+settings.monthlyIncome.toLocaleString()+"/mo"}</span>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":"€"+Math.round(val).toLocaleString()} <span style="opacity:0.2;font-size:9px">👁</span></span>
     </div>
@@ -1371,8 +1374,10 @@ function renderAllocator(c){
     <div style="font-size:16px;font-weight:700;margin-bottom:4px">Allocator</div>
     <div class="pf-toggle" style="margin:0 0 12px"><button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';render()">🧑 Personal</button><button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';render()">🧓 Caca</button></div>`;
   if(currentPf==="personal"){
-    const pool=settings.monthlyIncome+pf.dryPowder;const ts=totalSignals();const perTr=gs>0?Math.round(pool/gs):0;const dep=ts*perTr;
-    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly</div><div class="input-field"><span>€</span><input type="number" value="${settings.monthlyIncome}" onchange="settings.monthlyIncome=+this.value;save();render()"></div></div>
+    const eurFromUSD=Math.round(settings.monthlyIncomeUSD/settings.fxRate);settings.monthlyIncome=eurFromUSD;
+    const pool=eurFromUSD+pf.dryPowder;const ts=totalSignals();const perTr=gs>0?Math.round(pool/gs):0;const dep=ts*perTr;
+    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly</div><div class="input-field"><span>$</span><input type="number" value="${settings.monthlyIncomeUSD}" onchange="settings.monthlyIncomeUSD=+this.value;settings.monthlyIncome=Math.round(settings.monthlyIncomeUSD/settings.fxRate);save();render()"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${eurFromUSD.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>€</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div></div></div>
     <div class="alloc-card">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Pool</span><span style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${Math.round(pool).toLocaleString()}</span></div>
