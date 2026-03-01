@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.35</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.36</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1467,7 +1467,9 @@ function renderWatchlist(c){
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   Object.entries(groups).forEach(([title,tickers])=>{
     h+=`<div style="font-size:12px;font-weight:700;color:var(--muted);margin:12px 0 8px">${title}</div><div class="wl-grid">`;
-    tickers.forEach(t=>{const s=stocks[t];const g=gapPct(t);const gStr=g!=null?g+"%":"—";const gCol=g!=null&&g<15?"var(--amber)":"var(--muted)";
+    tickers.forEach(t=>{const s=stocks[t];const g=gapPct(t);const sc=sigCount(t);
+      const gStr=sc>0?sc+"/3 signals":g!=null?g+"%":"—";
+      const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
       h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span></div>
         <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
