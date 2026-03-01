@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.34</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.35</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -407,6 +407,22 @@ function load(){
   Object.entries(stocks).forEach(([t,s])=>{
     if(s.currency==="USD"&&!s.finnhubSymbol)s.finnhubSymbol=t;
     if(s.currency==="GBp"&&!s.finnhubSymbol)s.finnhubSymbol=t+".L";
+  });
+  // Migration: fix stocks incorrectly classified as USD
+  const FIX_EXCHANGES={
+    AUTO:{ccy:"GBp",td:"AUTO:LSE",fh:"AUTO.L"},RMV:{ccy:"GBp",td:"RMV:LSE",fh:"RMV.L"},
+    REL:{ccy:"GBp",td:"REL:LSE",fh:"REL.L"},ITRK:{ccy:"GBp",td:"ITRK:LSE",fh:"ITRK.L"},
+    LSEG:{ccy:"GBp",td:"LSEG:LSE",fh:"LSEG.L"},SGE:{ccy:"GBp",td:"SGE:LSE",fh:"SGE.L"},
+    HLMA:{ccy:"GBp",td:"HLMA:LSE",fh:"HLMA.L"},EXPN:{ccy:"GBp",td:"EXPN:LSE",fh:"EXPN.L"},
+    BNZL:{ccy:"GBp",td:"BNZL:LSE",fh:"BNZL.L"},TRN:{ccy:"GBp",td:"TRN:LSE",fh:"TRN.L"},
+    WKL:{ccy:"EUR",td:"WKL:AMS",fh:"WKL.AS"},ASML:{ccy:"EUR",td:"ASML:AMS",fh:"ASML.AS"},
+    SAP:{ccy:"EUR",td:"SAP:XETR",fh:"SAP.DE"},ADYEN:{ccy:"EUR",td:"ADYEN:AMS",fh:"ADYEN.AS"},
+  };
+  const ccyFlags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧"};
+  Object.entries(FIX_EXCHANGES).forEach(([t,ex])=>{
+    if(stocks[t]&&stocks[t].currency!==ex.ccy){
+      stocks[t].currency=ex.ccy;stocks[t].tdSymbol=ex.td;stocks[t].finnhubSymbol=ex.fh;stocks[t].flag=ccyFlags[ex.ccy];
+    }
   });
   // Migration: derive monthlyIncomeUSD if not set
   if(!settings.monthlyIncomeUSD&&settings.monthlyIncome){settings.monthlyIncomeUSD=Math.round(settings.monthlyIncome*settings.fxRate);}
@@ -791,10 +807,10 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,mos,tenCap,pbt,pbtYrs,gr,oe,fcf\n";
+  let csv="ticker,currency,mos,tenCap,pbt,pbtYrs,gr,oe,fcf\n";
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
-    csv+=`${t},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
 }
 function handleCSVImport(e){
@@ -806,17 +822,22 @@ function handleCSVImport(e){
       const t=(row.ticker||"").toUpperCase();if(!t)continue;
       // Auto-create stock if ticker doesn't exist yet
       if(!stocks[t]){
-        // Infer currency from well-known GBp and EUR tickers, default USD
-        const gbpTickers=["AUTO","RMV","REL","ITRK","LSEG","SGE","HLMA","EXPN","BNZL"];
-        const eurTickers=["WKL","ASML","SAP"];
-        let ccy="USD",flag="🇺🇸",td=t,fh=t;
-        if(gbpTickers.includes(t)){ccy="GBp";flag="🇬🇧";td=t+":LSE";fh=t+".L";}
-        else if(eurTickers.includes(t)){ccy="EUR";flag="🇪🇺";fh=undefined;
-          if(t==="WKL"){td="WKL:AMS";fh="WKL.AS";}
-          else if(t==="ASML"){td="ASML:AMS";fh="ASML.AS";}
-          else if(t==="SAP"){td="SAP:XETR";fh="SAP.DE";}
-          else{td=t;}}
-        stocks[t]={name:t,currency:ccy,moat:"Wide",sector:"",flag,
+        const EXCHANGES={
+          AUTO:{ccy:"GBp",td:"AUTO:LSE",fh:"AUTO.L"},RMV:{ccy:"GBp",td:"RMV:LSE",fh:"RMV.L"},
+          REL:{ccy:"GBp",td:"REL:LSE",fh:"REL.L"},ITRK:{ccy:"GBp",td:"ITRK:LSE",fh:"ITRK.L"},
+          LSEG:{ccy:"GBp",td:"LSEG:LSE",fh:"LSEG.L"},SGE:{ccy:"GBp",td:"SGE:LSE",fh:"SGE.L"},
+          HLMA:{ccy:"GBp",td:"HLMA:LSE",fh:"HLMA.L"},EXPN:{ccy:"GBp",td:"EXPN:LSE",fh:"EXPN.L"},
+          BNZL:{ccy:"GBp",td:"BNZL:LSE",fh:"BNZL.L"},TRN:{ccy:"GBp",td:"TRN:LSE",fh:"TRN.L"},
+          WKL:{ccy:"EUR",td:"WKL:AMS",fh:"WKL.AS"},ASML:{ccy:"EUR",td:"ASML:AMS",fh:"ASML.AS"},
+          SAP:{ccy:"EUR",td:"SAP:XETR",fh:"SAP.DE"},ADYEN:{ccy:"EUR",td:"ADYEN:AMS",fh:"ADYEN.AS"},
+        };
+        const csvCcy=(row.currency||"").trim();
+        const ex=EXCHANGES[t];
+        let ccy=csvCcy||ex?.ccy||"USD";
+        const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧"};
+        let td=ex?.td||(ccy==="GBp"?t+":LSE":t);
+        let fh=ex?.fh||(ccy==="GBp"?t+".L":ccy==="EUR"?undefined:t);
+        stocks[t]={name:t,currency:ccy,moat:"Wide",sector:"",flag:flags[ccy]||"🌍",
           status:"watchlist",tdSymbol:td,finnhubSymbol:fh,priceMult:1,currentPrice:0,gate:true,
           cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,prevSticker:null},
           phil:null,signals:{mos:false,tenCap:false,pbt:false}};
