@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.39</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.40</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1496,7 +1496,7 @@ function renderWatchlist(c){
 }
 function setPriority(t){
   const cur=stocks[t].priority;const v=prompt("Priority for "+t+" (1 = deploy first, empty to clear):",cur||"");
-  if(v===null)return;const n=parseInt(v);stocks[t].priority=isNaN(n)?null:n;save();render();
+  if(v===null)return;const n=parseFloat(v);stocks[t].priority=isNaN(n)?null:n;save();render();
 }
 
 // ============ SETTINGS ============
