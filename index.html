@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.38</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.39</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
 };
 
 let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000};
-let currentTab="portfolio",currentPf="personal",sellPf="personal";
+let currentTab="portfolio",currentPf="personal",sellPf="personal",wlView="gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
 const DATA_VERSION=8;
@@ -807,10 +807,10 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,mos,tenCap,pbt,pbtYrs,gr,oe,fcf\n";
+  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf\n";
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
-    csv+=`${t},${s.currency||"USD"},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
 }
 function handleCSVImport(e){
@@ -858,6 +858,7 @@ function handleCSVImport(e){
       if(hdr.includes("gr"))s.cons.gr=set("gr",row.gr);
       if(hdr.includes("oe"))s.cons.oe=set("oe",row.oe);
       if(hdr.includes("fcf"))s.cons.fcf=set("fcf",row.fcf);
+      if(hdr.includes("priority")){const pv=set("priority",row.priority);s.priority=pv;}
       // Auto-calculate tenCap from OE
       if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
       // Auto-calculate PBT from FCF+gr
@@ -1458,35 +1459,44 @@ function renderAllocator(c){
 
 // ============ WATCHLIST ============
 function renderWatchlist(c){
-  const wl=getWatchlist().sort((a,b)=>(gapPct(a)??999)-(gapPct(b)??999));
-  const groups={};wl.forEach(t=>{const s=stocks[t];const k=s.currency==="GBp"?"🇬🇧 UK — 0% WHT":s.currency==="EUR"?"🇪🇺 EU":"🇺🇸 US — 30% WHT";if(!groups[k])groups[k]=[];groups[k].push(t);});
-  let h=`<div class="section-pad"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+  let wl=getWatchlist();
+  if(wlView==="priority"){
+    wl.sort((a,b)=>{const pa=stocks[a].priority??999,pb=stocks[b].priority??999;return pa!==pb?pa-pb:(gapPct(a)??999)-(gapPct(b)??999);});
+  }else{
+    wl.sort((a,b)=>(gapPct(a)??999)-(gapPct(b)??999));
+  }
+  let h=`<div class="section-pad"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700">Watchlist</div>
-    <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>`;
+    <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>
+  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';render()">Priority</button></div>`;
 
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
-  Object.entries(groups).forEach(([title,tickers])=>{
-    h+=`<div style="font-size:12px;font-weight:700;color:var(--muted);margin:12px 0 8px">${title}</div><div class="wl-grid">`;
-    tickers.forEach(t=>{const s=stocks[t];const g=gapPct(t);const sc=sigCount(t);
-      const gStr=sc>0?sc+"/3 signals":g!=null?g+"%":"—";
-      const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
-      h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span></div>
-        <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
-      <div style="display:flex;gap:4px;margin-bottom:4px">`;
-      [{l:"MOS",v:s.cons.mos,p:s.phil?.mos},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap},{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt}].forEach(({l,v,p})=>{
-        const on=v&&s.currentPrice<=v;h+=`<div class="wl-trig"><div class="wl-trig-label">${l}</div><div class="wl-trig-val" style="color:${on?"var(--green)":"var(--muted)"}">${v?fmt(v,s.currency):"—"}</div>${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
-      h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span></span>
-        <div style="display:flex;gap:4px">
-          <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
-          <span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px;background:#0d332033;border-radius:4px" onclick="promoteToGrid('${t}')">→ Grid</span>
-          <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px;background:#3b111133;border-radius:4px" onclick="removeStock('${t}')">✕</span>
-        </div></div>`;
-      if(s.phil?.score)h+=`<div style="font-size:10px;color:var(--muted);margin-top:2px">Phil: ${s.phil.score} · GR ${s.phil.gr}% vs ${s.cons.gr}%</div>`;
-      h+=`</div>`;});
+  h+=`<div class="wl-grid">`;
+  wl.forEach(t=>{const s=stocks[t];const g=gapPct(t);const sc=sigCount(t);
+    const gStr=sc>0?sc+"/3 signals":g!=null?g+"%":"—";
+    const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
+    const pri=s.priority;
+    h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span></div>
+      <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
+    <div style="display:flex;gap:4px;margin-bottom:4px">`;
+    [{l:"MOS",v:s.cons.mos,p:s.phil?.mos},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap},{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt}].forEach(({l,v,p})=>{
+      const on=v&&s.currentPrice<=v;h+=`<div class="wl-trig"><div class="wl-trig-label">${l}</div><div class="wl-trig-val" style="color:${on?"var(--green)":"var(--muted)"}">${v?fmt(v,s.currency):"—"}</div>${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
+    h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span></span>
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
+        <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
+        <span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px;background:#0d332033;border-radius:4px" onclick="promoteToGrid('${t}')">→ Grid</span>
+        <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px;background:#3b111133;border-radius:4px" onclick="removeStock('${t}')">✕</span>
+      </div></div>`;
+    if(s.phil?.score)h+=`<div style="font-size:10px;color:var(--muted);margin-top:2px">Phil: ${s.phil.score} · GR ${s.phil.gr}% vs ${s.cons.gr}%</div>`;
     h+=`</div>`;});
-  h+=`</div>`;c.innerHTML=h;
+  h+=`</div></div>`;c.innerHTML=h;
+}
+function setPriority(t){
+  const cur=stocks[t].priority;const v=prompt("Priority for "+t+" (1 = deploy first, empty to clear):",cur||"");
+  if(v===null)return;const n=parseInt(v);stocks[t].priority=isNaN(n)?null:n;save();render();
 }
 
 // ============ SETTINGS ============
