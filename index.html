@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.40</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.46</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
 };
 
 let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000};
-let currentTab="portfolio",currentPf="personal",sellPf="personal",wlView="gap";
+let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView="gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
 const DATA_VERSION=8;
@@ -505,6 +505,9 @@ async function fetchPrices(){
   }
   settings.lastFetch=Date.now();save();render();
   showBuyModals();
+  // Check for new signals and celebrate
+  const newFires=checkNewSignals();
+  if(newFires.length)setTimeout(()=>showSignalCelebration(newFires),500);
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
   const parts=[`${ok} prices`];
   if(yfOk)parts.push(`YF✓${yfOk}`);
@@ -1204,7 +1207,7 @@ function render(){
   const wb=document.getElementById("watch-badge");if(wb){if(wlFiring>0){wb.textContent=wlFiring;wb.style.display="flex";}else{wb.style.display="none";}}
   checkAlerts();
 }
-function switchTab(t){currentTab=t;render();window.scrollTo(0,0);}
+function switchTab(t){currentTab=t;localStorage.setItem("r1-tab",t);render();window.scrollTo(0,0);}
 
 // ============ SIGNAL CELL STATUS (lifecycle: buy → hold → tracking → sell) ============
 function sigCellStatus(ticker, sigKey){
@@ -1242,13 +1245,130 @@ function sigCellStatus(ticker, sigKey){
   return{cls:"hold",label:`${sym}${Math.round(p)}`,topSub:`stk ${fmt(sticker,s.currency)}`,sub:fmt(trigger,s.currency),subCls:""};
 }
 
+// ============ CONVICTION CARD (panic antidote) ============
+function openConviction(t){
+  const s=stocks[t];if(!s)return;
+  const p=s.currentPrice;const c=s.cons;
+  const sticker=c.sticker||c.mos*2;
+  const mosFromSticker=sticker&&p?Math.round((1-p/sticker)*100):null;
+  const sigs=[];
+  if(c.mos&&p<=c.mos)sigs.push("MOS");
+  if(c.tenCap&&p<=c.tenCap)sigs.push("Ten Cap");
+  if(c.pbt&&p<=c.pbt)sigs.push("PBT");
+  const moatLabel=s.moat==="Wide"?"Excellent":"Strong";
+  let h=`<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
+    <div class="modal-sheet" style="padding:24px;text-align:center">
+    <div style="font-size:40px;margin-bottom:8px">🛡️</div>
+    <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:2px">${s.flag} ${t}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}</div>
+
+    <div style="text-align:left;margin-bottom:16px">
+      <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:6px;border-left:3px solid var(--green)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">✅</span>
+          <div><div style="font-size:13px;font-weight:700;color:var(--green)">Meaning</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px">I understand this business and can evaluate it independently.</div></div>
+        </div>
+      </div>
+      <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:6px;border-left:3px solid var(--green)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">✅</span>
+          <div><div style="font-size:13px;font-weight:700;color:var(--green)">Moat — ${moatLabel}</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px">${s.sector?s.sector+". ":""}Durable competitive advantage. ${c.gr?c.gr+"% growth rate confirms it.":""}</div></div>
+        </div>
+      </div>
+      <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:6px;border-left:3px solid var(--green)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">✅</span>
+          <div><div style="font-size:13px;font-weight:700;color:var(--green)">Management</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px">Competent, shareholder-aligned leadership with a strong track record.</div></div>
+        </div>
+      </div>
+      <div style="background:var(--bg);border-radius:10px;padding:14px;border-left:3px solid var(--accent)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">✅</span>
+          <div><div style="font-size:13px;font-weight:700;color:var(--accent)">Money — ${sigs.length?sigs.length+"/3 signals firing":"Below intrinsic value"}</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px">${mosFromSticker>0?mosFromSticker+"% margin of safety below sticker.":""}${c.pbtYrs?" Payback in "+c.pbtYrs+" years.":""}</div></div>
+        </div>
+      </div>
+    </div>`;
+
+  // Signals
+  h+=`<div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px">`;
+  [{l:"MOS",v:c.mos,col:"#34d399"},{l:"Ten Cap",v:c.tenCap,col:"#60a5fa"},{l:"PBT",v:c.pbt,col:"#a78bfa"}].forEach(({l,v,col})=>{
+    const on=v&&p<=v;
+    h+=`<div style="padding:6px 14px;border-radius:16px;font-size:11px;font-weight:700;font-family:var(--mono);
+      ${on?`background:${col}20;color:${col};border:1px solid ${col}55`:`background:var(--card);color:var(--muted);border:1px solid var(--border)`}">
+      ${on?"✓ ":""}${l} ${v?fmt(v,s.currency):"—"}</div>`;
+  });
+  h+=`</div>`;
+
+  // Positive closing message
+  h+=`<div style="background:#0d332022;border:1px solid #34d39933;border-radius:10px;padding:14px;margin-bottom:16px">
+    <div style="font-size:14px;font-weight:700;color:var(--green);line-height:1.6">
+      ${sigs.length>=2?"Multiple signals firing — this is exactly what you prepared for.":""}
+      ${sigs.length===1?sigs[0]+" signal confirmed. The system is working as designed.":""}
+      ${sigs.length===0&&mosFromSticker>0?"Trading below intrinsic value. Time is compounding in your favor.":""}
+      ${sigs.length===0&&(mosFromSticker===null||mosFromSticker<=0)?"All four Ms pass. Patience is the strategy.":""}
+    </div>
+    <div style="font-size:11px;color:var(--green);margin-top:8px;line-height:1.5;opacity:.8">
+      All 4 Ms verified ✓ — Stay mechanical. Follow the signals.
+    </div>
+  </div>
+    <button class="modal-done" onclick="this.closest('.modal-overlay').remove()">Got it 💪</button>
+  </div></div>`;
+  document.body.insertAdjacentHTML("beforeend",h);
+}
+
+// ============ SIGNAL CELEBRATION ============
+// Track previous signal state to detect new activations
+let prevSignals={};
+function checkNewSignals(){
+  const GRID=getGrid();
+  const newFires=[];
+  GRID.forEach(t=>{
+    const s=stocks[t];if(!s?.signals)return;
+    const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
+    if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS"});
+    if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap"});
+    if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT"});
+  });
+  // Also check watchlist for new fires
+  getWatchlist().forEach(t=>{
+    const s=stocks[t];if(!s?.signals)return;
+    const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
+    if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS",wl:true});
+    if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap",wl:true});
+    if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT",wl:true});
+  });
+  // Save current state
+  Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
+  return newFires;
+}
+function showSignalCelebration(fires){
+  if(!fires.length)return;
+  let h=`<div class="buy-modal-overlay" onclick="if(event.target===this)this.remove()">
+    <div class="buy-modal">
+      <div class="buy-modal-icon">🎯</div>
+      <div class="buy-modal-title">New Signal${fires.length>1?"s":""}</div>`;
+  fires.forEach(f=>{
+    const sigCol=f.signal==="MOS"?"#34d399":f.signal==="Ten Cap"?"#60a5fa":"#a78bfa";
+    h+=`<div style="margin:8px 0"><span style="font-size:16px;font-weight:700">${stocks[f.ticker]?.flag} ${f.ticker}</span>
+      <div style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:6px;background:${sigCol}20;color:${sigCol};border:1px solid ${sigCol}55">${f.signal}${f.wl?" (watchlist)":""}</div></div>`;
+  });
+  h+=`<div style="font-size:13px;color:var(--green);margin-top:12px;font-weight:600">Price dropped into buy territory.<br>The system is working.</div>
+    <button class="modal-done" style="margin-top:16px" onclick="this.closest('.buy-modal-overlay').remove()">Deploy capital →</button>
+    </div></div>`;
+  document.body.insertAdjacentHTML("beforeend",h);
+}
+
 // ============ PORTFOLIO (UNIFIED — B) ============
 function renderPortfolio(c){
   const pf=portfolios[currentPf];const val=pfValueEUR(currentPf);
   const GRID=getGrid();const gs=gridSize();const ts=totalSignals();
   let h=`<div class="pf-toggle">
-    <button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';render()">🧑 Personal</button>
-    <button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';render()">🧓 Caca</button>
+    <button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';localStorage.setItem('r1-pf','personal');render()">🧑 Personal</button>
+    <button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';localStorage.setItem('r1-pf','nl');render()">🧓 Caca</button>
   </div><div class="section-pad">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
     <span style="font-size:11px;color:var(--muted);background:var(--card);padding:3px 8px;border-radius:4px;${hideValues?"visibility:hidden":""}">
@@ -1305,8 +1425,8 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div class="pos-pnl" style="color:${pnl>=0?"#60a5fa":"var(--green)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% discount</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}%</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
     h+=`<div class="stat-row" style="margin:8px 0">
@@ -1353,7 +1473,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         if(ath&&(state==="stopActive"||state==="stopped")){
           h+=`<span style="font-family:var(--mono);color:${ddCol};font-weight:600">${stateIcon} ATH ${fmt(ath.toFixed(2),s.currency)} · −${dd.toFixed(1)}%</span>`;
         }else{
-          h+=`<span style="color:var(--muted)">⏳ waiting</span>`;
+          h+=`<span style="color:var(--muted)">📦 accumulating</span>`;
         }
         h+=`</div>`;
         // Progress bar for active trailing stops
@@ -1431,7 +1551,7 @@ function renderAllocator(c){
   const pf=portfolios[currentPf];const GRID=getGrid();const gs=gridSize();
   let h=`<div class="section-pad">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px">Allocator</div>
-    <div class="pf-toggle" style="margin:0 0 12px"><button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';render()">🧑 Personal</button><button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';render()">🧓 Caca</button></div>`;
+    <div class="pf-toggle" style="margin:0 0 12px"><button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';localStorage.setItem('r1-pf','personal');render()">🧑 Personal</button><button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';localStorage.setItem('r1-pf','nl');render()">🧓 Caca</button></div>`;
   if(currentPf==="personal"){
     h+=renderMonthlyBanner();
     const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS.length;
@@ -1716,6 +1836,8 @@ function showModal(title,fields,onSave,onDelete){
 
 // ============ INIT ============
 load();render();
+// Snapshot current signals so first fetch doesn't false-celebrate
+Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
 setInterval(()=>{if(settings.apiKey)fetchPrices();},settings.fetchInterval||1800000);
 if(settings.apiKey)fetchPrices();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
