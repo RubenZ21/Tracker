@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.48</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.50</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -248,13 +248,13 @@ const PF_DEFAULTS={
 };
 
 let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000};
-let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView="gap";
+let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
 const DATA_VERSION=8;
 
 function getGrid(){return Object.keys(stocks).filter(t=>stocks[t].status==="grid");}
-function getWatchlist(){return Object.keys(stocks).filter(t=>stocks[t].status==="watchlist");}
+function getWatchlist(){return Object.keys(stocks).filter(t=>stocks[t].status==="watchlist"||stocks[t].status==="trophy");}
 function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s+(t.bought-t.sold),0);}
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
 function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t=>(t.bought-t.sold)>0).length;}
@@ -1587,7 +1587,7 @@ function renderWatchlist(c){
   let h=`<div class="section-pad"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700">Watchlist</div>
     <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>
-  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';render()">Priority</button></div>`;
+  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Priority</button></div>`;
 
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   h+=`<div class="wl-grid">`;
