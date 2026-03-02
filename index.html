@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.46</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.48</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -261,6 +261,7 @@ function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t
 function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/60000),h=Math.floor(d/3600000),dy=Math.floor(d/86400000);if(m<1)return"just now";if(m<60)return m+"m ago";if(h<24)return h+"h ago";return dy+"d ago";}
 function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
+function moatDisp(m){return m==="Wide"?"Excellent":m==="Narrow"?"Strong":m||"Strong";}
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 
 // RingMark — live signal mark SVG. Three concentric rings: outer=PBT(purple), middle=10Cap(blue), inner=MOS(green)
@@ -1255,7 +1256,7 @@ function openConviction(t){
   if(c.mos&&p<=c.mos)sigs.push("MOS");
   if(c.tenCap&&p<=c.tenCap)sigs.push("Ten Cap");
   if(c.pbt&&p<=c.pbt)sigs.push("PBT");
-  const moatLabel=s.moat==="Wide"?"Excellent":"Strong";
+  const moatLabel=moatDisp(s.moat);
   let h=`<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:24px;text-align:center">
     <div style="font-size:40px;margin-bottom:8px">🛡️</div>
@@ -1425,14 +1426,13 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% discount</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}%</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
     h+=`<div class="stat-row" style="margin:8px 0">
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
-      <div class="stat-box"><div class="stat-label">Avg</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}</div></div>
-      <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(Math.round(posVal),s.currency)}</div></div></div>`;
+      <div class="stat-box"><div class="stat-label">Avg</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}</div></div></div>`;
 
     // Tranche rows with sell stickers inline — sorted PBT → 10Cap → MOS
     const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
@@ -1506,7 +1506,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const sig=sigCount(ticker);
     const badge=`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`;
     h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${s.moat}</div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
       <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
       <div class="btn-row">
@@ -1516,8 +1516,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       </div></div>`;
   });
 
-  h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button>
-  <div style="margin-top:8px;font-size:10px;color:var(--muted);text-align:center;cursor:pointer" onclick="toggleValues()">Portfolio: ${hideValues?"•••":"€"+Math.round(val).toLocaleString()} <span style="opacity:0.3;font-size:9px">👁</span></div></div>`;
+  h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button></div>`;
   c.innerHTML=h;
 }
 
@@ -1703,7 +1702,7 @@ function openEditStock(t){
     {id:"es-td",label:"TwelveData Symbol",val:s.tdSymbol},
     {id:"es-fh",label:"Yahoo Symbol",val:s.finnhubSymbol||"",placeholder:"WKL.AS or AUTO.L"},
     {id:"es-price",label:"Current Price",val:s.currentPrice,type:"number"},
-    {id:"es-moat",label:"Moat (Wide/Narrow)",val:s.moat},
+    {id:"es-moat",label:"Moat",val:s.moat==="Wide"?"Excellent":s.moat==="Narrow"?"Strong":s.moat,select:["Excellent","Strong"]},
     {id:"es-gr",label:"Growth %",val:s.cons.gr,type:"number"},
     "— Cash Flow Inputs —",
     {id:"es-oe",label:"OE/share (→ Ten Cap)",val:s.cons.oe,type:"number"},
@@ -1716,7 +1715,7 @@ function openEditStock(t){
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
   ],()=>{
-    s.name=gv("es-name")||s.name;s.tdSymbol=gv("es-td")||s.tdSymbol;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;s.moat=gv("es-moat")||s.moat;
+    s.name=gv("es-name")||s.name;s.tdSymbol=gv("es-td")||s.tdSymbol;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;s.cons.gr=nv("es-gr")??s.cons.gr;
     s.cons.oe=nv("es-oe");s.cons.fcf=nv("es-fcf");
     s.cons.mos=nv("es-mos");s.cons.tenCap=nv("es-tc");
@@ -1731,8 +1730,11 @@ function openEditStock(t){
     s.cons.sticker=s.cons.mos?s.cons.mos*2:null;
     // Track sticker change for >20% drop detection
     if(oldSticker&&s.cons.sticker&&s.cons.sticker!==oldSticker)s.cons.prevSticker=oldSticker;
-    // 4M gate
+    // 4M gate — confirm before setting to FAIL (triggers sell-all alert)
     const gateVal=gv("es-gate");
+    if(gateVal==="FAIL"&&s.gate!==false){
+      if(!confirm(`⚠️ Setting ${t} gate to FAIL triggers a SELL ALL alert.\n\nThis means the business fundamentals have broken down and all tranches should be sold immediately.\n\nAre you sure?`)){return false;}
+    }
     s.gate=(gateVal==="FAIL")?false:true;
     updateSignals(t);save();
   });
@@ -1743,7 +1745,7 @@ function openAddStock(){
     {id:"ns-ticker",label:"Ticker",val:"",placeholder:"COST"},
     {id:"ns-name",label:"Name",val:"",placeholder:"Costco"},
     {id:"ns-ccy",label:"Currency",val:"USD",select:["USD","EUR","GBp"]},
-    {id:"ns-moat",label:"Moat",val:"Wide",select:["Wide","Narrow"]},
+    {id:"ns-moat",label:"Moat",val:"Excellent",select:["Excellent","Strong"]},
     {id:"ns-td",label:"TwelveData Symbol",val:"",placeholder:"COST or AUTO:LSE"},
     {id:"ns-fh",label:"Yahoo Symbol",val:"",placeholder:"WKL.AS or AUTO.L"},
     {id:"ns-price",label:"Current Price",val:"",type:"number"},
@@ -1764,7 +1766,8 @@ function openAddStock(){
     let tc=nv("ns-tc");let pbt=nv("ns-pbt");
     if(oe!=null)tc=+(oe*10).toFixed(2);
     if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
-    stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:gv("ns-moat")||"Wide",sector:"",flag:flags[ccy]||"🌍",
+    const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
+    stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
       status:"watchlist",tdSymbol:gv("ns-td")||t,finnhubSymbol:gv("ns-fh")||undefined,priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker:mos?mos*2:null,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false}};
