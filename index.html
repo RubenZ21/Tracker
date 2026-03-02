@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.59</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.60</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1663,12 +1663,12 @@ function renderWatchlist(c){
     const pri=s.priority;
     const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
     h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:${ctr.aboveMarr?"var(--green)":"var(--amber)"}">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
+      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
     [{l:"MOS",v:s.cons.mos,p:s.phil?.mos},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap},{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt}].forEach(({l,v,p})=>{
-      const on=v&&s.currentPrice<=v;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk?calcImpliedReturn(stk,v):null;
-      h+=`<div class="wl-trig" ${isClosest?'style="border:1px solid '+(ctr.aboveMarr?'var(--green)':'var(--amber)')+'44"':''}><div class="wl-trig-label">${l}${isClosest?" ★":""}</div><div class="wl-trig-val" style="color:${on?"var(--green)":"var(--muted)"}">${v?fmt(v,s.currency):"—"}</div>${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${ir>=0.15?"var(--green)":"var(--amber)"}">${(ir*100).toFixed(1)}%</div>`:""}${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
+      const on=v&&s.currentPrice<=v;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk?calcImpliedReturn(stk,v):null;const col=on?"var(--green)":"var(--muted)";
+      h+=`<div class="wl-trig" ${isClosest?'style="border:1px solid var(--accent)"':''}><div class="wl-trig-label">${l}${isClosest?" ★":""}</div><div class="wl-trig-val" style="color:${col}">${v?fmt(v,s.currency):"—"}</div>${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span></span>
       <div style="display:flex;gap:4px;align-items:center">
