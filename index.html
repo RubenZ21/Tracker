@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.60</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.61</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1494,9 +1494,10 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% discount</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}%</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
     // Stats row
+    const avgIR=avg&&s.cons?.mos?calcImpliedReturn(s.cons.mos*2,avg):null;
     h+=`<div class="stat-row" style="margin:8px 0">
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
-      <div class="stat-box"><div class="stat-label">Avg</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}</div></div></div>`;
+      <div class="stat-box"><div class="stat-label">Avg</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div></div></div>`;
 
     // Tranche rows with sell stickers inline — sorted PBT → 10Cap → MOS
     const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
