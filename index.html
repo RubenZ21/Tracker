@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.58</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.59</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -371,6 +371,16 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
 }
 function nearestTrigger(t){const s=stocks[t];if(!s)return null;const tr=[s.cons.mos,s.cons.tenCap,s.cons.pbt].filter(Boolean);return tr.length?Math.max(...tr):null;}
 function gapPct(t){const s=stocks[t],nt=nearestTrigger(t);if(!s||!nt||!s.currentPrice)return null;return Math.round((s.currentPrice-nt)/s.currentPrice*100);}
+
+// Implied annual return: what you'd earn per year if buying at entryPrice and stock reaches projected future value in 10 years
+function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker<=0||entryPrice<=0)return null;const fv=sticker*4.0456;return Math.pow(fv/entryPrice,1/10)-1;}
+
+// Find the closest trigger (highest price = fires first on decline) and its implied return
+function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(!mos)return null;const sticker=mos*2;
+  const triggers=[];if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap)triggers.push({name:"10Cap",price:s.cons.tenCap});if(s.cons.pbt)triggers.push({name:"PBT",price:s.cons.pbt});
+  if(!triggers.length)return null;const closest=triggers.reduce((a,b)=>a.price>b.price?a:b);
+  const ir=calcImpliedReturn(sticker,closest.price);if(ir==null)return null;
+  return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,aboveMarr:ir>=0.15};}
 // FIX #5: Convert any currency amount to EUR for allocation
 function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;return amount;}
 function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;return eur;}
@@ -1635,13 +1645,15 @@ function renderWatchlist(c){
   let wl=getWatchlist();
   if(wlView==="priority"){
     wl.sort((a,b)=>{const pa=stocks[a].priority??999,pb=stocks[b].priority??999;return pa!==pb?pa-pb:(gapPct(a)??999)-(gapPct(b)??999);});
+  }else if(wlView==="ir"){
+    wl.sort((a,b)=>{const ra=getClosestTriggerReturn(a)?.impliedReturn??-1,rb=getClosestTriggerReturn(b)?.impliedReturn??-1;return rb-ra;});
   }else{
     wl.sort((a,b)=>(gapPct(a)??999)-(gapPct(b)??999));
   }
   let h=`<div class="section-pad"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700">Watchlist</div>
     <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>
-  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Priority</button></div>`;
+  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Priority</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button></div>`;
 
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   h+=`<div class="wl-grid">`;
@@ -1649,12 +1661,14 @@ function renderWatchlist(c){
     const gStr=sc>0?sc+"/3 signals":g!=null?g+"%":"—";
     const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
     const pri=s.priority;
-    h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span></div>
-      <div style="font-size:13px;font-family:var(--mono);font-weight:600">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
+    const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
+    h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:${ctr.aboveMarr?"var(--green)":"var(--amber)"}">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
+      <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
     [{l:"MOS",v:s.cons.mos,p:s.phil?.mos},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap},{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt}].forEach(({l,v,p})=>{
-      const on=v&&s.currentPrice<=v;h+=`<div class="wl-trig"><div class="wl-trig-label">${l}</div><div class="wl-trig-val" style="color:${on?"var(--green)":"var(--muted)"}">${v?fmt(v,s.currency):"—"}</div>${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
+      const on=v&&s.currentPrice<=v;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk?calcImpliedReturn(stk,v):null;
+      h+=`<div class="wl-trig" ${isClosest?'style="border:1px solid '+(ctr.aboveMarr?'var(--green)':'var(--amber)')+'44"':''}><div class="wl-trig-label">${l}${isClosest?" ★":""}</div><div class="wl-trig-val" style="color:${on?"var(--green)":"var(--muted)"}">${v?fmt(v,s.currency):"—"}</div>${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${ir>=0.15?"var(--green)":"var(--amber)"}">${(ir*100).toFixed(1)}%</div>`:""}${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span></span>
       <div style="display:flex;gap:4px;align-items:center">
