@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.55</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.58</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1182,6 +1182,13 @@ function dismissBuyModal(){
 
 // ============ RENDER ============
 // ============ MARKET STATUS STRIP ============
+function showMarketToast(msg){
+  const existing=document.getElementById("market-toast");if(existing)existing.remove();
+  const el=document.createElement("div");el.id="market-toast";
+  el.style.cssText="position:fixed;top:70px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;z-index:200;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.4);animation:buyFadeIn .2s ease-out";
+  el.textContent=msg;document.body.appendChild(el);
+  setTimeout(()=>el.remove(),2500);
+}
 const MARKETS=[
   {id:"eu",flag:"🇪🇺",label:"EU",tz:"Europe/Amsterdam",open:[9,0],close:[17,30]},
   {id:"uk",flag:"🇬🇧",label:"UK",tz:"Europe/London",open:[8,0],close:[16,30]},
@@ -1217,8 +1224,9 @@ function marketStatus(){
     };
     const localOpen=toLocal(m.open[0],m.open[1]);const localClose=toLocal(m.close[0],m.close[1]);
     const dot=isOpen?"#34d399":"#5a6a7a";
-    h+=`<div style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:2px;cursor:pointer" title="${m.label} ${localOpen}–${localClose}">
-      <span style="width:5px;height:5px;border-radius:50%;background:${dot};display:inline-block;${isOpen?"box-shadow:0 0 4px #34d39980":""}"></span>
+    const shortO=localOpen.replace(/:00$/,"");const shortC=localClose.replace(/:00$/,"");
+    h+=`<div style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:2px;line-height:1;cursor:pointer" onclick="showMarketToast('${m.flag} ${m.label} ${localOpen}–${localClose} AST${isOpen?" · OPEN":" · CLOSED"}')">
+      <span style="width:5px;height:5px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0;${isOpen?"box-shadow:0 0 4px #34d39980":""}"></span>
       <span>${m.flag}</span>
     </div>`;
   });
