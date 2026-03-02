@@ -150,7 +150,8 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.53</span> <span id="market-strip" style="margin-left:6px;display:inline-flex;gap:6px;vertical-align:middle"></span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.55</span></div></div>
+    <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1216,11 +1217,9 @@ function marketStatus(){
     };
     const localOpen=toLocal(m.open[0],m.open[1]);const localClose=toLocal(m.close[0],m.close[1]);
     const dot=isOpen?"#34d399":"#5a6a7a";
-    const nextEvt=isOpen?`closes ${localClose}`:`opens ${localOpen}`;
-    h+=`<div style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:3px">
+    h+=`<div style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:2px;cursor:pointer" title="${m.label} ${localOpen}–${localClose}">
       <span style="width:5px;height:5px;border-radius:50%;background:${dot};display:inline-block;${isOpen?"box-shadow:0 0 4px #34d39980":""}"></span>
-      <span style="font-weight:600">${m.flag}</span>
-      <span>${localOpen}–${localClose}</span>
+      <span>${m.flag}</span>
     </div>`;
   });
   strip.innerHTML=h;
