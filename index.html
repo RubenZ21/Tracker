@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.50</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.51</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -1473,7 +1473,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         if(ath&&(state==="stopActive"||state==="stopped")){
           h+=`<span style="font-family:var(--mono);color:${ddCol};font-weight:600">${stateIcon} ATH ${fmt(ath.toFixed(2),s.currency)} · −${dd.toFixed(1)}%</span>`;
         }else{
-          h+=`<span style="color:var(--muted)">📦 accumulating</span>`;
+          h+=`<span style="color:var(--muted)">🌱 accumulating</span>`;
         }
         h+=`</div>`;
         // Progress bar for active trailing stops
