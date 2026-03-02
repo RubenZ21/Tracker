@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.51</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.52</span></div></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
   <div class="refresh-row">
@@ -159,6 +159,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
     <span style="font-size:10px;color:var(--muted);margin-left:auto" id="fx-display"></span>
     <span style="font-size:10px;color:var(--muted);margin-left:8px" id="pf-total-val"></span>
   </div>
+  <div id="market-strip" style="display:flex;gap:8px;margin-top:6px;justify-content:center"></div>
 </div>
 <div id="alert-banner"></div>
 <div id="buy-modal"></div>
@@ -1180,6 +1181,52 @@ function dismissBuyModal(){
 }
 
 // ============ RENDER ============
+// ============ MARKET STATUS STRIP ============
+const MARKETS=[
+  {id:"eu",flag:"🇪🇺",label:"EU",tz:"Europe/Amsterdam",open:[9,0],close:[17,30]},
+  {id:"uk",flag:"🇬🇧",label:"UK",tz:"Europe/London",open:[8,0],close:[16,30]},
+  {id:"us",flag:"🇺🇸",label:"US",tz:"America/New_York",open:[9,30],close:[16,0]}
+];
+function marketStatus(){
+  const now=new Date();const strip=document.getElementById("market-strip");if(!strip)return;
+  // Weekend check (0=Sun, 6=Sat) — approximate, doesn't handle per-market holidays
+  const dow=now.getDay();const weekend=dow===0||dow===6;
+  let h="";
+  MARKETS.forEach(m=>{
+    // Get current hours/mins in market's timezone
+    const parts=new Intl.DateTimeFormat("en",{timeZone:m.tz,hour:"numeric",minute:"numeric",hour12:false}).formatToParts(now);
+    const hr=parseInt(parts.find(p=>p.type==="hour").value);
+    const mn=parseInt(parts.find(p=>p.type==="minute").value);
+    const mins=hr*60+mn;const openMins=m.open[0]*60+m.open[1];const closeMins=m.close[0]*60+m.close[1];
+    const isOpen=!weekend&&mins>=openMins&&mins<closeMins;
+    // Convert open/close to Saudi local time for display
+    const toLocal=(hh,mm)=>{
+      const d=new Date();d.setMilliseconds(0);d.setSeconds(0);
+      // Create a date at hh:mm in the market's timezone by brute search (reliable across DST)
+      // Use Intl to figure out the UTC offset for the market tz
+      const ref=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12,0,0);
+      const utcStr=ref.toLocaleString("en-US",{timeZone:"UTC"});
+      const tzStr=ref.toLocaleString("en-US",{timeZone:m.tz});
+      const utcMs=new Date(utcStr).getTime();const tzMs=new Date(tzStr).getTime();
+      const offsetMs=tzMs-utcMs; // tz ahead of UTC by this much
+      // Market local hh:mm → UTC → add 3h for AST
+      const marketUTC=hh*60+mm-offsetMs/60000;
+      const astMins=marketUTC+180; // UTC+3
+      const ah=Math.floor(((astMins%1440)+1440)%1440/60);const am=Math.round(((astMins%1440)+1440)%1440%60);
+      return String(ah).padStart(2,"0")+":"+String(am).padStart(2,"0");
+    };
+    const localOpen=toLocal(m.open[0],m.open[1]);const localClose=toLocal(m.close[0],m.close[1]);
+    const dot=isOpen?"#34d399":"#5a6a7a";
+    const nextEvt=isOpen?`closes ${localClose}`:`opens ${localOpen}`;
+    h+=`<div style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:3px">
+      <span style="width:5px;height:5px;border-radius:50%;background:${dot};display:inline-block;${isOpen?"box-shadow:0 0 4px #34d39980":""}"></span>
+      <span style="font-weight:600">${m.flag}</span>
+      <span>${localOpen}–${localClose}</span>
+    </div>`;
+  });
+  strip.innerHTML=h;
+}
+
 function render(){
   const ts=totalSignals(),gs=gridSize();
   const b=document.getElementById("grid-badge");b.textContent=ts+"/"+gs;
@@ -1207,6 +1254,7 @@ function render(){
   const wlFiring=getWatchlist().reduce((n,t)=>{const s=stocks[t];if(!s?.currentPrice||s.gate===false)return n;return n+(s.signals?.mos?1:0)+(s.signals?.tenCap?1:0)+(s.signals?.pbt?1:0);},0);
   const wb=document.getElementById("watch-badge");if(wb){if(wlFiring>0){wb.textContent=wlFiring;wb.style.display="flex";}else{wb.style.display="none";}}
   checkAlerts();
+  marketStatus();
 }
 function switchTab(t){currentTab=t;localStorage.setItem("r1-tab",t);render();window.scrollTo(0,0);}
 
