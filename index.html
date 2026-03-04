@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.64</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.65</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -385,9 +385,10 @@ function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(
 function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;return amount;}
 function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;return eur;}
 // FIX #8: Total portfolio value in EUR
+function pfBaseCcy(pfKey){return pfKey==="personal"?"USD":"EUR";}
 function pfValueEUR(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;
   Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=toEUR(posShares(pos)*s.currentPrice,s.currency);});
-  return v+pf.dryPowder;}
+  return v+toEUR(pf.dryPowder,pfBaseCcy(pfKey));}
 
 function load(){
   try{
@@ -650,7 +651,7 @@ async function syncIBKR(pfKey){
     // Step 4: Show preview before applying
     let matched=0,unmatched=[];
     Object.values(posData).forEach(p=>{if(p.t)matched++;else unmatched.push(p.sym);});
-    const totalCash=cashEUR+cashUSD/settings.fxRate;
+    const totalCash=pfKey==="personal"?cashUSD+(cashEUR*settings.fxRate):cashEUR+cashUSD/settings.fxRate;
     const pfName=pfKey==="nl"?"Caca":"Personal";
 
     let preview=`<div style="font-size:11px;color:var(--text);margin-top:8px;padding:10px;background:var(--bg);border-radius:8px">
@@ -730,8 +731,8 @@ function applyIBKR(pfKey){
     if(p.mktVal&&stocks[p.t]){stocks[p.t].currentPrice=p.mktVal;stocks[p.t].lastUpdate=Date.now();stocks[p.t].priceSource="ibkr";updateSignals(p.t);}
   });
 
-  // Update cash as dry powder
-  const totalCash=data.cashEUR+(data.cashUSD/settings.fxRate);
+  // Update cash as dry powder (personal=USD, nl=EUR)
+  const totalCash=pfKey==="personal"?cashUSD+(cashEUR*settings.fxRate):cashEUR+(cashUSD/settings.fxRate);
   if(totalCash>0)pf.dryPowder=Math.round(totalCash);
 
   save();render();showBuyModals();
@@ -805,7 +806,7 @@ async function autoSyncIBKR(pfKey){
     let cashEUR=0,cashUSD=0;
     doc.querySelectorAll("CashReportCurrency").forEach(cn=>{const ccy=cn.getAttribute("currency"),bal=parseFloat(cn.getAttribute("endingCash")||cn.getAttribute("endingSettledCash")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
     if(!cashEUR&&!cashUSD)doc.querySelectorAll("CashBalance").forEach(cb=>{const ccy=cb.getAttribute("currency"),bal=parseFloat(cb.getAttribute("balance")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
-    const totalCash=cashEUR+(cashUSD/settings.fxRate);
+    const totalCash=pfKey==="personal"?cashUSD+(cashEUR*settings.fxRate):cashEUR+(cashUSD/settings.fxRate);
     if(totalCash>0)pf.dryPowder=Math.round(totalCash);
 
     return true;
@@ -1256,7 +1257,8 @@ function render(){
   // Show selected portfolio value
   const totalV=pfValueEUR(currentPf);
   const pfLabel=currentPf==="personal"?"🧑":"🧓";
-  document.getElementById("pf-total-val").innerHTML=hideValues?`<span onclick="toggleValues()" style="cursor:pointer;opacity:0.25;font-size:9px">👁</span>`:`${pfLabel} DP €${Math.round(portfolios[currentPf]?.dryPowder||0).toLocaleString()} <span onclick="toggleValues()" style="cursor:pointer;opacity:0.2;font-size:9px">👁</span>`;
+  const dpCcy=currentPf==="personal"?"$":"€";
+  document.getElementById("pf-total-val").innerHTML=hideValues?`<span onclick="toggleValues()" style="cursor:pointer;opacity:0.25;font-size:9px">👁</span>`:`${pfLabel} DP ${dpCcy}${Math.round(portfolios[currentPf]?.dryPowder||0).toLocaleString()} <span onclick="toggleValues()" style="cursor:pointer;opacity:0.2;font-size:9px">👁</span>`;
   const fxEl=document.getElementById("fx-display");
   if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);const ibkrAge=settings.lastIbkrSync?timeAgo(settings.lastIbkrSync):"";
     fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
@@ -1435,7 +1437,7 @@ function renderPortfolio(c){
     <span style="font-size:11px;color:var(--muted);background:var(--card);padding:3px 8px;border-radius:4px;${hideValues?"visibility:hidden":""}">
 ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleString()+" · €"+settings.monthlyIncome.toLocaleString()+"/mo"}</span>
     <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":"DP €"+Math.round(pf.dryPowder).toLocaleString()} <span style="opacity:0.2;font-size:9px">👁</span></span>
+      <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":"DP "+(currentPf==="personal"?"$":"€")+Math.round(pf.dryPowder).toLocaleString()} <span style="opacity:0.2;font-size:9px">👁</span></span>
     </div>
   </div>`;
 
@@ -1615,21 +1617,21 @@ function renderAllocator(c){
   if(currentPf==="personal"){
     h+=renderMonthlyBanner();
     const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS.length;
-    const eurFromUSD=Math.round(settings.monthlyIncomeUSD/settings.fxRate);settings.monthlyIncome=eurFromUSD;
-    const pool=eurFromUSD+pf.dryPowder;const ts=totalSignals();const perTr=gs>0?Math.round(pool/gs):0;const dep=ts*perTr;
+    // Personal: USD base currency — pool, tranches, DP all in USD
+    const pool=settings.monthlyIncomeUSD+pf.dryPowder;const ts=totalSignals();const perTr=gs>0?Math.round(pool/gs):0;const dep=ts*perTr;
     h+=`<div class="${salaryLanded?"":"alloc-waiting"}">`;
-    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly</div><div class="input-field"><span>$</span><input type="number" value="${settings.monthlyIncomeUSD}" onchange="settings.monthlyIncomeUSD=+this.value;settings.monthlyIncome=Math.round(settings.monthlyIncomeUSD/settings.fxRate);save();render()"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${eurFromUSD.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
-      <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>€</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div></div></div>
+    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly</div><div class="input-field"><span>$</span><input type="number" value="${settings.monthlyIncomeUSD}" onchange="settings.monthlyIncomeUSD=+this.value;save();render()"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${Math.round(settings.monthlyIncomeUSD/settings.fxRate).toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
+      <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div></div></div>
     <div class="alloc-card">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Pool</span><span style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${Math.round(pool).toLocaleString()}</span></div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche (1/${gs})</span><span style="font-size:13px;font-family:var(--mono)">€${Math.round(perTr).toLocaleString()}</span></div>
-      <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Deploy ${ts}/${gs}</span><span style="font-size:13px;font-family:var(--mono);color:var(--green)">€${Math.round(dep).toLocaleString()}</span></div>
-      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">DP out</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">€${Math.round(pool-dep).toLocaleString()}</span></div></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Pool</span><span style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">$${Math.round(pool).toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche (1/${gs})</span><span style="font-size:13px;font-family:var(--mono)">$${Math.round(perTr).toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Deploy ${ts}/${gs}</span><span style="font-size:13px;font-family:var(--mono);color:var(--green)">$${Math.round(dep).toLocaleString()}</span></div>
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">DP out</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${Math.round(pool-dep).toLocaleString()}</span></div></div>
     <div class="alloc-grid">`;
-    // FIX #5: Correct currency conversion for all currencies
-    GRID.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const eurAlloc=sig*perTr;const localAlloc=fromEUR(eurAlloc,s.currency);const sh=s.currentPrice?Math.floor(localAlloc/s.currentPrice):0;
-      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig}/3 × €${Math.round(perTr).toLocaleString()}</div></div>
+    // Convert USD tranche to each stock's local currency
+    GRID.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const usdAlloc=sig*perTr;const localAlloc=fromEUR(toEUR(usdAlloc,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localAlloc/s.currentPrice):0;
+      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig}/3 × $${Math.round(perTr).toLocaleString()}</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${sig?"var(--green)":"var(--muted)"}">${fmt(Math.round(localAlloc),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh</div></div></div>`;});
     h+=`</div>`;
     h+=`</div>`; // close alloc-waiting wrapper
