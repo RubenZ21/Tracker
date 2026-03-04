@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.76</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.77</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2177,7 +2177,7 @@ async function testPushFromCloud(){
   try{
     const resp=await fetch(`${settings.pushWorkerUrl}/test`,{method:"POST"});
     const data=await resp.json();
-    if(el)el.textContent=data.ok?"✓ Test sent — check notification shade":"✕ Failed: "+data.status;
+    if(el)el.textContent=data.ok?"✓ Test sent — check notification shade":"✕ "+(data.error||"Failed: "+data.status);
   }catch(e){if(el)el.textContent="✕ "+e.message;}
 }
 
@@ -2189,6 +2189,7 @@ async function checkFromCloud(){
   try{
     const resp=await fetch(`${settings.pushWorkerUrl}/check`,{method:"POST"});
     const data=await resp.json();
+    if(data.error){if(el)el.textContent="✕ "+data.error;return;}
     if(el)el.textContent=data.fires?`🔥 ${data.fires} new signal(s)!`:`✓ Checked ${data.checked} stocks — no new signals`;
   }catch(e){if(el)el.textContent="✕ "+e.message;}
 }
