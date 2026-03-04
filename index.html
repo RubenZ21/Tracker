@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.72</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.73</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1853,7 +1853,11 @@ function renderSettings(c){
       <div style="display:flex;align-items:center;gap:10px;margin:8px 0">
         <button class="settings-save" style="background:${settings.notifyEnabled?"#1a3322":"var(--bg)"};color:${settings.notifyEnabled?"var(--green)":"var(--text)"}" onclick="toggleNotifications(${!settings.notifyEnabled})">${settings.notifyEnabled?"✓ Alerts ON":"Alerts OFF"}</button>
         <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px;color:var(--muted)">Every</span><input class="settings-input" type="number" style="width:50px;margin:0" min="5" max="60" value="${settings.notifyInterval}" onchange="settings.notifyInterval=Math.max(5,+this.value);save();if(settings.notifyEnabled)startAlerts()"><span style="font-size:11px;color:var(--muted)">min</span></div></div>
-      <div style="font-size:9px;color:var(--muted)">${settings.notifyEnabled?"Next check: "+(!isAnyMarketOpen()?"markets closed — waiting":"~"+settings.notifyInterval+" min"):"Disabled — no background checks"}</div></div>
+      <div style="font-size:9px;color:var(--muted)">${settings.notifyEnabled?
+        (lastAlertResult?`Last check: ${timeAgo(lastAlertResult.time)} — ${lastAlertResult.marketsOpen===false?"skipped (markets closed)":lastAlertResult.fires?lastAlertResult.fires+" NEW signal(s) 🔥":"no new signals"} · ${!isAnyMarketOpen()?"markets now closed":"next in ~"+settings.notifyInterval+"m"}`
+        :"Enabled — waiting for first check"+(isAnyMarketOpen()?` (~${settings.notifyInterval}m)`:" (markets closed)"))
+        :"Disabled — no background checks"}</div>
+      ${settings.notifyEnabled?`<div style="margin-top:6px;display:flex;gap:8px"><button class="settings-save" style="font-size:11px;padding:4px 10px" onclick="alertCheck(true).then(()=>render())">▶ Run Now</button><button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="navigator.serviceWorker.ready.then(r=>r.showNotification('🎯 Test: SFM hit Ten Cap',{body:'Sprouts at $74.00',tag:'ttt-test-2'}))">🔔 Test Notification</button></div>`:""}</div>
 
     <div class="settings-card"><div class="settings-title">🏦 IBKR Sync</div>
       <div class="settings-desc">Auto-sync positions & cash from IBKR. Each portfolio has its own account.</div>
@@ -2112,9 +2116,10 @@ function sendTriggerNotification(fires){
 }
 
 // Silent price fetch + check (no render, just notify)
-let alertTimer=null;
-async function alertCheck(){
-  if(!settings.notifyEnabled||!isAnyMarketOpen())return;
+let alertTimer=null;let lastAlertResult=null;
+async function alertCheck(force){
+  if(!settings.notifyEnabled)return;
+  if(!force&&!isAnyMarketOpen()){lastAlertResult={time:Date.now(),fires:0,checked:0,marketsOpen:false};return;}
   if(Notification.permission!=="granted")return;
   // Snapshot signals before fetch
   const before={};Object.keys(stocks).forEach(t=>{if(stocks[t].signals)before[t]={...stocks[t].signals};});
@@ -2131,6 +2136,8 @@ async function alertCheck(){
   });
   sendTriggerNotification(fires);
   saveAlertConfig(); // keep SW cache up to date with latest signals
+  lastAlertResult={time:Date.now(),fires:fires.length,checked:Object.keys(stocks).length,marketsOpen:true};
+  render(); // re-render to show updated status
 }
 
 function startAlerts(){
