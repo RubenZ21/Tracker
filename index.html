@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.80</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.81</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1842,8 +1842,10 @@ function renderSettings(c){
           ?`<button class="settings-save" style="background:#1a3322;color:var(--green)" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();syncTriggersToCloud()">☁ Sync Triggers</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testPushFromCloud()">🔔 Test Push</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="checkFromCloud()">▶ Check Now</button>
-             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#3b1111;color:var(--red)" onclick="unsubscribePush()">Disconnect</button>`
-          :`<button class="settings-save" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();subscribePush()">🔗 Connect & Subscribe</button>`}
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#3b1111;color:var(--red)" onclick="unsubscribePush()">Disconnect</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testLocalNotification()">🔔 Test Local</button>`
+          :`<button class="settings-save" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();subscribePush()">🔗 Connect & Subscribe</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testLocalNotification()">🔔 Test Notification</button>`}
       </div>
       <div id="push-sync-status" style="font-size:10px;color:var(--muted);margin:4px 0">${settings.pushSubscribed?(settings.lastPushSync?"Last sync: "+timeAgo(settings.lastPushSync):"Subscribed — sync triggers to activate"):"Not connected"}</div></div>
 
@@ -2155,6 +2157,15 @@ async function checkFromCloud(){
     if(data.error){if(el)el.textContent="✕ "+data.error;return;}
     if(el)el.textContent=data.fires?`🔥 ${data.fires} new signal(s)!`:`✓ Checked ${data.checked} stocks — no new signals`;
   }catch(e){if(el)el.textContent="✕ "+e.message;}
+}
+
+// Test local notification (no Cloudflare Worker needed)
+async function testLocalNotification(){
+  if(!('Notification' in window)){alert('Notifications not supported');return;}
+  const perm=await Notification.requestPermission();
+  if(perm!=='granted'){alert('Notification permission denied. Enable in browser settings.');return;}
+  const reg=await navigator.serviceWorker.ready;
+  reg.showNotification('🎯 Test: SFM hit Ten Cap',{body:'Sprouts at $70.90 — open TTT to review',tag:'ttt-test-local',renotify:true,requireInteraction:true});
 }
 
 // ============ AUTO-REFRESH ============
