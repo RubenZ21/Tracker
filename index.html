@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.78</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.80</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -176,11 +176,11 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <script>
 const STOCK_DEFAULTS={
 PGR:{name:"Progressive",currency:"USD",moat:"Wide",sector:"Auto Insurance",flag:"🇺🇸",status:"grid",
-  tdSymbol:"PGR",priceMult:1,currentPrice:204.08,
+  finnhubSymbol:"PGR",priceMult:1,currentPrice:204.08,
   cons:{sticker:593.93,mos:296.97,tenCap:332.30,pbt:860.39,pbtYrs:2.86,gr:15.19,oe:33.23,fcf:54.04},phil:null,
   signals:{mos:true,tenCap:true,pbt:true}},
 SFM:{name:"Sprouts Farmers",currency:"USD",moat:"Narrow",sector:"Specialty Grocery",flag:"🇺🇸",status:"grid",
-  tdSymbol:"SFM",priceMult:1,currentPrice:67.48,
+  finnhubSymbol:"SFM",priceMult:1,currentPrice:67.48,
   cons:{sticker:68.09,mos:34.05,tenCap:70.90,pbt:64.53,pbtYrs:8.3,gr:10,oe:7.09,fcf:5.13},
   phil:{sticker:65.79,mos:32.90,tenCap:70.90,pbt:62.23,gr:9.97,score:"89"},
   signals:{mos:false,tenCap:true,pbt:false}},
@@ -189,7 +189,7 @@ WKL:{name:"Wolters Kluwer",currency:"EUR",moat:"Wide",sector:"Legal/Tax",flag:"�
   cons:{sticker:63.73,mos:31.86,tenCap:62.60,pbt:78.75,pbtYrs:6.74,gr:10,oe:6.26,fcf:6.26},phil:null,
   signals:{mos:false,tenCap:true,pbt:true}},
 SPGI:{name:"S&P Global",currency:"USD",moat:"Wide",sector:"Credit Ratings",flag:"🇺🇸",status:"watchlist",
-  tdSymbol:"SPGI",priceMult:1,currentPrice:480,
+  finnhubSymbol:"SPGI",priceMult:1,currentPrice:480,
   cons:{sticker:231,mos:111,tenCap:209,pbt:209,pbtYrs:null,gr:10.9,oe:20.9,fcf:null},phil:null,
   signals:{mos:false,tenCap:false,pbt:false}},
 ASML:{name:"ASML",currency:"EUR",moat:"Wide",sector:"Semicon Equip",flag:"🇪🇺",status:"trophy",
@@ -197,17 +197,17 @@ ASML:{name:"ASML",currency:"EUR",moat:"Wide",sector:"Semicon Equip",flag:"🇪�
   cons:{sticker:728,mos:364,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null},phil:null,
   signals:{mos:false,tenCap:false,pbt:false}},
 MA:{name:"Mastercard",currency:"USD",moat:"Wide",sector:"Payments",flag:"🇺🇸",status:"watchlist",
-  tdSymbol:"MA",priceMult:1,currentPrice:517,
+  finnhubSymbol:"MA",priceMult:1,currentPrice:517,
   cons:{sticker:365,mos:183,tenCap:182,pbt:265,pbtYrs:null,gr:14.31,oe:18.16,fcf:null},
   phil:{sticker:712,mos:356,tenCap:228,pbt:303,gr:17.45,score:"100"},
   signals:{mos:false,tenCap:false,pbt:false}},
 V:{name:"Visa",currency:"USD",moat:"Wide",sector:"Payments",flag:"🇺🇸",status:"watchlist",
-  tdSymbol:"V",priceMult:1,currentPrice:317,
+  finnhubSymbol:"V",priceMult:1,currentPrice:317,
   cons:{sticker:196,mos:98,tenCap:120,pbt:165,pbtYrs:null,gr:12.55,oe:11.07,fcf:null},
   phil:{sticker:370,mos:171,tenCap:142,pbt:185,gr:15.44,score:"74"},
   signals:{mos:false,tenCap:false,pbt:false}},
 MCO:{name:"Moody's",currency:"USD",moat:"Wide",sector:"Credit Ratings",flag:"🇺🇸",status:"watchlist",
-  tdSymbol:"MCO",priceMult:1,currentPrice:445,
+  finnhubSymbol:"MCO",priceMult:1,currentPrice:445,
   cons:{sticker:252,mos:126,tenCap:144,pbt:199,pbtYrs:null,gr:11,oe:14.72,fcf:null},phil:null,
   signals:{mos:false,tenCap:false,pbt:false}},
 AUTO:{name:"Auto Trader",currency:"GBp",moat:"Wide",sector:"Auto Marketplace",flag:"🇬🇧",status:"watchlist",
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,notifyEnabled:false,notifyInterval:15,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -443,8 +443,6 @@ function load(){
   if(!settings.dpDivisor)settings.dpDivisor=6;
   if(!settings.dpFloor)settings.dpFloor=2000;
   // Migration: add notification settings if missing
-  if(settings.notifyEnabled===undefined)settings.notifyEnabled=false;
-  if(!settings.notifyInterval)settings.notifyInterval=15;
   // Migration: add push notification settings if missing
   if(!settings.pushWorkerUrl)settings.pushWorkerUrl="";
   if(settings.pushSubscribed===undefined)settings.pushSubscribed=false;
@@ -478,7 +476,7 @@ function load(){
 function save(){localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));}
 
 async function fetchPrices(){
-  if(!settings.apiKey&&!settings.ibkrWorker){document.getElementById("refresh-status").textContent="⚠ Set API key or Worker URL";return;}
+  if(!settings.ibkrWorker){document.getElementById("refresh-status").textContent="⚠ Set Worker URL in Settings";return;}
   const el=document.getElementById("refresh-status");el.textContent="Fetching...";
 
   // 1. IBKR auto-sync (silent — gets positions + prices for all held stocks)
@@ -493,7 +491,7 @@ async function fetchPrices(){
     if(fxD.rates?.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
   }catch(e){}
 
-  // 3. Yahoo Finance for European stocks via Cloudflare Worker proxy (no API key needed)
+  // 3. Yahoo Finance for all stocks via Cloudflare Worker proxy
   let yfOk=0;
   if(settings.ibkrWorker){
     const yfStocks=Object.entries(stocks).filter(([t,s])=>s.finnhubSymbol);
@@ -513,19 +511,6 @@ async function fetchPrices(){
     }
   }
 
-  // 4. Twelve Data for US watchlist stocks (not held in IBKR)
-  const map={};Object.keys(stocks).forEach(t=>{if(stocks[t].tdSymbol)map[stocks[t].tdSymbol]=t;});
-  const syms=Object.keys(map);const batches=[];for(let i=0;i<syms.length;i+=8)batches.push(syms.slice(i,i+8));
-  let ok=0;
-  if(settings.apiKey){
-  for(const b of batches){
-    try{const r=await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(b.join(","))}&apikey=${settings.apiKey}`);const d=await r.json();
-      if(b.length===1){if(d.price){stocks[map[b[0]]].currentPrice=parseFloat(d.price)*stocks[map[b[0]]].priceMult;stocks[map[b[0]]].lastUpdate=Date.now();stocks[map[b[0]]].priceSource="api";updateSignals(map[b[0]]);ok++;}}
-      else b.forEach(s=>{const e=d[s];if(e?.price){stocks[map[s]].currentPrice=parseFloat(e.price)*stocks[map[s]].priceMult;stocks[map[s]].lastUpdate=Date.now();stocks[map[s]].priceSource="api";updateSignals(map[s]);ok++;}});
-      if(batches.indexOf(b)<batches.length-1)await new Promise(r=>setTimeout(r,1200));
-    }catch(e){}
-  }
-  }
   settings.lastFetch=Date.now();save();render();
   // Check for new signals and celebrate
   const newFires=checkNewSignals();
@@ -535,7 +520,7 @@ async function fetchPrices(){
   }
   showBuyModals();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
-  const parts=[`${ok} prices`];
+  const parts=[];
   if(yfOk)parts.push(`YF✓${yfOk}`);
   if(ibkrOk)parts.push(`IBKR✓`);
   if(fxOk)parts.push(`FX✓`);
@@ -930,7 +915,7 @@ function exportExcel(){
   // Sheet 3: Settings
   const stRows=[
     {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},
-    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"dpDivisor",value:settings.dpDivisor},{key:"dpFloor",value:settings.dpFloor},{key:"notifyEnabled",value:settings.notifyEnabled},{key:"notifyInterval",value:settings.notifyInterval},{key:"apiKey",value:settings.apiKey||""},
+    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"dpDivisor",value:settings.dpDivisor},{key:"dpFloor",value:settings.dpFloor},
     {key:"ibkrWorker",value:settings.ibkrWorker||""},{key:"ibkrTokenPersonal",value:settings.ibkrTokenPersonal||""},{key:"ibkrQueryPersonal",value:settings.ibkrQueryPersonal||""},
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
     {key:"dryPowder_personal",value:portfolios.personal?.dryPowder||0},
@@ -1024,9 +1009,6 @@ function handleExcelImport(e){
           if(k==="monthlyIncomeUSD"&&val!=null)settings.monthlyIncomeUSD=Number(val);
           if(k==="dpDivisor"&&val!=null)settings.dpDivisor=Number(val);
           if(k==="dpFloor"&&val!=null)settings.dpFloor=Number(val);
-          if(k==="notifyEnabled"&&val!=null)settings.notifyEnabled=val===true||val==="true";
-          if(k==="notifyInterval"&&val!=null)settings.notifyInterval=Number(val);
-          if(k==="apiKey"&&val!=null)settings.apiKey=String(val);
           if(k==="dryPowder_personal"&&val!=null)portfolios.personal.dryPowder=Number(val);
           if(k==="dryPowder_nl"&&val!=null)portfolios.nl.dryPowder=Number(val);
           nSet++;
@@ -1852,25 +1834,9 @@ function setPriority(t){
 function renderSettings(c){
   const GRID=getGrid(),wl=getWatchlist();
   let h=`<div class="settings-section"><div style="font-size:16px;font-weight:700;margin-bottom:16px">Settings</div>
-    <div class="settings-card"><div class="settings-title">📡 API Key</div>
-      <div style="margin:4px 0"><div class="settings-desc">TwelveData (US stocks)</div>
-      <input class="settings-input" id="api-key-input" type="text" placeholder="twelvedata.com key" value="${settings.apiKey||""}"></div>
-      <div style="font-size:9px;color:var(--muted);margin:2px 0">EU/UK prices auto-fetch via Worker (Yahoo Finance proxy)</div>
-      <button class="settings-save" onclick="settings.apiKey=document.getElementById('api-key-input').value.trim();save();render();if(settings.apiKey||settings.ibkrWorker)fetchPrices();">Save</button></div>
-
-    <div class="settings-card"><div class="settings-title">🔔 Alerts</div>
-      <div class="settings-desc">Notifies when a stock drops below a buy trigger. In-app checks run while the app is open; push alerts run on Cloudflare every 15 min even when the app is closed.</div>
-      <div style="margin:10px 0 6px;font-size:11px;font-weight:700;color:var(--muted)">IN-APP</div>
-      <div style="display:flex;align-items:center;gap:10px;margin:4px 0">
-        <button class="settings-save" style="background:${settings.notifyEnabled?"#1a3322":"var(--bg)"};color:${settings.notifyEnabled?"var(--green)":"var(--text)"}" onclick="toggleNotifications(${!settings.notifyEnabled})">${settings.notifyEnabled?"✓ ON":"OFF"}</button>
-        <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px;color:var(--muted)">Every</span><input class="settings-input" type="number" style="width:50px;margin:0" min="5" max="60" value="${settings.notifyInterval}" onchange="settings.notifyInterval=Math.max(5,+this.value);save();restartRefreshTimer()"><span style="font-size:11px;color:var(--muted)">min</span></div></div>
-      <div style="font-size:9px;color:var(--muted)">${settings.notifyEnabled?
-        (lastCheckResult?`Last: ${timeAgo(lastCheckResult.time)} — ${lastCheckResult.marketsOpen===false?"markets closed":lastCheckResult.fires?lastCheckResult.fires+" NEW 🔥":"no new signals"}`
-        :"Waiting for first check"+(isAnyMarketOpen()?` (~${settings.notifyInterval}m)`:" (markets closed)"))
-        :"Disabled"}</div>
-      ${settings.notifyEnabled?`<div style="margin-top:6px;display:flex;gap:8px"><button class="settings-save" style="font-size:11px;padding:4px 10px" onclick="manualCheck()">▶ Run Now</button><button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="navigator.serviceWorker.ready.then(r=>r.showNotification('🎯 Test: SFM hit Ten Cap',{body:'Sprouts at $74.00',tag:'ttt-test-2'}))">🔔 Test</button></div>`:""}
-      <div style="margin:14px 0 6px;font-size:11px;font-weight:700;color:var(--muted);border-top:1px solid var(--border);padding-top:10px">PUSH (BACKGROUND)</div>
-      <div style="margin:4px 0"><div class="settings-desc">Worker URL</div><input class="settings-input" id="push-worker-url" type="text" placeholder="https://ttt-push-alerts.your-account.workers.dev" value="${settings.pushWorkerUrl||""}"></div>
+    <div class="settings-card"><div class="settings-title">🔔 Push Alerts</div>
+      <div class="settings-desc">Cloudflare Worker checks prices every 15 min during market hours and sends push notifications even when the app is closed.</div>
+      <div style="margin:8px 0"><div class="settings-desc">Worker URL</div><input class="settings-input" id="push-worker-url" type="text" placeholder="https://ttt-push-alerts.your-account.workers.dev" value="${settings.pushWorkerUrl||""}"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
         ${settings.pushSubscribed
           ?`<button class="settings-save" style="background:#1a3322;color:var(--green)" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();syncTriggersToCloud()">☁ Sync Triggers</button>
@@ -1921,7 +1887,7 @@ function renderSettings(c){
 
     <div class="settings-card"><div class="settings-title" style="color:var(--red)">🗑 Factory Reset</div>
       <div class="settings-desc">Wipes ALL data (positions, triggers, settings, IBKR keys). After reset, re-import your CSV or Excel backup to restore.</div>
-      <button class="settings-save" style="background:#3b1111;color:var(--red)" onclick="if(confirm('⚠ Delete ALL data and reset to defaults?')&&confirm('This cannot be undone. Are you sure?')){const keep={apiKey:settings.apiKey,ibkrWorker:settings.ibkrWorker,ibkrTokenPersonal:settings.ibkrTokenPersonal,ibkrQueryPersonal:settings.ibkrQueryPersonal,ibkrTokenNl:settings.ibkrTokenNl,ibkrQueryNl:settings.ibkrQueryNl};localStorage.clear();localStorage.setItem('r1-keep',JSON.stringify(keep));location.reload();}">Wipe & Reset</button></div>
+      <button class="settings-save" style="background:#3b1111;color:var(--red)" onclick="if(confirm('⚠ Delete ALL data and reset to defaults?')&&confirm('This cannot be undone. Are you sure?')){const keep={ibkrWorker:settings.ibkrWorker,ibkrTokenPersonal:settings.ibkrTokenPersonal,ibkrQueryPersonal:settings.ibkrQueryPersonal,ibkrTokenNl:settings.ibkrTokenNl,ibkrQueryNl:settings.ibkrQueryNl};localStorage.clear();localStorage.setItem('r1-keep',JSON.stringify(keep));location.reload();}">Wipe & Reset</button></div>
   </div>`;c.innerHTML=h;
 }
 
@@ -1952,8 +1918,7 @@ function openEditStock(t){
   const s=stocks[t];if(!s)return;
   showModal(`Edit — ${t}`,[
     {id:"es-name",label:"Name",val:s.name},
-    {id:"es-td",label:"TwelveData Symbol",val:s.tdSymbol},
-    {id:"es-fh",label:"Yahoo Symbol",val:s.finnhubSymbol||"",placeholder:"WKL.AS or AUTO.L"},
+    {id:"es-fh",label:"Yahoo Symbol",val:s.finnhubSymbol||"",placeholder:"PGR, WKL.AS, AUTO.L"},
     {id:"es-price",label:"Current Price",val:s.currentPrice,type:"number"},
     {id:"es-moat",label:"Moat",val:s.moat==="Wide"?"Excellent":s.moat==="Narrow"?"Strong":s.moat,select:["Excellent","Strong"]},
     {id:"es-gr",label:"Growth %",val:s.cons.gr,type:"number"},
@@ -1968,7 +1933,7 @@ function openEditStock(t){
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
   ],()=>{
-    s.name=gv("es-name")||s.name;s.tdSymbol=gv("es-td")||s.tdSymbol;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
+    s.name=gv("es-name")||s.name;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;s.cons.gr=nv("es-gr")??s.cons.gr;
     s.cons.oe=nv("es-oe");s.cons.fcf=nv("es-fcf");
     s.cons.mos=nv("es-mos");s.cons.tenCap=nv("es-tc");
@@ -1999,8 +1964,7 @@ function openAddStock(){
     {id:"ns-name",label:"Name",val:"",placeholder:"Costco"},
     {id:"ns-ccy",label:"Currency",val:"USD",select:["USD","EUR","GBp"]},
     {id:"ns-moat",label:"Moat",val:"Excellent",select:["Excellent","Strong"]},
-    {id:"ns-td",label:"TwelveData Symbol",val:"",placeholder:"COST or AUTO:LSE"},
-    {id:"ns-fh",label:"Yahoo Symbol",val:"",placeholder:"WKL.AS or AUTO.L"},
+    {id:"ns-fh",label:"Yahoo Symbol",val:"",placeholder:"COST, WKL.AS, AUTO.L"},
     {id:"ns-price",label:"Current Price",val:"",type:"number"},
     "— Cash Flow Inputs —",
     {id:"ns-oe",label:"OE/share (→ Ten Cap)",val:"",type:"number"},
@@ -2021,7 +1985,7 @@ function openAddStock(){
     if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
     const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
-      status:"watchlist",tdSymbol:gv("ns-td")||t,finnhubSymbol:gv("ns-fh")||undefined,priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
+      status:"watchlist",finnhubSymbol:gv("ns-fh")||t,priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker:mos?mos*2:null,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false}};
     updateSignals(t);save();
@@ -2149,7 +2113,7 @@ async function syncTriggersToCloud(){
       const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;
       if(!hasTriggers)return;
       alertStocks.push({
-        ticker:t,symbol:s.finnhubSymbol||s.tdSymbol||null,
+        ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
         triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
         signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}
@@ -2193,7 +2157,7 @@ async function checkFromCloud(){
   }catch(e){if(el)el.textContent="✕ "+e.message;}
 }
 
-// ============ ALERTS ============
+// ============ AUTO-REFRESH ============
 // Market hours in UTC for each exchange family
 function isMarketOpen(ccy){
   const now=new Date();const d=now.getUTCDay();if(d===0||d===6)return false;
@@ -2207,8 +2171,10 @@ function isAnyMarketOpen(){
 }
 
 // Send browser notification for new trigger fires (via SW for Android compatibility)
+// This fires when the app is open and a new signal is detected during auto-refresh.
+// The Cloudflare Worker handles notifications when the app is closed.
 function sendTriggerNotification(fires){
-  if(!fires.length||!settings.notifyEnabled)return;
+  if(!fires.length)return;
   if(Notification.permission!=="granted")return;
   navigator.serviceWorker.ready.then(reg=>{
     fires.forEach(f=>{
@@ -2222,46 +2188,18 @@ function sendTriggerNotification(fires){
   });
 }
 
-// ============ UNIFIED REFRESH TIMER ============
-// Single timer for both price refresh and alert notifications.
-// fetchPrices() already handles signal detection + sendTriggerNotification via checkNewSignals.
+// Silent auto-refresh: keeps prices current while app is open
 let refreshTimer=null;
-let lastCheckResult=null;
+const REFRESH_MS=15*60*1000; // 15 min
 
-async function timedRefresh(){
-  if(!isAnyMarketOpen()){lastCheckResult={time:Date.now(),fires:0,marketsOpen:false};render();return;}
-  const prevCount=Object.keys(stocks).reduce((n,t)=>{const s=stocks[t].signals;return n+(s?.mos?1:0)+(s?.tenCap?1:0)+(s?.pbt?1:0);},0);
+async function autoRefresh(){
+  if(!isAnyMarketOpen())return;
   await fetchPrices();
-  const nowCount=Object.keys(stocks).reduce((n,t)=>{const s=stocks[t].signals;return n+(s?.mos?1:0)+(s?.tenCap?1:0)+(s?.pbt?1:0);},0);
-  lastCheckResult={time:Date.now(),fires:Math.max(0,nowCount-prevCount),marketsOpen:true};
-  render();
 }
 
-async function manualCheck(){
-  lastCheckResult=null;render();
-  await fetchPrices();
-  lastCheckResult={time:Date.now(),fires:0,marketsOpen:true};
-  render();
-}
-
-function restartRefreshTimer(){
+function startRefreshTimer(){
   if(refreshTimer)clearInterval(refreshTimer);
-  const ms=settings.notifyEnabled?Math.max(5,settings.notifyInterval)*60*1000:(settings.fetchInterval||1800000);
-  refreshTimer=setInterval(timedRefresh,ms);
-}
-
-async function toggleNotifications(enable){
-  if(enable){
-    if(!('Notification' in window)){alert('This browser does not support notifications.');return;}
-    const perm=await Notification.requestPermission();
-    if(perm!=='granted'){alert('Notification permission denied. Enable in browser settings.');settings.notifyEnabled=false;save();render();return;}
-    settings.notifyEnabled=true;save();render();restartRefreshTimer();
-    navigator.serviceWorker.ready.then(reg=>{
-      reg.showNotification('🎯 TTT Alerts Enabled',{body:`Checking every ${settings.notifyInterval} min during market hours`,tag:'ttt-test'});
-    });
-  }else{
-    settings.notifyEnabled=false;save();render();restartRefreshTimer();
-  }
+  refreshTimer=setInterval(autoRefresh,REFRESH_MS);
 }
 
 // ============ INIT ============
@@ -2270,14 +2208,13 @@ load();render();
 Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
 fetchPrices();
-restartRefreshTimer();
+startRefreshTimer();
 
 // Catch up when app regains focus (Android suspends background timers)
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible'){
-    const ms=settings.notifyEnabled?Math.max(5,settings.notifyInterval)*60*1000:(settings.fetchInterval||1800000);
-    const last=lastCheckResult?.time||0;
-    if(Date.now()-last>=ms)timedRefresh();
+    const last=settings.lastFetch||0;
+    if(Date.now()-last>=REFRESH_MS)autoRefresh();
   }
 });
 </script>
