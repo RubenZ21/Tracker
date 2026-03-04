@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.67</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.68</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1698,14 +1698,15 @@ function renderAllocator(c){
   }else{
     // === CACA (NL) CLOSED FUND ALLOCATOR ===
     const nlPos=pf.positions;const nlTickers=Object.keys(nlPos);
-    // Portfolio value excluding ASML trophy
-    let pvExcl=0;let slotsFilled=0;
+    // Full portfolio value including all positions
+    let pvTotal=0;let slotsFilled=0;
     nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
+      pvTotal+=toEUR(sh*s.currentPrice,s.currency);
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");
-      if(!isTrophy){pvExcl+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
-    pvExcl+=pf.dryPowder; // DP is EUR for caca
+      if(!isTrophy)slotsFilled+=posTranchesOwned(nlPos[t]);});
+    pvTotal+=pf.dryPowder; // DP is EUR for caca
     const TARGET_STOCKS=5;const TARGET_SLOTS=TARGET_STOCKS*3;
-    const targetTr=Math.round(pvExcl/TARGET_SLOTS);
+    const targetTr=Math.round(pvTotal/TARGET_SLOTS);
     const dpCovers=targetTr>0?Math.floor(pf.dryPowder/targetTr):0;
     const MIN_FLOOR=1500;
     const dpOk=pf.dryPowder>=MIN_FLOOR;
@@ -1730,12 +1731,12 @@ function renderAllocator(c){
         <span style="font-size:14px;font-weight:700">Closed Fund</span>
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio (excl ASML)</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvExcl).toLocaleString()}</div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal).toLocaleString()}</div></div>
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div></div></div>
       <div style="display:flex;gap:8px">
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div></div>
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Covers</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${dpCovers>=3?"var(--green)":dpCovers>=1?"var(--amber)":"var(--red)"}">${dpCovers} tranche${dpCovers!==1?"s":""}</div></div></div>
-      <div style="margin-top:6px"><input type="number" class="settings-input" style="margin:0;font-size:15px" value="${pf.dryPowder}" onchange="portfolios.nl.dryPowder=+this.value;save();render()"></div></div>`;
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px">via IBKR sync</div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Covers</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${dpCovers>=3?"var(--green)":dpCovers>=1?"var(--amber)":"var(--red)"}">${dpCovers} tranche${dpCovers!==1?"s":""}</div></div></div></div>`;
 
     // Scenario: what if N triggers fire?
     h+=`<div class="alloc-card" style="margin-bottom:12px">
