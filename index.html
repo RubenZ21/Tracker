@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.71</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.72</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2095,18 +2095,19 @@ async function saveAlertConfig(){
   }catch(e){}
 }
 
-// Send browser notification for new trigger fires
+// Send browser notification for new trigger fires (via SW for Android compatibility)
 function sendTriggerNotification(fires){
   if(!fires.length||!settings.notifyEnabled)return;
   if(Notification.permission!=="granted")return;
-  fires.forEach(f=>{
-    const s=stocks[f.ticker];if(!s)return;
-    const price=s.currentPrice?fmt(s.currentPrice,s.currency):"?";
-    const label=f.wl?"📡 Watchlist":"🔥 Grid";
-    try{new Notification(`${label}: ${f.ticker} hit ${f.signal}`,{
-      body:`${s.name} at ${price}`,icon:"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>",
-      tag:`ttt-${f.ticker}-${f.signal}`,renotify:true
-    });}catch(e){}
+  navigator.serviceWorker.ready.then(reg=>{
+    fires.forEach(f=>{
+      const s=stocks[f.ticker];if(!s)return;
+      const price=s.currentPrice?fmt(s.currentPrice,s.currency):"?";
+      const label=f.wl?"📡 Watchlist":"🔥 Grid";
+      reg.showNotification(`${label}: ${f.ticker} hit ${f.signal}`,{
+        body:`${s.name} at ${price}`,tag:`ttt-${f.ticker}-${f.signal}`,renotify:true
+      }).catch(()=>{});
+    });
   });
 }
 
@@ -2155,8 +2156,10 @@ async function toggleNotifications(enable){
     const perm=await Notification.requestPermission();
     if(perm!=='granted'){alert('Notification permission denied. Enable in browser settings.');settings.notifyEnabled=false;save();render();return;}
     settings.notifyEnabled=true;save();render();startAlerts();
-    // Show test notification
-    new Notification('🎯 TTT Alerts Enabled',{body:`Checking every ${settings.notifyInterval} min during market hours`,tag:'ttt-test'});
+    // Show test notification via SW (required on Android)
+    navigator.serviceWorker.ready.then(reg=>{
+      reg.showNotification('🎯 TTT Alerts Enabled',{body:`Checking every ${settings.notifyInterval} min during market hours`,tag:'ttt-test'});
+    });
   }else{
     settings.notifyEnabled=false;save();render();stopAlerts();
   }
