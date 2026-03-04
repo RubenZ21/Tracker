@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.70</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.71</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000};
+let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,notifyEnabled:false,notifyInterval:15};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -442,6 +442,9 @@ function load(){
   // Migration: add dpDivisor and dpFloor if missing
   if(!settings.dpDivisor)settings.dpDivisor=6;
   if(!settings.dpFloor)settings.dpFloor=2000;
+  // Migration: add notification settings if missing
+  if(settings.notifyEnabled===undefined)settings.notifyEnabled=false;
+  if(!settings.notifyInterval)settings.notifyInterval=15;
   // Migration: add state to tranches if missing
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -917,7 +920,7 @@ function exportExcel(){
   // Sheet 3: Settings
   const stRows=[
     {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},
-    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"dpDivisor",value:settings.dpDivisor},{key:"dpFloor",value:settings.dpFloor},{key:"apiKey",value:settings.apiKey||""},
+    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"dpDivisor",value:settings.dpDivisor},{key:"dpFloor",value:settings.dpFloor},{key:"notifyEnabled",value:settings.notifyEnabled},{key:"notifyInterval",value:settings.notifyInterval},{key:"apiKey",value:settings.apiKey||""},
     {key:"ibkrWorker",value:settings.ibkrWorker||""},{key:"ibkrTokenPersonal",value:settings.ibkrTokenPersonal||""},{key:"ibkrQueryPersonal",value:settings.ibkrQueryPersonal||""},
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
     {key:"dryPowder_personal",value:portfolios.personal?.dryPowder||0},
@@ -1011,6 +1014,8 @@ function handleExcelImport(e){
           if(k==="monthlyIncomeUSD"&&val!=null)settings.monthlyIncomeUSD=Number(val);
           if(k==="dpDivisor"&&val!=null)settings.dpDivisor=Number(val);
           if(k==="dpFloor"&&val!=null)settings.dpFloor=Number(val);
+          if(k==="notifyEnabled"&&val!=null)settings.notifyEnabled=val===true||val==="true";
+          if(k==="notifyInterval"&&val!=null)settings.notifyInterval=Number(val);
           if(k==="apiKey"&&val!=null)settings.apiKey=String(val);
           if(k==="dryPowder_personal"&&val!=null)portfolios.personal.dryPowder=Number(val);
           if(k==="dryPowder_nl"&&val!=null)portfolios.nl.dryPowder=Number(val);
@@ -1843,6 +1848,13 @@ function renderSettings(c){
       <div style="font-size:9px;color:var(--muted);margin:2px 0">EU/UK prices auto-fetch via Worker (Yahoo Finance proxy)</div>
       <button class="settings-save" onclick="settings.apiKey=document.getElementById('api-key-input').value.trim();save();render();if(settings.apiKey||settings.ibkrWorker)fetchPrices();">Save</button></div>
 
+    <div class="settings-card"><div class="settings-title">🔔 Price Alerts</div>
+      <div class="settings-desc">Get notified when a stock drops below a buy trigger. Checks during market hours only (LSE 11:00–19:30 · Euronext 12:00–20:30 · NYSE 17:30–00:00 AST).</div>
+      <div style="display:flex;align-items:center;gap:10px;margin:8px 0">
+        <button class="settings-save" style="background:${settings.notifyEnabled?"#1a3322":"var(--bg)"};color:${settings.notifyEnabled?"var(--green)":"var(--text)"}" onclick="toggleNotifications(${!settings.notifyEnabled})">${settings.notifyEnabled?"✓ Alerts ON":"Alerts OFF"}</button>
+        <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px;color:var(--muted)">Every</span><input class="settings-input" type="number" style="width:50px;margin:0" min="5" max="60" value="${settings.notifyInterval}" onchange="settings.notifyInterval=Math.max(5,+this.value);save();if(settings.notifyEnabled)startAlerts()"><span style="font-size:11px;color:var(--muted)">min</span></div></div>
+      <div style="font-size:9px;color:var(--muted)">${settings.notifyEnabled?"Next check: "+(!isAnyMarketOpen()?"markets closed — waiting":"~"+settings.notifyInterval+" min"):"Disabled — no background checks"}</div></div>
+
     <div class="settings-card"><div class="settings-title">🏦 IBKR Sync</div>
       <div class="settings-desc">Auto-sync positions & cash from IBKR. Each portfolio has its own account.</div>
       <div style="margin:8px 0"><div class="settings-desc">Worker URL (shared)</div><input class="settings-input" id="ibkr-worker" type="text" placeholder="https://your-worker.workers.dev" value="${settings.ibkrWorker||""}"></div>
@@ -2052,6 +2064,104 @@ function showModal(title,fields,onSave,onDelete){
   if(onDelete)document.getElementById("modal-del-btn").onclick=()=>{const r=onDelete();if(r===false)return;ov.remove();render();};
 }
 
+// ============ PRICE ALERTS (Layer 1: in-page timer) ============
+// Market hours in UTC for each exchange family
+// LSE: 08:00-16:30 UTC, Euronext: 09:00-17:30 UTC, NYSE/NASDAQ: 14:30-21:00 UTC
+function isMarketOpen(ccy){
+  const now=new Date();const d=now.getUTCDay();if(d===0||d===6)return false; // weekends
+  const hm=now.getUTCHours()*60+now.getUTCMinutes();
+  if(ccy==="GBp")return hm>=480&&hm<=990;      // 08:00-16:30
+  if(ccy==="EUR")return hm>=540&&hm<=1050;      // 09:00-17:30
+  return hm>=870&&hm<=1260;                      // 14:30-21:00 (USD default)
+}
+function isAnyMarketOpen(){
+  return ["USD","EUR","GBp"].some(c=>isMarketOpen(c));
+}
+
+// Save compact alert config to cache so SW can read it for Layer 2 (periodicSync)
+async function saveAlertConfig(){
+  if(!settings.notifyEnabled)return;
+  try{
+    const alertStocks=[];
+    Object.entries(stocks).forEach(([t,s])=>{
+      if(!s.cons)return;const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;if(!hasTriggers)return;
+      alertStocks.push({ticker:t,symbol:s.finnhubSymbol||null,currency:s.currency,priceMult:s.priceMult||1,
+        triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
+        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}});
+    });
+    const config={workerUrl:settings.ibkrWorker||"",stocks:alertStocks};
+    const cache=await caches.open('ttt-alerts');
+    await cache.put('/alert-config',new Response(JSON.stringify(config),{headers:{'Content-Type':'application/json'}}));
+  }catch(e){}
+}
+
+// Send browser notification for new trigger fires
+function sendTriggerNotification(fires){
+  if(!fires.length||!settings.notifyEnabled)return;
+  if(Notification.permission!=="granted")return;
+  fires.forEach(f=>{
+    const s=stocks[f.ticker];if(!s)return;
+    const price=s.currentPrice?fmt(s.currentPrice,s.currency):"?";
+    const label=f.wl?"📡 Watchlist":"🔥 Grid";
+    try{new Notification(`${label}: ${f.ticker} hit ${f.signal}`,{
+      body:`${s.name} at ${price}`,icon:"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>",
+      tag:`ttt-${f.ticker}-${f.signal}`,renotify:true
+    });}catch(e){}
+  });
+}
+
+// Silent price fetch + check (no render, just notify)
+let alertTimer=null;
+async function alertCheck(){
+  if(!settings.notifyEnabled||!isAnyMarketOpen())return;
+  if(Notification.permission!=="granted")return;
+  // Snapshot signals before fetch
+  const before={};Object.keys(stocks).forEach(t=>{if(stocks[t].signals)before[t]={...stocks[t].signals};});
+  // Reuse full fetchPrices which updates signals and renders
+  await fetchPrices();
+  // Compare: find newly fired signals
+  const fires=[];
+  Object.keys(stocks).forEach(t=>{
+    const s=stocks[t];if(!s?.signals)return;const prev=before[t]||{mos:false,tenCap:false,pbt:false};
+    const isWl=s.status==="watchlist";
+    if(s.signals.mos&&!prev.mos)fires.push({ticker:t,signal:"MOS",wl:isWl});
+    if(s.signals.tenCap&&!prev.tenCap)fires.push({ticker:t,signal:"Ten Cap",wl:isWl});
+    if(s.signals.pbt&&!prev.pbt)fires.push({ticker:t,signal:"PBT",wl:isWl});
+  });
+  sendTriggerNotification(fires);
+  saveAlertConfig(); // keep SW cache up to date with latest signals
+}
+
+function startAlerts(){
+  stopAlerts();
+  if(!settings.notifyEnabled)return;
+  const ms=Math.max(5,settings.notifyInterval)*60*1000; // minimum 5 min
+  alertTimer=setInterval(alertCheck,ms);
+  saveAlertConfig(); // persist for SW Layer 2
+  // Register periodicSync in SW (Layer 2 — best effort)
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.ready.then(reg=>{
+      if(reg.periodicSync)reg.periodicSync.register('price-alert',{minInterval:ms}).catch(()=>{});
+    });
+  }
+}
+function stopAlerts(){
+  if(alertTimer){clearInterval(alertTimer);alertTimer=null;}
+}
+
+async function toggleNotifications(enable){
+  if(enable){
+    if(!('Notification' in window)){alert('This browser does not support notifications.');return;}
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted'){alert('Notification permission denied. Enable in browser settings.');settings.notifyEnabled=false;save();render();return;}
+    settings.notifyEnabled=true;save();render();startAlerts();
+    // Show test notification
+    new Notification('🎯 TTT Alerts Enabled',{body:`Checking every ${settings.notifyInterval} min during market hours`,tag:'ttt-test'});
+  }else{
+    settings.notifyEnabled=false;save();render();stopAlerts();
+  }
+}
+
 // ============ INIT ============
 load();render();
 // Snapshot current signals so first fetch doesn't false-celebrate
@@ -2059,6 +2169,8 @@ Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t
 setInterval(()=>{if(settings.apiKey)fetchPrices();},settings.fetchInterval||1800000);
 if(settings.apiKey)fetchPrices();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
+// Start price alert timer if enabled
+if(settings.notifyEnabled&&Notification.permission==='granted')startAlerts();
 </script>
 </body>
 </html>
