@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.65</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.67</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1635,7 +1635,145 @@ function renderAllocator(c){
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${sig?"var(--green)":"var(--muted)"}">${fmt(Math.round(localAlloc),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh</div></div></div>`;});
     h+=`</div>`;
     h+=`</div>`; // close alloc-waiting wrapper
-  }else h+=`<div class="alloc-card"><div style="font-size:13px;color:var(--muted)">Closed fund. DP €${pf.dryPowder.toLocaleString()} deploys at MOS only.</div></div>`;
+
+    // === NEW ENTRY DEPLOYMENT (Personal DP ÷6 rule) ===
+    if(pf.dryPowder>0){
+      const dp=pf.dryPowder;const trSize=Math.max(Math.round(dp/6),2000);const maxDeploys=Math.min(6,Math.floor(dp/trSize));
+      const wl=getWatchlist().filter(t=>stocks[t].status==="watchlist");
+      // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
+      const ready=[];
+      wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
+        const triggers=[];
+        if(s.cons.pbt&&s.currentPrice<=s.cons.pbt)triggers.push("PBT");
+        if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap)triggers.push("10Cap");
+        if(s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
+        const pending=[];
+        if(s.cons.pbt&&!triggers.includes("PBT"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+        if(s.cons.tenCap&&!triggers.includes("10Cap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+        if(s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
+        if(!triggers.length&&!pending.length)return;
+        const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
+        ready.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length});});
+      // Sort: firing stocks first (most triggers), then by nearest gap ascending
+      ready.sort((a,b)=>b.firingCount-a.firingCount||a.nearest-b.nearest);
+
+      h+=`<div class="alloc-card" style="margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">÷6 rule</span></div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">$${Math.round(dp).toLocaleString()}</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Tranche (max DP÷6, $2k)</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">$${trSize.toLocaleString()}</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Max Deploys</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${maxDeploys}</div></div></div>`;
+
+      if(!ready.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No watchlist stocks with triggers populated.</div>`;}
+      else{
+        // Show firing stocks first
+        const firing=ready.filter(r=>r.firingCount>0);
+        if(firing.length){
+          h+=`<div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:4px">🔥 FIRING NOW</div>`;
+          firing.forEach(r=>{const s=stocks[r.ticker];const deployUSD=r.firingCount*trSize;const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+            h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
+                <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.firingCount} trigger${r.firingCount>1?"s":""} × $${trSize.toLocaleString()} = $${deployUSD.toLocaleString()}</div></div>`;});
+        }
+
+        // Show pending stocks (not firing yet)
+        const pending=ready.filter(r=>r.firingCount===0);
+        if(pending.length){
+          h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">WATCHLIST — closest to trigger</div>`;
+          pending.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.length?r.pending.reduce((a,b)=>a.gap<b.gap?a:b):null;
+            const trigCount=r.pending.length;const deployUSD=trigCount*trSize;const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+            h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--amber);margin-left:6px">${nearestP?Math.round(nearestP.gap)+"% to "+nearestP.name:"—"}</span></div>
+                <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${fmt(Math.round(localDeploy),s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.pending.map(p=>p.name+" "+fmt(p.price,s.currency)).join(" · ")}</div></div>`;});
+        }
+      }
+      h+=`</div>`;
+    }
+  }else{
+    // === CACA (NL) CLOSED FUND ALLOCATOR ===
+    const nlPos=pf.positions;const nlTickers=Object.keys(nlPos);
+    // Portfolio value excluding ASML trophy
+    let pvExcl=0;let slotsFilled=0;
+    nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
+      const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");
+      if(!isTrophy){pvExcl+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
+    pvExcl+=pf.dryPowder; // DP is EUR for caca
+    const TARGET_STOCKS=5;const TARGET_SLOTS=TARGET_STOCKS*3;
+    const targetTr=Math.round(pvExcl/TARGET_SLOTS);
+    const dpCovers=targetTr>0?Math.floor(pf.dryPowder/targetTr):0;
+    const MIN_FLOOR=1500;
+    const dpOk=pf.dryPowder>=MIN_FLOOR;
+
+    // Tier 2 candidates: 0/3 signals AND price > sticker
+    const tier2=[];
+    nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
+      const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");if(isTrophy)return;
+      const sig=sigCount(t);const stk=s.cons?.sticker||(s.cons?.mos?s.cons.mos*2:null);
+      if(sig===0&&stk&&s.currentPrice>stk){
+        const gap=((s.currentPrice-stk)/stk*100).toFixed(0);
+        const available=toEUR(sh*s.currentPrice,s.currency);
+        tier2.push({ticker:t,gap,available,price:s.currentPrice,sticker:stk,currency:s.currency});}});
+    tier2.sort((a,b)=>b.gap-a.gap); // highest gap above sticker first
+
+    // Current grid stocks (non-trophy)
+    const gridStocks=nlTickers.filter(t=>{const sh=posShares(nlPos[t]);return sh>0&&!nlPos[t].tranches.every(tr=>tr.signal==="trophy");});
+    const stockCount=gridStocks.length;
+
+    h+=`<div class="alloc-card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:14px;font-weight:700">Closed Fund</span>
+        <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio (excl ASML)</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvExcl).toLocaleString()}</div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div></div></div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Covers</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${dpCovers>=3?"var(--green)":dpCovers>=1?"var(--amber)":"var(--red)"}">${dpCovers} tranche${dpCovers!==1?"s":""}</div></div></div>
+      <div style="margin-top:6px"><input type="number" class="settings-input" style="margin:0;font-size:15px" value="${pf.dryPowder}" onchange="portfolios.nl.dryPowder=+this.value;save();render()"></div></div>`;
+
+    // Scenario: what if N triggers fire?
+    h+=`<div class="alloc-card" style="margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">If a new stock triggers…</div>`;
+    [1,2,3].forEach(n=>{
+      const need=n*targetTr;const dpShort=Math.max(0,need-pf.dryPowder);
+      const tier2Avail=tier2.reduce((s,x)=>s+x.available,0);
+      const canFund=pf.dryPowder>=need;const canTier2=!canFund&&dpShort<=tier2Avail;const mustDefer=!canFund&&!canTier2&&pf.dryPowder<MIN_FLOOR;
+      const statusIcon=canFund?"✅":canTier2?"🔄":pf.dryPowder>=MIN_FLOOR?"⚠️":"❌";
+      const statusText=canFund?"Tier 1 — DP covers":canTier2?`Tier 2 — sell €${Math.round(dpShort).toLocaleString()} from ${tier2[0]?.ticker||"?"}`:pf.dryPowder>=MIN_FLOOR?"Tier 3 — undersized entry":"Below €1,500 floor — defer";
+      const statusCol=canFund?"var(--green)":canTier2?"var(--amber)":"var(--red)";
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+        <div><span style="font-size:12px;font-weight:600">${n} trigger${n>1?"s":""}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">€${Math.round(need).toLocaleString()} needed</span></div>
+        <span style="font-size:10px;font-family:var(--mono);color:${statusCol}">${statusIcon} ${statusText}</span></div>`;});
+    h+=`</div>`;
+
+    // Tier 2 candidates
+    h+=`<div class="alloc-card" style="margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">Tier 2 Sources <span style="font-size:10px;color:var(--muted);font-weight:400">0/3 + above sticker</span></div>`;
+    if(!tier2.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">None — all grid stocks have active signals or are below sticker.</div>`;}
+    else{tier2.forEach(t2=>{
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+        <div><span style="font-size:13px;font-weight:600">${stocks[t2.ticker]?.flag||""} ${t2.ticker}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">+${t2.gap}% above sticker</span></div>
+        <span style="font-size:12px;font-family:var(--mono);color:var(--amber)">€${Math.round(t2.available).toLocaleString()} available</span></div>`;});}
+    h+=`</div>`;
+
+    // Current holdings summary
+    h+=`<div class="alloc-card">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">Current Grid</div>`;
+    gridStocks.forEach(t=>{const s=stocks[t];const sh=posShares(nlPos[t]);const sig=sigCount(t);const nTr=posTranchesOwned(nlPos[t]);
+      const val=toEUR(sh*s.currentPrice,s.currency);const stk=s.cons?.sticker||(s.cons?.mos?s.cons.mos*2:null);
+      const aboveStk=stk&&s.currentPrice>stk;
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+        <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:${sig?"var(--green)":"var(--muted)"};margin-left:6px">${sig}/3 · ${nTr} tranche${nTr!==1?"s":""}</span></div>
+        <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">€${Math.round(val).toLocaleString()}</span></div>`;});
+    if(stockCount<TARGET_STOCKS){h+=`<div style="font-size:11px;color:var(--amber);margin-top:4px">${TARGET_STOCKS-stockCount} slot${TARGET_STOCKS-stockCount>1?"s":""} open — watchlist triggers will deploy DP</div>`;}
+    h+=`</div>`;
+  }
   h+=`</div>`;c.innerHTML=h;
 }
 
