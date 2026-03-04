@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.69</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.70</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000};
+let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -439,6 +439,9 @@ function load(){
   });
   // Migration: derive monthlyIncomeUSD if not set
   if(!settings.monthlyIncomeUSD&&settings.monthlyIncome){settings.monthlyIncomeUSD=Math.round(settings.monthlyIncome*settings.fxRate);}
+  // Migration: add dpDivisor and dpFloor if missing
+  if(!settings.dpDivisor)settings.dpDivisor=6;
+  if(!settings.dpFloor)settings.dpFloor=2000;
   // Migration: add state to tranches if missing
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -914,7 +917,7 @@ function exportExcel(){
   // Sheet 3: Settings
   const stRows=[
     {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},
-    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"apiKey",value:settings.apiKey||""},
+    {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"dpDivisor",value:settings.dpDivisor},{key:"dpFloor",value:settings.dpFloor},{key:"apiKey",value:settings.apiKey||""},
     {key:"ibkrWorker",value:settings.ibkrWorker||""},{key:"ibkrTokenPersonal",value:settings.ibkrTokenPersonal||""},{key:"ibkrQueryPersonal",value:settings.ibkrQueryPersonal||""},
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
     {key:"dryPowder_personal",value:portfolios.personal?.dryPowder||0},
@@ -1006,6 +1009,8 @@ function handleExcelImport(e){
           if(k==="fxGBP"&&val!=null)settings.fxGBP=Number(val);
           if(k==="monthlyIncome"&&val!=null)settings.monthlyIncome=Number(val);
           if(k==="monthlyIncomeUSD"&&val!=null)settings.monthlyIncomeUSD=Number(val);
+          if(k==="dpDivisor"&&val!=null)settings.dpDivisor=Number(val);
+          if(k==="dpFloor"&&val!=null)settings.dpFloor=Number(val);
           if(k==="apiKey"&&val!=null)settings.apiKey=String(val);
           if(k==="dryPowder_personal"&&val!=null)portfolios.personal.dryPowder=Number(val);
           if(k==="dryPowder_nl"&&val!=null)portfolios.nl.dryPowder=Number(val);
@@ -1638,7 +1643,7 @@ function renderAllocator(c){
 
     // === NEW ENTRY DEPLOYMENT (Personal DP ÷6 rule) ===
     if(pf.dryPowder>0){
-      const dp=pf.dryPowder;const trSize=Math.max(Math.round(dp/6),2000);const maxDeploys=Math.min(6,Math.floor(dp/trSize));
+      const dp=pf.dryPowder;const trSize=Math.max(Math.round(dp/settings.dpDivisor),settings.dpFloor);const maxDeploys=Math.min(settings.dpDivisor,Math.floor(dp/trSize));
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
       const wl=getWatchlist().filter(t=>stocks[t].status==="watchlist");
@@ -1662,10 +1667,11 @@ function renderAllocator(c){
       h+=`<div class="alloc-card" style="margin-top:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">÷6 rule</span></div>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">÷${settings.dpDivisor} rule</span></div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">$${Math.round(dp).toLocaleString()}</div></div>
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Tranche (max DP÷6, $2k)</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">$${trSize.toLocaleString()}</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Tranche</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">$${trSize.toLocaleString()}</div>
+            <div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.dpDivisor}" onchange="settings.dpDivisor=Math.max(1,+this.value);save();render()"><span style="font-size:9px;color:var(--muted)">floor $</span><input type="number" style="width:52px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.dpFloor}" onchange="settings.dpFloor=Math.max(0,+this.value);save();render()"></div></div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Max Deploys</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${maxDeploys}</div></div></div>`;
 
       if(!ready.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No watchlist stocks with triggers populated.</div>`;}
