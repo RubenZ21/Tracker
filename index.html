@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.68</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.69</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1639,6 +1639,8 @@ function renderAllocator(c){
     // === NEW ENTRY DEPLOYMENT (Personal DP ÷6 rule) ===
     if(pf.dryPowder>0){
       const dp=pf.dryPowder;const trSize=Math.max(Math.round(dp/6),2000);const maxDeploys=Math.min(6,Math.floor(dp/trSize));
+      // Format allocation amounts: GBp shows as £ for readability
+      const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
       const wl=getWatchlist().filter(t=>stocks[t].status==="watchlist");
       // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
       const ready=[];
@@ -1676,20 +1678,21 @@ function renderAllocator(c){
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
-                <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
+                <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
               <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.firingCount} trigger${r.firingCount>1?"s":""} × $${trSize.toLocaleString()} = $${deployUSD.toLocaleString()}</div></div>`;});
         }
 
-        // Show pending stocks (not firing yet)
-        const pending=ready.filter(r=>r.firingCount===0);
-        if(pending.length){
+        // Show pending stocks (not firing yet) — deploy 1 tranche at nearest trigger
+        const pendingStocks=ready.filter(r=>r.firingCount===0);
+        if(pendingStocks.length){
           h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">WATCHLIST — closest to trigger</div>`;
-          pending.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.length?r.pending.reduce((a,b)=>a.gap<b.gap?a:b):null;
-            const trigCount=r.pending.length;const deployUSD=trigCount*trSize;const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+          pendingStocks.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.length?r.pending.reduce((a,b)=>a.gap<b.gap?a:b):null;
+            // At nearest trigger, only that 1 trigger fires = 1 tranche
+            const deployUSD=trSize;const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--amber);margin-left:6px">${nearestP?Math.round(nearestP.gap)+"% to "+nearestP.name:"—"}</span></div>
-                <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${fmt(Math.round(localDeploy),s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
+                <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
               <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.pending.map(p=>p.name+" "+fmt(p.price,s.currency)).join(" · ")}</div></div>`;});
         }
       }
