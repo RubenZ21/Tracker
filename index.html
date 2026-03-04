@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.74</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.76</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,notifyEnabled:false,notifyInterval:15};
+let stocks={},portfolios={},settings={apiKey:"",fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,notifyEnabled:false,notifyInterval:15,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -445,6 +445,10 @@ function load(){
   // Migration: add notification settings if missing
   if(settings.notifyEnabled===undefined)settings.notifyEnabled=false;
   if(!settings.notifyInterval)settings.notifyInterval=15;
+  // Migration: add push notification settings if missing
+  if(!settings.pushWorkerUrl)settings.pushWorkerUrl="";
+  if(settings.pushSubscribed===undefined)settings.pushSubscribed=false;
+  if(!settings.lastPushSync)settings.lastPushSync=null;
   // Migration: add state to tranches if missing
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -889,7 +893,10 @@ function handleCSVImport(e){
       // Auto-calculate PBT from FCF+gr
       if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
       updateSignals(t);nUpd++;}
-    save();render();alert(`Updated ${nUpd} stocks${nNew?` (${nNew} new)`:""}.`);};r.readAsText(f);e.target.value="";
+    save();render();alert(`Updated ${nUpd} stocks${nNew?` (${nNew} new)`:""}.`);
+    // Auto-sync triggers to push worker if connected
+    if(settings.pushSubscribed&&settings.pushWorkerUrl)syncTriggersToCloud();
+    };r.readAsText(f);e.target.value="";
 }
 
 // ============ EXCEL EXPORT/IMPORT (SheetJS) ============
@@ -1852,7 +1859,7 @@ function renderSettings(c){
       <button class="settings-save" onclick="settings.apiKey=document.getElementById('api-key-input').value.trim();save();render();if(settings.apiKey||settings.ibkrWorker)fetchPrices();">Save</button></div>
 
     <div class="settings-card"><div class="settings-title">🔔 Price Alerts</div>
-      <div class="settings-desc">Get notified when a stock drops below a buy trigger. Checks during market hours only (LSE 11:00–19:30 · Euronext 12:00–20:30 · NYSE 17:30–00:00 AST).</div>
+      <div class="settings-desc">Checks prices and notifies when a stock drops below a buy trigger. Runs while the app is open and catches up instantly when you return to it. Android suspends background timers when the app is minimized.</div>
       <div style="display:flex;align-items:center;gap:10px;margin:8px 0">
         <button class="settings-save" style="background:${settings.notifyEnabled?"#1a3322":"var(--bg)"};color:${settings.notifyEnabled?"var(--green)":"var(--text)"}" onclick="toggleNotifications(${!settings.notifyEnabled})">${settings.notifyEnabled?"✓ Alerts ON":"Alerts OFF"}</button>
         <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px;color:var(--muted)">Every</span><input class="settings-input" type="number" style="width:50px;margin:0" min="5" max="60" value="${settings.notifyInterval}" onchange="settings.notifyInterval=Math.max(5,+this.value);save();if(settings.notifyEnabled)startAlerts()"><span style="font-size:11px;color:var(--muted)">min</span></div></div>
@@ -1861,6 +1868,19 @@ function renderSettings(c){
         :"Enabled — waiting for first check"+(isAnyMarketOpen()?` (~${settings.notifyInterval}m)`:" (markets closed)"))
         :"Disabled — no background checks"}</div>
       ${settings.notifyEnabled?`<div style="margin-top:6px;display:flex;gap:8px"><button class="settings-save" style="font-size:11px;padding:4px 10px" onclick="alertCheck(true).then(()=>render())">▶ Run Now</button><button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="navigator.serviceWorker.ready.then(r=>r.showNotification('🎯 Test: SFM hit Ten Cap',{body:'Sprouts at $74.00',tag:'ttt-test-2'}))">🔔 Test Notification</button></div>`:""}</div>
+
+    <div class="settings-card"><div class="settings-title">🛰 Push Alerts (Background)</div>
+      <div class="settings-desc">True background alerts via Cloudflare Worker. Checks prices every 15 min during market hours and sends push notifications even when the app is closed.</div>
+      <div style="margin:8px 0"><div class="settings-desc">Push Worker URL</div><input class="settings-input" id="push-worker-url" type="text" placeholder="https://ttt-push-alerts.your-account.workers.dev" value="${settings.pushWorkerUrl||""}"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
+        ${settings.pushSubscribed
+          ?`<button class="settings-save" style="background:#1a3322;color:var(--green)" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();syncTriggersToCloud()">☁ Sync Triggers</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testPushFromCloud()">🔔 Test Push</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="checkFromCloud()">▶ Check Now</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#3b1111;color:var(--red)" onclick="unsubscribePush()">Disconnect</button>`
+          :`<button class="settings-save" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();subscribePush()">🔗 Connect & Subscribe</button>`}
+      </div>
+      <div id="push-sync-status" style="font-size:10px;color:var(--muted);margin:4px 0">${settings.pushSubscribed?(settings.lastPushSync?"Last sync: "+timeAgo(settings.lastPushSync):"Subscribed — sync triggers to activate"):"Not connected"}</div></div>
 
     <div class="settings-card"><div class="settings-title">🏦 IBKR Sync</div>
       <div class="settings-desc">Auto-sync positions & cash from IBKR. Each portfolio has its own account.</div>
@@ -2071,6 +2091,108 @@ function showModal(title,fields,onSave,onDelete){
   if(onDelete)document.getElementById("modal-del-btn").onclick=()=>{const r=onDelete();if(r===false)return;ov.remove();render();};
 }
 
+// ============ PUSH ALERTS (Cloudflare Worker — true background) ============
+// VAPID public key — replace with your key from generate-vapid-keys.js
+const VAPID_PUBLIC_KEY = "BJqqXRKb8FtS8gn7ttPZd4eAtV365xC741Orgn0zEOXU2qdoCMGow73DUcgDoIW8WGHPvtlmRZTG4HD6ILxVp28";
+
+function urlBase64ToUint8Array(base64String){
+  const p=base64String.replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(p);const out=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out;
+}
+
+// Subscribe to Web Push via service worker
+async function subscribePush(){
+  if(!settings.pushWorkerUrl){alert("Set Push Worker URL first");return;}
+  if(!VAPID_PUBLIC_KEY){alert("VAPID_PUBLIC_KEY not set in code — see deployment guide");return;}
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    // Request notification permission if not already granted
+    const perm=await Notification.requestPermission();
+    if(perm!=="granted"){alert("Notification permission denied");return;}
+    // Subscribe with VAPID
+    const sub=await reg.pushManager.subscribe({
+      userVisibleOnly:true,
+      applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    // Send subscription to Cloudflare Worker
+    const resp=await fetch(`${settings.pushWorkerUrl}/subscribe`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(sub.toJSON())
+    });
+    const data=await resp.json();
+    if(!data.ok)throw new Error(data.error||"Subscribe failed");
+    settings.pushSubscribed=true;save();render();
+    // Auto-sync triggers after subscribing
+    await syncTriggersToCloud();
+  }catch(e){alert("Push subscribe failed: "+e.message);}
+}
+
+// Unsubscribe from Web Push
+async function unsubscribePush(){
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription();
+    if(sub)await sub.unsubscribe();
+    settings.pushSubscribed=false;settings.lastPushSync=null;save();render();
+  }catch(e){alert("Unsubscribe failed: "+e.message);}
+}
+
+// Sync trigger config to Cloudflare Worker KV
+async function syncTriggersToCloud(){
+  if(!settings.pushWorkerUrl)return;
+  const el=document.getElementById("push-sync-status");
+  if(el)el.textContent="Syncing...";
+  try{
+    const alertStocks=[];
+    Object.entries(stocks).forEach(([t,s])=>{
+      if(!s.cons)return;
+      const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;
+      if(!hasTriggers)return;
+      alertStocks.push({
+        ticker:t,symbol:s.finnhubSymbol||s.tdSymbol||null,
+        currency:s.currency,priceMult:s.priceMult||1,
+        triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
+        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}
+      });
+    });
+    const resp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({stocks:alertStocks,workerUrl:settings.ibkrWorker||""})
+    });
+    const data=await resp.json();
+    if(!data.ok)throw new Error(data.error||"Sync failed");
+    settings.lastPushSync=Date.now();save();render();
+    if(el)el.textContent=`✓ Synced ${data.count} stocks`;
+  }catch(e){
+    if(el)el.textContent="✕ "+e.message;
+  }
+}
+
+// Test push from Cloudflare Worker
+async function testPushFromCloud(){
+  if(!settings.pushWorkerUrl)return;
+  const el=document.getElementById("push-sync-status");
+  if(el)el.textContent="Sending test...";
+  try{
+    const resp=await fetch(`${settings.pushWorkerUrl}/test`,{method:"POST"});
+    const data=await resp.json();
+    if(el)el.textContent=data.ok?"✓ Test sent — check notification shade":"✕ Failed: "+data.status;
+  }catch(e){if(el)el.textContent="✕ "+e.message;}
+}
+
+// Manual trigger check via Cloudflare Worker
+async function checkFromCloud(){
+  if(!settings.pushWorkerUrl)return;
+  const el=document.getElementById("push-sync-status");
+  if(el)el.textContent="Checking prices...";
+  try{
+    const resp=await fetch(`${settings.pushWorkerUrl}/check`,{method:"POST"});
+    const data=await resp.json();
+    if(el)el.textContent=data.fires?`🔥 ${data.fires} new signal(s)!`:`✓ Checked ${data.checked} stocks — no new signals`;
+  }catch(e){if(el)el.textContent="✕ "+e.message;}
+}
+
 // ============ PRICE ALERTS (Layer 1: in-page timer) ============
 // Market hours in UTC for each exchange family
 // LSE: 08:00-16:30 UTC, Euronext: 09:00-17:30 UTC, NYSE/NASDAQ: 14:30-21:00 UTC
@@ -2175,6 +2297,19 @@ if(settings.apiKey)fetchPrices();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
 // Start price alert timer if enabled
 if(settings.notifyEnabled&&Notification.permission==='granted')startAlerts();
+
+// Catch up on missed alert checks when app regains focus (Android suspends background timers)
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible'&&settings.notifyEnabled&&Notification.permission==='granted'){
+    const interval=Math.max(5,settings.notifyInterval)*60*1000;
+    const lastCheck=lastAlertResult?.time||0;
+    const elapsed=Date.now()-lastCheck;
+    if(elapsed>=interval){
+      // Enough time has passed while we were frozen — run an immediate check
+      alertCheck(false); // respect market hours
+    }
+  }
+});
 </script>
 </body>
 </html>

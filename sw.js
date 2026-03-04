@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ttt-v1.74';
+const CACHE_NAME = 'ttt-v1.76';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', e => {
@@ -102,6 +102,21 @@ async function swPriceCheck() {
     }
   } catch (e) { /* silent fail — next sync will retry */ }
 }
+
+// ============ WEB PUSH: receive from Cloudflare Worker ============
+self.addEventListener('push', e => {
+  if (!e.data) return;
+  let data;
+  try { data = e.data.json(); } catch { data = { title: '🎯 TTT Alert', body: e.data.text() }; }
+  const title = data.title || '🎯 TTT Alert';
+  const options = {
+    body: data.body || '',
+    tag: data.tag || 'ttt-push',
+    renotify: true,
+    requireInteraction: true, // keep notification visible until tapped
+  };
+  e.waitUntil(self.registration.showNotification(title, options));
+});
 
 // Open the app when tapping a notification
 self.addEventListener('notificationclick', e => {
