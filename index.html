@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.73</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.74</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -523,10 +523,13 @@ async function fetchPrices(){
   }
   }
   settings.lastFetch=Date.now();save();render();
-  showBuyModals();
   // Check for new signals and celebrate
   const newFires=checkNewSignals();
-  if(newFires.length)setTimeout(()=>showSignalCelebration(newFires),500);
+  if(newFires.length){
+    setTimeout(()=>showSignalCelebration(newFires),500);
+    sendTriggerNotification(newFires); // Also push OS notification
+  }
+  showBuyModals();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
   const parts=[`${ok} prices`];
   if(yfOk)parts.push(`YF✓${yfOk}`);
@@ -2121,23 +2124,14 @@ async function alertCheck(force){
   if(!settings.notifyEnabled)return;
   if(!force&&!isAnyMarketOpen()){lastAlertResult={time:Date.now(),fires:0,checked:0,marketsOpen:false};return;}
   if(Notification.permission!=="granted")return;
-  // Snapshot signals before fetch
-  const before={};Object.keys(stocks).forEach(t=>{if(stocks[t].signals)before[t]={...stocks[t].signals};});
-  // Reuse full fetchPrices which updates signals and renders
+  // fetchPrices handles signal detection + notifications via checkNewSignals + sendTriggerNotification
+  const prevFires=Object.keys(stocks).reduce((n,t)=>{const s=stocks[t].signals;return n+(s?.mos?1:0)+(s?.tenCap?1:0)+(s?.pbt?1:0);},0);
   await fetchPrices();
-  // Compare: find newly fired signals
-  const fires=[];
-  Object.keys(stocks).forEach(t=>{
-    const s=stocks[t];if(!s?.signals)return;const prev=before[t]||{mos:false,tenCap:false,pbt:false};
-    const isWl=s.status==="watchlist";
-    if(s.signals.mos&&!prev.mos)fires.push({ticker:t,signal:"MOS",wl:isWl});
-    if(s.signals.tenCap&&!prev.tenCap)fires.push({ticker:t,signal:"Ten Cap",wl:isWl});
-    if(s.signals.pbt&&!prev.pbt)fires.push({ticker:t,signal:"PBT",wl:isWl});
-  });
-  sendTriggerNotification(fires);
-  saveAlertConfig(); // keep SW cache up to date with latest signals
-  lastAlertResult={time:Date.now(),fires:fires.length,checked:Object.keys(stocks).length,marketsOpen:true};
-  render(); // re-render to show updated status
+  const nowFires=Object.keys(stocks).reduce((n,t)=>{const s=stocks[t].signals;return n+(s?.mos?1:0)+(s?.tenCap?1:0)+(s?.pbt?1:0);},0);
+  const newCount=Math.max(0,nowFires-prevFires);
+  saveAlertConfig();
+  lastAlertResult={time:Date.now(),fires:newCount,checked:Object.keys(stocks).length,marketsOpen:true};
+  render();
 }
 
 function startAlerts(){
