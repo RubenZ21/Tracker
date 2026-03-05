@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.83</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.86</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -260,7 +260,7 @@ function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
 function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t=>(t.bought-t.sold)>0).length;}
 function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/60000),h=Math.floor(d/3600000),dy=Math.floor(d/86400000);if(m<1)return"just now";if(m<60)return m+"m ago";if(h<24)return h+"h ago";return dy+"d ago";}
-function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";if(ccy==="CAD")return"C$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
 function moatDisp(m){return m==="Wide"?"Excellent":m==="Narrow"?"Strong":m||"Strong";}
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
@@ -382,8 +382,8 @@ function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(
   const ir=calcImpliedReturn(sticker,closest.price);if(ir==null)return null;
   return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,aboveMarr:ir>=0.15};}
 // FIX #5: Convert any currency amount to EUR for allocation
-function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;return amount;}
-function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;return eur;}
+function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;return amount;}
+function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;if(ccy==="CAD")return eur*settings.fxCAD;return eur;}
 // FIX #8: Total portfolio value in EUR
 function pfBaseCcy(pfKey){return pfKey==="personal"?"USD":"EUR";}
 function pfValueEUR(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;
@@ -420,6 +420,7 @@ function load(){
   Object.entries(stocks).forEach(([t,s])=>{
     if(s.currency==="USD"&&!s.finnhubSymbol)s.finnhubSymbol=t;
     if(s.currency==="GBp"&&!s.finnhubSymbol)s.finnhubSymbol=t+".L";
+    if(s.currency==="CAD"&&!s.finnhubSymbol)s.finnhubSymbol=t+".TO";
   });
   // Migration: fix stocks incorrectly classified as USD
   const FIX_EXCHANGES={
@@ -431,7 +432,7 @@ function load(){
     WKL:{ccy:"EUR",td:"WKL:AMS",fh:"WKL.AS"},ASML:{ccy:"EUR",td:"ASML:AMS",fh:"ASML.AS"},
     SAP:{ccy:"EUR",td:"SAP:XETR",fh:"SAP.DE"},ADYEN:{ccy:"EUR",td:"ADYEN:AMS",fh:"ADYEN.AS"},
   };
-  const ccyFlags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧"};
+  const ccyFlags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦"};
   Object.entries(FIX_EXCHANGES).forEach(([t,ex])=>{
     if(stocks[t]&&stocks[t].currency!==ex.ccy){
       stocks[t].currency=ex.ccy;stocks[t].tdSymbol=ex.td;stocks[t].finnhubSymbol=ex.fh;stocks[t].flag=ccyFlags[ex.ccy];
@@ -485,10 +486,11 @@ async function fetchPrices(){
 
   // 2. Fetch FX from ECB via frankfurter.app (free, no key)
   let fxOk=false;
-  try{const fxR=await fetch("https://api.frankfurter.app/latest?from=EUR&to=USD,GBP");
+  try{const fxR=await fetch("https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,CAD");
     const fxD=await fxR.json();
     if(fxD.rates?.USD){settings.fxRate=parseFloat(fxD.rates.USD.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
     if(fxD.rates?.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
+    if(fxD.rates?.CAD){settings.fxCAD=parseFloat(fxD.rates.CAD.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
   }catch(e){}
 
   // 3. Yahoo Finance for all stocks via Cloudflare Worker proxy
@@ -848,7 +850,7 @@ function handleCSVImport(e){
         const csvCcy=(row.currency||"").trim();
         const ex=EXCHANGES[t];
         let ccy=csvCcy||ex?.ccy||"USD";
-        const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧"};
+        const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦"};
         let td=ex?.td||(ccy==="GBp"?t+":LSE":t);
         let fh=ex?.fh||(ccy==="GBp"?t+".L":ccy==="EUR"?undefined:t);
         stocks[t]={name:t,currency:ccy,moat:"Wide",sector:"",flag:flags[ccy]||"🌍",
@@ -914,7 +916,7 @@ function exportExcel(){
 
   // Sheet 3: Settings
   const stRows=[
-    {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},
+    {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},{key:"fxCAD",value:settings.fxCAD},
     {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"dpDivisor",value:settings.dpDivisor},{key:"dpFloor",value:settings.dpFloor},
     {key:"ibkrWorker",value:settings.ibkrWorker||""},{key:"ibkrTokenPersonal",value:settings.ibkrTokenPersonal||""},{key:"ibkrQueryPersonal",value:settings.ibkrQueryPersonal||""},
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
@@ -964,7 +966,7 @@ function handleExcelImport(e){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
           }else{
-            const ccy=String(row.currency||"USD");const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧"};
+            const ccy=String(row.currency||"USD");const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦"};
             const mos=vn(row.mos);
             stocks[t]={name:String(row.name||t),currency:ccy,moat:String(row.moat||"Wide"),sector:"",
               flag:flags[ccy]||"🌍",status:String(row.status||"watchlist"),tdSymbol:String(row.tdSymbol||t),
@@ -1005,6 +1007,7 @@ function handleExcelImport(e){
           const k=String(row.key||""),val=row.value;
           if(k==="fxRate"&&val!=null)settings.fxRate=Number(val);
           if(k==="fxGBP"&&val!=null)settings.fxGBP=Number(val);
+          if(k==="fxCAD"&&val!=null)settings.fxCAD=Number(val);
           if(k==="monthlyIncome"&&val!=null)settings.monthlyIncome=Number(val);
           if(k==="monthlyIncomeUSD"&&val!=null)settings.monthlyIncomeUSD=Number(val);
           if(k==="dpDivisor"&&val!=null)settings.dpDivisor=Number(val);
@@ -1205,6 +1208,7 @@ function showMarketToast(msg){
 const MARKETS=[
   {id:"eu",flag:"🇪🇺",label:"EU",tz:"Europe/Amsterdam",open:[9,0],close:[17,30]},
   {id:"uk",flag:"🇬🇧",label:"UK",tz:"Europe/London",open:[8,0],close:[16,30]},
+  {id:"ca",flag:"🇨🇦",label:"CA",tz:"America/Toronto",open:[9,30],close:[16,0]},
   {id:"us",flag:"🇺🇸",label:"US",tz:"America/New_York",open:[9,30],close:[16,0]}
 ];
 function marketStatus(){
@@ -1263,7 +1267,7 @@ function render(){
   document.getElementById("pf-total-val").innerHTML=hideValues?`<span onclick="toggleValues()" style="cursor:pointer;opacity:0.25;font-size:9px">👁</span>`:`${pfLabel} DP ${dpCcy}${Math.round(portfolios[currentPf]?.dryPowder||0).toLocaleString()} <span onclick="toggleValues()" style="cursor:pointer;opacity:0.2;font-size:9px">👁</span>`;
   const fxEl=document.getElementById("fx-display");
   if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);const ibkrAge=settings.lastIbkrSync?timeAgo(settings.lastIbkrSync):"";
-    fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
+    fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
   // Update watchlist nav badge — count watchlist stocks with any buy signal firing
@@ -1712,7 +1716,12 @@ function renderAllocator(c){
       if(!isTrophy)slotsFilled+=posTranchesOwned(nlPos[t]);});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
     const TARGET_STOCKS=5;const TARGET_SLOTS=TARGET_STOCKS*3;
-    const targetTr=Math.round(pvTotal/TARGET_SLOTS);
+    const targetTrRaw=Math.round(pvTotal/TARGET_SLOTS);
+    // Cap at Personal portfolio's tranche size so Caca never over-deploys relative to Personal
+    const personalDP=portfolios.personal?.dryPowder||0;
+    const personalTr=Math.max(Math.round(personalDP/settings.dpDivisor),settings.dpFloor);
+    const targetTr=Math.min(targetTrRaw,Math.round(toEUR(personalTr,"USD")));
+    const trCapped=targetTr<targetTrRaw;
     const dpCovers=targetTr>0?Math.floor(pf.dryPowder/targetTr):0;
     const MIN_FLOOR=1500;
     const dpOk=pf.dryPowder>=MIN_FLOOR;
@@ -1738,7 +1747,7 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal).toLocaleString()}</div></div>
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div></div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}</div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px">via IBKR sync</div></div>
@@ -1768,6 +1777,59 @@ function renderAllocator(c){
         <div><span style="font-size:13px;font-weight:600">${stocks[t2.ticker]?.flag||""} ${t2.ticker}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">+${t2.gap}% above sticker</span></div>
         <span style="font-size:12px;font-family:var(--mono);color:var(--amber)">€${Math.round(t2.available).toLocaleString()} available</span></div>`;});}
     h+=`</div>`;
+
+    // === NEW ENTRY DEPLOYMENT (Caca ÷15 rule + waterfall) ===
+    const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
+    const wlNL=getWatchlist().filter(t=>stocks[t].status==="watchlist");
+    const readyNL=[];
+    wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
+      const triggers=[];
+      if(s.cons.pbt&&s.currentPrice<=s.cons.pbt)triggers.push("PBT");
+      if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap)triggers.push("10Cap");
+      if(s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
+      const pending=[];
+      if(s.cons.pbt&&!triggers.includes("PBT"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+      if(s.cons.tenCap&&!triggers.includes("10Cap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+      if(s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
+      if(!triggers.length&&!pending.length)return;
+      const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
+      readyNL.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length});});
+    readyNL.sort((a,b)=>b.firingCount-a.firingCount||a.nearest-b.nearest);
+
+    if(readyNL.length){
+      const tier2Avail=tier2.reduce((s,x)=>s+x.available,0);
+      h+=`<div class="alloc-card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">÷${TARGET_SLOTS} rule</span></div>`;
+      // Firing stocks
+      const firingNL=readyNL.filter(r=>r.firingCount>0);
+      if(firingNL.length){
+        h+=`<div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:4px">🔥 FIRING NOW</div>`;
+        firingNL.forEach(r=>{const s=stocks[r.ticker];const needEUR=r.firingCount*targetTr;const dpUse=Math.min(pf.dryPowder,needEUR);const shortfall=needEUR-dpUse;
+          const localDeploy=fromEUR(needEUR,s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+          const funded=dpUse>=needEUR?"Tier 1":shortfall<=tier2Avail?"Tier 2":"Tier 3";
+          const fundCol=funded==="Tier 1"?"var(--green)":funded==="Tier 2"?"var(--amber)":"var(--red)";
+          h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
+              <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.firingCount} × €${targetTr.toLocaleString()} = €${Math.round(needEUR).toLocaleString()} · <span style="color:${fundCol}">${funded}</span></div></div>`;});
+      }
+      // Pending stocks
+      const pendingNL=readyNL.filter(r=>r.firingCount===0);
+      if(pendingNL.length){
+        h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">WATCHLIST — closest to trigger</div>`;
+        pendingNL.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.reduce((a,b)=>a.gap<b.gap?a:b);
+          const localDeploy=fromEUR(targetTr,s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
+          h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--amber);margin-left:6px">${Math.round(nearestP.gap)}% to ${nearestP.name}</span></div>
+              <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.pending.map(p=>p.name+" "+fmt(p.price,s.currency)).join(" · ")}</div></div>`;});
+      }
+      h+=`</div>`;
+    }
 
     // Current holdings summary
     h+=`<div class="alloc-card">
@@ -1884,7 +1946,8 @@ function renderSettings(c){
     <div class="settings-card"><div class="settings-title">💱 FX Rates</div>
       <div style="display:flex;gap:8px">
         <div style="flex:1"><div class="settings-desc">EUR/USD (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxRate}" onchange="settings.fxRate=+this.value;save()"></div>
-        <div style="flex:1"><div class="settings-desc">GBP/EUR (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxGBP}" onchange="settings.fxGBP=+this.value;save()"></div></div>
+        <div style="flex:1"><div class="settings-desc">GBP/EUR (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxGBP}" onchange="settings.fxGBP=+this.value;save()"></div>
+        <div style="flex:1"><div class="settings-desc">CAD/EUR (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxCAD}" onchange="settings.fxCAD=+this.value;save()"></div></div>
       <div style="font-size:9px;color:var(--muted);margin-top:4px">Last FX update: ${settings.lastFxUpdate?new Date(settings.lastFxUpdate).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})+" ("+timeAgo(settings.lastFxUpdate)+")":"never"}</div></div>
 
     <div class="settings-card"><div class="settings-title" style="color:var(--red)">🗑 Factory Reset</div>
@@ -1966,7 +2029,7 @@ function openAddStock(){
   showModal("Add New Stock",[
     {id:"ns-ticker",label:"Ticker",val:"",placeholder:"COST"},
     {id:"ns-name",label:"Name",val:"",placeholder:"Costco"},
-    {id:"ns-ccy",label:"Currency",val:"USD",select:["USD","EUR","GBp"]},
+    {id:"ns-ccy",label:"Currency",val:"USD",select:["USD","EUR","GBp","CAD"]},
     {id:"ns-moat",label:"Moat",val:"Excellent",select:["Excellent","Strong"]},
     {id:"ns-fh",label:"Yahoo Symbol",val:"",placeholder:"COST, WKL.AS, AUTO.L"},
     {id:"ns-price",label:"Current Price",val:"",type:"number"},
@@ -1982,14 +2045,14 @@ function openAddStock(){
   ],()=>{
     const t=(gv("ns-ticker")||"").toUpperCase().trim();if(!t){alert("Enter ticker");return false;}
     if(stocks[t]){alert(t+" exists");return false;}
-    const ccy=gv("ns-ccy")||"USD";const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧"};
+    const ccy=gv("ns-ccy")||"USD";const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦"};
     const mos=nv("ns-mos");const oe=nv("ns-oe");const fcf=nv("ns-fcf");const gr=nv("ns-gr");
     let tc=nv("ns-tc");let pbt=nv("ns-pbt");
     if(oe!=null)tc=+(oe*10).toFixed(2);
     if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
     const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
-      status:"watchlist",finnhubSymbol:gv("ns-fh")||(ccy==="GBp"?t+".L":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
+      status:"watchlist",finnhubSymbol:gv("ns-fh")||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker:mos?mos*2:null,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false}};
     updateSignals(t);save();
@@ -2177,10 +2240,10 @@ function isMarketOpen(ccy){
   const hm=now.getUTCHours()*60+now.getUTCMinutes();
   if(ccy==="GBp")return hm>=480&&hm<=990;      // LSE 08:00-16:30
   if(ccy==="EUR")return hm>=540&&hm<=1050;      // Euronext 09:00-17:30
-  return hm>=870&&hm<=1260;                      // NYSE 14:30-21:00
+  return hm>=870&&hm<=1260;                      // NYSE/TSX 14:30-21:00 (USD, CAD)
 }
 function isAnyMarketOpen(){
-  return ["USD","EUR","GBp"].some(c=>isMarketOpen(c));
+  return ["USD","EUR","GBp","CAD"].some(c=>isMarketOpen(c));
 }
 
 // Send browser notification for new trigger fires (via SW for Android compatibility)
