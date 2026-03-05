@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.81</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.83</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1901,13 +1901,15 @@ function promoteToGrid(t){
   window.scrollTo(0,0);
 }
 function demoteFromGrid(t){
-  // Check if any portfolio has shares
   const hasShares=["personal","nl"].some(pk=>{const pos=portfolios[pk]?.positions?.[t];return pos&&pos.tranches.some(tr=>(tr.bought-tr.sold)>0);});
-  if(hasShares){alert(`${t} has shares — sell all positions first before moving to watchlist.`);return;}
-  if(!confirm(`Move ${t} to watchlist?`))return;
+  if(hasShares){
+    if(!confirm(`${t} has shares held. Move to watchlist anyway? (Position keeps tracking.)`))return;
+  }else{
+    if(!confirm(`Move ${t} to watchlist?`))return;
+    // Clean up empty position entries only when no shares
+    ["personal","nl"].forEach(pk=>{if(portfolios[pk]?.positions?.[t])delete portfolios[pk].positions[t];});
+  }
   stocks[t].status="watchlist";
-  // Clean up empty position entries
-  ["personal","nl"].forEach(pk=>{if(portfolios[pk]?.positions?.[t])delete portfolios[pk].positions[t];});
   save();render();
 }
 function removeStock(t){if(!confirm(`Delete ${t} everywhere?`))return;delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]&&portfolios[p].positions)delete portfolios[p].positions[t];});
@@ -1987,7 +1989,7 @@ function openAddStock(){
     if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
     const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
-      status:"watchlist",finnhubSymbol:gv("ns-fh")||t,priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
+      status:"watchlist",finnhubSymbol:gv("ns-fh")||(ccy==="GBp"?t+".L":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker:mos?mos*2:null,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false}};
     updateSignals(t);save();
