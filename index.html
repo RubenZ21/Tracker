@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.91</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.92</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1461,20 +1461,21 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
   // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||sb-sa;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.5"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}</div></div>`;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
       // Override circle colors per signal: buy/hold/track use signal color, sell/warn stay as-is
       let indStyle="";
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
-      else if(st.cls==="hold")indStyle=`background:transparent;border:none;color:${sigCol}90`;
+      else if(st.cls==="hold")indStyle=`background:${sigCol}15;border:1px solid ${sigCol}30;border-radius:6px;padding:2px 4px;color:${sigCol};font-weight:700`;
       else if(st.cls==="track")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       // sell and warn keep their CSS class colors (red/amber)
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
-      const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:"";
-      h+=`<div class="sig-cell">${st.topSub?`<div class="sig-sub" style="color:${sigCol}60;font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
+      const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:st.cls==="hold"?sigCol+"99":"";
+      const topSubOpacity=st.cls==="hold"?"90":"60";
+      h+=`<div class="sig-cell">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
     // Status column: overall stock status
     const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="sell");
