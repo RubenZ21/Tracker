@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.89</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.91</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -331,6 +331,7 @@ function ringState(ticker, pfKey) {
 }
 function totalSignals(){return getGrid().reduce((s,t)=>s+sigCount(t),0);}
 function gridSize(){return getGrid().length*3;}
+function firingGridSize(){return getGrid().filter(t=>sigCount(t)>0).length*3;}
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
   // Store previous signals to detect signal-off events
   const prev=s.signals?{...s.signals}:{mos:false,tenCap:false,pbt:false};
@@ -1192,7 +1193,7 @@ function showBuyModals(){
         <div class="buy-modal-signal" style="background:${sigColors[q.signal]}20;color:${sigColors[q.signal]};border:1px solid ${sigColors[q.signal]}40">${sigNames[q.signal]||q.signal}</div>
         <div class="buy-modal-price">${fmt(s.currentPrice,s.currency)}</div>
         <div class="buy-modal-detail">Trigger: ${fmt(triggerPrice,s.currency)}${discount>0?` · ${discount}% below`:" · at trigger"}</div>
-        <div class="buy-modal-detail">${isWL?"Consider adding to grid!":"Grid now: "+totalSignals()+"/"+gridSize()+" signals"}</div>
+        <div class="buy-modal-detail">${isWL?"Consider adding to grid!":"Grid now: "+totalSignals()+"/"+firingGridSize()+" signals"}</div>
         <button class="buy-modal-dismiss" onclick="dismissBuyModal()">GOT IT</button>
       </div>
     </div>`;
@@ -1261,7 +1262,7 @@ function marketStatus(){
 }
 
 function render(){
-  const ts=totalSignals(),gs=gridSize();
+  const ts=totalSignals(),gs=firingGridSize();
   const b=document.getElementById("grid-badge");b.textContent=ts+"/"+gs;
   document.getElementById("grid-count").textContent=ts;
   document.getElementById("grid-total").textContent=gs;
@@ -1444,7 +1445,7 @@ function showSignalCelebration(fires){
 // ============ PORTFOLIO (UNIFIED — B) ============
 function renderPortfolio(c){
   const pf=portfolios[currentPf];const val=pfValueEUR(currentPf);
-  const GRID=getGrid();const gs=gridSize();const ts=totalSignals();
+  const GRID=getGrid();const fgs=firingGridSize();const ts=totalSignals();
   let h=`<div class="pf-toggle">
     <button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';localStorage.setItem('r1-pf','personal');render()">🧑 Personal</button>
     <button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';localStorage.setItem('r1-pf','nl');render()">🧓 Caca</button>
@@ -1459,8 +1460,8 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
 
   // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
-  GRID.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}</div></div>`;
+  [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||sb-sa;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.5"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
@@ -1487,7 +1488,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("pbt")}/${GRID.length}</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("tenCap")}/${GRID.length}</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("mos")}/${GRID.length}</div>
-    <div style="text-align:center;font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${ts}/${gs}</div></div></div>`;
+    <div style="text-align:center;font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${ts}/${fgs}</div></div></div>`;
 
   // Per-stock unified cards
   h+=`<div class="pos-grid">`;
@@ -1501,6 +1502,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
+      s.status==="grid"&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/3</span>`:
       s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`:"";
 
     h+=`<div class="pos-card">
@@ -1583,7 +1585,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     if(pf.positions[ticker])return; // already rendered above
     const s=stocks[ticker];if(!s)return;
     const sig=sigCount(ticker);
-    const badge=`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`;
+    const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/3</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`;
     h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -1970,7 +1972,7 @@ function renderSettings(c){
       <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportExcel()">↓ Export .xlsx</button>
         <button class="settings-save" onclick="document.getElementById('xlsx-import').click()">↑ Import .xlsx</button></div></div>
 
-    <div class="settings-card"><div class="settings-title">🎯 Grid (${GRID.length} stocks × 3 = ${gridSize()} signals)</div>`;
+    <div class="settings-card"><div class="settings-title">🎯 Grid (${GRID.filter(t=>sigCount(t)>0).length} firing / ${GRID.length} stocks)</div>`;
   GRID.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:13px">${stocks[t].flag} ${t}</span>
       <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 8px" onclick="demoteFromGrid('${t}')">✕ Remove</span></div>`;});
