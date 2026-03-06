@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.88</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.89</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1633,22 +1633,47 @@ function renderAllocator(c){
   if(currentPf==="personal"){
     h+=renderMonthlyBanner();
     const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS.length;
-    // Personal: USD base currency — pool, tranches, DP all in USD
-    const pool=settings.monthlyIncomeUSD+pf.dryPowder;const ts=totalSignals();const perTr=gs>0?Math.round(pool/gs):0;const dep=ts*perTr;
+    // v2 formula: Tranche = income ÷ ((firing stocks × 3) + 3)
+    // Only new income is divided. Existing DP stays earmarked.
+    const firingStocks=GRID.filter(t=>sigCount(t)>0);
+    const nFiring=firingStocks.length;
+    const denom=(nFiring*3)+3;
+    const income=settings.monthlyIncomeUSD;
+    const perTr=denom>0?Math.round(income/denom):0;
+    // Count lit vs unlit signals across firing stocks
+    const litTotal=firingStocks.reduce((n,t)=>n+sigCount(t),0);
+    const unlitTotal=nFiring*3-litTotal;
+    const deployTotal=litTotal*perTr;
+    const mosReserveTotal=unlitTotal*perTr;
+    const expansionTotal=3*perTr;
+    const toDP=mosReserveTotal+expansionTotal;
     h+=`<div class="${salaryLanded?"":"alloc-waiting"}">`;
-    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly</div><div class="input-field"><span>$</span><input type="number" value="${settings.monthlyIncomeUSD}" onchange="settings.monthlyIncomeUSD=+this.value;save();render()"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${Math.round(settings.monthlyIncomeUSD/settings.fxRate).toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
-      <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div></div></div>
+    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>$</span><input type="number" value="${income}" onchange="settings.monthlyIncomeUSD=+this.value;save();render()"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${Math.round(income/settings.fxRate).toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
+      <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">not re-divided</div></div></div>
     <div class="alloc-card">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Pool</span><span style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">$${Math.round(pool).toLocaleString()}</span></div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche (1/${gs})</span><span style="font-size:13px;font-family:var(--mono)">$${Math.round(perTr).toLocaleString()}</span></div>
-      <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Deploy ${ts}/${gs}</span><span style="font-size:13px;font-family:var(--mono);color:var(--green)">$${Math.round(dep).toLocaleString()}</span></div>
-      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">DP out</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${Math.round(pool-dep).toLocaleString()}</span></div></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">(${nFiring}×3)+3 = ${denom} slots</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche ($${income.toLocaleString()} ÷ ${denom})</span><span style="font-size:13px;font-family:var(--mono);color:var(--accent)">$${perTr.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litTotal} lit signals)</span><span style="font-size:13px;font-family:var(--mono);color:var(--green)">$${deployTotal.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">MOS reserves (${unlitTotal} unlit)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${mosReserveTotal.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Expansion (3 slots)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${expansionTotal.toLocaleString()}</span></div>
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${Math.round(toDP/income*100)}%)</span></span></div></div>
     <div class="alloc-grid">`;
-    // Convert USD tranche to each stock's local currency
-    GRID.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const usdAlloc=sig*perTr;const localAlloc=fromEUR(toEUR(usdAlloc,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localAlloc/s.currentPrice):0;
-      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig}/3 × $${Math.round(perTr).toLocaleString()}</div></div>
-        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${sig?"var(--green)":"var(--muted)"}">${fmt(Math.round(localAlloc),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh</div></div></div>`;});
+    // Per-stock breakdown: firing stocks show deploy + MOS reserve
+    firingStocks.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const unlit=3-sig;
+      const deployUSD=sig*perTr;const mosUSD=unlit*perTr;
+      const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig} lit → deploy · ${unlit} unlit → MOS</div></div>
+        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosUSD?` · +$${mosUSD.toLocaleString()} MOS`:""}</div></div></div>`;});
+    // Show 0/3 grid stocks (not firing — no allocation)
+    const notFiring=GRID.filter(t=>sigCount(t)===0);
+    if(notFiring.length){notFiring.forEach(t=>{const s=stocks[t];
+      h+=`<div class="alloc-stock" style="opacity:0.4"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">0/3 — no allocation</div></div>
+        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--muted)">$0</div></div></div>`;});}
+    // Expansion row
+    h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">🔮 Expansion</div><div style="font-size:11px;color:var(--muted)">3 slots for new entries</div></div>
+      <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--amber)">$${expansionTotal.toLocaleString()}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">→ DP</div></div></div>`;
     h+=`</div>`;
     h+=`</div>`; // close alloc-waiting wrapper
 
