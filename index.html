@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.87</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.88</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -612,10 +612,14 @@ async function syncIBKR(pfKey){
       const mktVal=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
       if(qty===0)return;
       const t=resolveT(sym);
-      if(!posData[sym])posData[sym]={sym,t,qty:0,cost:0,ccy,mktVal};
+      // IBKR reports GBP prices in pounds; app uses pence for GBp stocks
+      const isGBp=t&&stocks[t]?.currency==="GBp";
+      const adjCost=isGBp?cost*100:cost;
+      const adjMkt=isGBp?mktVal*100:mktVal;
+      if(!posData[sym])posData[sym]={sym,t,qty:0,cost:0,ccy,mktVal:0};
       posData[sym].qty+=qty;
-      posData[sym].cost=cost;
-      posData[sym].mktVal=mktVal;
+      posData[sym].cost=adjCost;
+      posData[sym].mktVal=adjMkt;
     });
 
     // Parse cash balances
@@ -783,10 +787,14 @@ async function autoSyncIBKR(pfKey){
     doc.querySelectorAll("OpenPosition").forEach(p=>{
       const sym=p.getAttribute("symbol");
       const qty=parseFloat(p.getAttribute("position")||p.getAttribute("quantity")||0);
-      const cost=parseFloat(p.getAttribute("costBasisPrice")||p.getAttribute("costPrice")||0);
-      const mktVal=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
+      const rawCost=parseFloat(p.getAttribute("costBasisPrice")||p.getAttribute("costPrice")||0);
+      const rawMkt=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
       if(qty===0)return;
       const t=resolveT(sym);if(!t)return;
+      // IBKR reports GBP prices in pounds; app uses pence for GBp stocks
+      const isGBp=stocks[t]?.currency==="GBp";
+      const cost=isGBp?rawCost*100:rawCost;
+      const mktVal=isGBp?rawMkt*100:rawMkt;
 
       const existing=pf.positions[t];
       const existingShares=existing?posShares(existing):0;
