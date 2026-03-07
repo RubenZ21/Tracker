@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.97</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.98</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -388,7 +388,7 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
         if(p>tr.ath)tr.ath=p;
         tr.state="stopActive";
       }else if(p>=base){
-        // Price crossed sell sticker — begin/continue ATH tracking
+        // Price crossed activation — begin/continue ATH tracking
         if(tr.state==="accumulating")tr._justCrossed=true; // flag for alert
         tr.state="stopActive";
         if(!tr.ath||p>tr.ath)tr.ath=p;
@@ -503,7 +503,7 @@ function load(){
         const base=sellBase(s,tr.signal);
         if(base===null)return; // hold — skip
         if(base===-1)return; // trophy — always valid
-        if(tr.ath<base){delete tr.ath;tr.state="accumulating";} // ATH below sell sticker = invalid
+        if(tr.ath<base){delete tr.ath;tr.state="accumulating";} // ATH below activation = invalid
       });
     });
   });
@@ -1081,13 +1081,13 @@ function handleExcelImport(e){
 }
 
 // Sell target base per signal type: "sticker" for that method
+// Unified activation price: sticker / 0.75 (= sticker × 1.3333...)
+// Guarantees worst-case sell (ATH = activation+ε, then -25%) lands at sticker = intrinsic value
+function activationPrice(s){const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+(stk/0.75).toFixed(2):null;}
 function sellBase(s,signal){
-  // Sell sticker = 2× buy trigger for each signal type
-  if(signal==="MOS")return s.cons.mos?s.cons.mos*2:null;
-  if(signal==="10Cap")return s.cons.tenCap?s.cons.tenCap*2:null;
-  if(signal==="PBT")return s.cons.pbt?s.cons.pbt*2:null;
   if(signal==="trophy")return -1; // special: always tracking, no sticker gate
-  return null; // hold — no sell sticker
+  if(signal==="hold")return null; // hold — no sell tracking
+  return activationPrice(s); // unified for MOS, 10Cap, PBT
 }
 
 // ============ ALERT SYSTEM ============
@@ -1131,7 +1131,7 @@ function checkAlerts(){
         if(!validATH)return;
         const dd=((tr.ath-s.currentPrice)/tr.ath*100);
         if(dd>=25){const k=`trail-${pk}-${t}-${tr.signal}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"critical",icon:"🚨",
-          html:`<strong>${s.flag} ${t}</strong> ${tr.signal} trailing stop! Down <strong>−${dd.toFixed(1)}%</strong> from ATH ${fmt(tr.ath.toFixed(2),s.currency)} in ${pf.name}. <strong>SELL ${tr.signal} tranche.</strong>`});}
+          html:`<strong>${s.flag} ${t}</strong> trailing stop! Down <strong>−${dd.toFixed(1)}%</strong> from ATH ${fmt(tr.ath.toFixed(2),s.currency)} in ${pf.name}. <strong>SELL highest-cost tranche first.</strong>`});}
         // STOP BUFFER WARNING — within 5% of stop
         else if(dd>=20){const k=`buffer-${pk}-${t}-${tr.signal}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"⚠",
           html:`<strong>${s.flag} ${t}</strong> ${tr.signal} approaching stop — <strong>−${dd.toFixed(1)}%</strong> from ATH ${fmt(tr.ath.toFixed(2),s.currency)} in ${pf.name}. Stop at −25%.`});}
@@ -1139,7 +1139,7 @@ function checkAlerts(){
     });
   });
 
-  // STICKER CROSSED — first time price crosses tranche sticker (info)
+  // ACTIVATION CROSSED — first time price crosses unified activation price (info)
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
     Object.entries(pf.positions).forEach(([t,pos])=>{
@@ -1147,7 +1147,7 @@ function checkAlerts(){
       pos.tranches.forEach(tr=>{
         if(tr._justCrossed){
           const k=`crossed-${pk}-${t}-${tr.signal}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"info",icon:"📈",
-            html:`<strong>${s.flag} ${t}</strong> ${tr.signal} tranche crossed sticker in ${pf.name}! ATH tracking now active.`});
+            html:`<strong>${s.flag} ${t}</strong> crossed activation in ${pf.name}! Trailing stop now active.`});
           delete tr._justCrossed;
         }
       });
@@ -1341,8 +1341,6 @@ function sigCellStatus(ticker, sigKey){
   const p=s.currentPrice;
   const trigger=s.cons?.[sigKey];
   if(!trigger||!p)return{cls:"none",label:"",sub:fmt(trigger,s.currency)||"—"};
-  // Sticker for this tranche = buy trigger × 2 (where trailing stop activates)
-  const sticker=trigger*2;
   const muted=isTriggerMuted(s,sigKey);
   // MUTED: price reached trigger but trigger sits at or above growth-based sticker — no margin of safety
   if(p<=trigger&&muted)return{cls:"muted",label:"C",sub:fmt(trigger,s.currency),subCls:"",topSub:"≥ sticker"};
@@ -1368,9 +1366,10 @@ function sigCellStatus(ticker, sigKey){
     const cls=maxDD>=15?"warn":"track";
     return{cls,label:cls==="warn"?"!":"↑",sub:`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
   }
-  // HOLD: circle shows current price, sticker above, trigger below
+  // HOLD: circle shows current price, activation above, trigger below
   const sym=s.currency==="USD"?"$":s.currency==="GBP"?"£":"€";
-  return{cls:"hold",label:`${sym}${Math.round(p)}`,topSub:`stk ${fmt(sticker,s.currency)}`,sub:fmt(trigger,s.currency),subCls:""};
+  const act=activationPrice(s);
+  return{cls:"hold",label:`${sym}${Math.round(p)}`,topSub:act?`act ${fmt(act,s.currency)}`:"",sub:fmt(trigger,s.currency),subCls:""};
 }
 
 // ============ CONVICTION CARD (panic antidote) ============
@@ -1570,14 +1569,13 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
       <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above stk":"≈ sticker"}</div>`:""}</div></div>`;
 
-    // Tranche rows with sell stickers inline — sorted PBT → 10Cap → MOS
+    // Tranche rows with unified activation price — sorted PBT → 10Cap → MOS
     const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
     const active=pos.tranches.filter(t=>(t.bought-t.sold)>0).sort((a,b)=>(sigOrder[a.signal]??9)-(sigOrder[b.signal]??9));
     active.forEach((tr,i)=>{
       const origIdx=pos.tranches.indexOf(tr);
       const sh=tr.bought-tr.sold;const col=SC[tr.signal]||"var(--muted)";
       const isTrophy=tr.signal==="trophy";const isHold=tr.signal==="hold";
-      const buyTrigger=tr.signal==="MOS"?s.cons.mos:tr.signal==="10Cap"?s.cons.tenCap:tr.signal==="PBT"?s.cons.pbt:null;
       const sellSticker=sellBase(s,tr.signal);
       const hasSellSticker=sellSticker&&sellSticker>0;
       const ath=tr.ath;const cp=s.currentPrice;
@@ -1605,7 +1603,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         h+=`</div>`;
       }else if(!isHold&&hasSellSticker){
         h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-          <span style="color:var(--muted)">sticker ${fmt(+sellSticker.toFixed(2),s.currency)}</span>`;
+          <span style="color:var(--muted)">activation ${fmt(+sellSticker.toFixed(2),s.currency)}</span>`;
         if(ath&&(state==="stopActive"||state==="stopped")){
           h+=`<span style="font-family:var(--mono);color:${ddCol};font-weight:600">${stateIcon} ATH ${fmt(ath.toFixed(2),s.currency)} · −${dd.toFixed(1)}%</span>`;
         }else{
