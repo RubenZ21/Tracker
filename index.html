@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.92</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.94</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -264,6 +264,31 @@ function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
 function moatDisp(m){return m==="Wide"?"Excellent":m==="Narrow"?"Strong":m||"Strong";}
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+// Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2)
+function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
+// Count valid (non-muted) trigger SLOTS for allocation denominator — includes both lit and unlit valid triggers
+function validTriggerSlots(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null&&!isTriggerMuted(s,k))n++;});return n;}
+
+// Recalculate Sticker+MOS from EPS, Growth Rate, and Historical P/E
+// Returns {sticker, mos} or null if any input is missing
+function recalcSticker(eps,gr,pe){
+  if(eps==null||gr==null||pe==null)return null;
+  const g=gr/100;
+  const futureEPS=eps*Math.pow(1+g,10);
+  const futurePE=Math.min(2*gr,pe);
+  const sticker=+(futureEPS*futurePE/4.0456).toFixed(2);
+  const mos=+(sticker/2).toFixed(2);
+  return{sticker,mos};
+}
+
+// Apply recalcSticker to a stock's cons object, updating mos+sticker and tracking prevSticker
+function applyRecalcSticker(s){
+  const r=recalcSticker(s.cons.eps,s.cons.gr,s.cons.pe);
+  if(!r)return;
+  const oldSticker=s.cons.sticker;
+  s.cons.mos=r.mos;s.cons.sticker=r.sticker;
+  if(oldSticker&&r.sticker!==oldSticker)s.cons.prevSticker=oldSticker;
+}
 
 // RingMark — live signal mark SVG. Three concentric rings: outer=PBT(purple), middle=10Cap(blue), inner=MOS(green)
 // Each ring state: "buy"=full glow, "hold"=dim signal color, "track"=bright, "warn"=amber, "sell"=red, false/""=dormant
@@ -330,12 +355,18 @@ function ringState(ticker, pfKey) {
   return result;
 }
 function totalSignals(){return getGrid().reduce((s,t)=>s+sigCount(t),0);}
-function gridSize(){return getGrid().length*3;}
-function firingGridSize(){return getGrid().filter(t=>sigCount(t)>0).length*3;}
+function gridSize(){return getGrid().reduce((n,t)=>n+validTriggerSlots(t),0);}
+function firingGridSize(){return getGrid().filter(t=>sigCount(t)>0).reduce((n,t)=>n+validTriggerSlots(t),0);}
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
   // Store previous signals to detect signal-off events
   const prev=s.signals?{...s.signals}:{mos:false,tenCap:false,pbt:false};
-  s.signals={mos:s.cons.mos?p<=s.cons.mos:false,tenCap:s.cons.tenCap?p<=s.cons.tenCap:false,pbt:s.cons.pbt?p<=s.cons.pbt:false};
+  // Sticker Ceiling: tenCap/pbt only valid if trigger price < sticker (mos×2). MOS always valid.
+  const sticker=s.cons.mos?s.cons.mos*2:null;
+  s.signals={
+    mos:s.cons.mos?p<=s.cons.mos:false,
+    tenCap:s.cons.tenCap?p<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker):false,
+    pbt:s.cons.pbt?p<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker):false
+  };
   // Detect signal changes for alerts
   if(!s._sigChanges)s._sigChanges=[];
   ["mos","tenCap","pbt"].forEach(sig=>{
@@ -370,7 +401,7 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
     });
   });
 }
-function nearestTrigger(t){const s=stocks[t];if(!s)return null;const tr=[s.cons.mos,s.cons.tenCap,s.cons.pbt].filter(Boolean);return tr.length?Math.max(...tr):null;}
+function nearestTrigger(t){const s=stocks[t];if(!s)return null;const tr=[s.cons.mos,!isTriggerMuted(s,"tenCap")?s.cons.tenCap:null,!isTriggerMuted(s,"pbt")?s.cons.pbt:null].filter(Boolean);return tr.length?Math.max(...tr):null;}
 function gapPct(t){const s=stocks[t],nt=nearestTrigger(t);if(!s||!nt||!s.currentPrice)return null;return Math.round((s.currentPrice-nt)/s.currentPrice*100);}
 
 // Implied annual return: what you'd earn per year if buying at entryPrice and stock reaches projected future value in 10 years
@@ -378,7 +409,7 @@ function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker
 
 // Find the closest trigger (highest price = fires first on decline) and its implied return
 function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(!mos)return null;const sticker=mos*2;
-  const triggers=[];if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap)triggers.push({name:"10Cap",price:s.cons.tenCap});if(s.cons.pbt)triggers.push({name:"PBT",price:s.cons.pbt});
+  const triggers=[];if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push({name:"10Cap",price:s.cons.tenCap});if(s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push({name:"PBT",price:s.cons.pbt});
   if(!triggers.length)return null;const closest=triggers.reduce((a,b)=>a.price>b.price?a:b);
   const ir=calcImpliedReturn(sticker,closest.price);if(ir==null)return null;
   return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,aboveMarr:ir>=0.15};}
@@ -834,10 +865,10 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf\n";
+  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe\n";
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
 }
 function handleCSVImport(e){
@@ -866,7 +897,7 @@ function handleCSVImport(e){
         let fh=ex?.fh||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="EUR"?undefined:t);
         stocks[t]={name:t,currency:ccy,moat:"Wide",sector:"",flag:flags[ccy]||"🌍",
           status:"watchlist",tdSymbol:td,finnhubSymbol:fh,priceMult:1,currentPrice:0,gate:true,
-          cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,prevSticker:null},
+          cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,eps:null,pe:null,prevSticker:null},
           phil:null,signals:{mos:false,tenCap:false,pbt:false}};
         nNew++;
       }
@@ -885,11 +916,17 @@ function handleCSVImport(e){
       if(hdr.includes("gr"))s.cons.gr=set("gr",row.gr);
       if(hdr.includes("oe"))s.cons.oe=set("oe",row.oe);
       if(hdr.includes("fcf"))s.cons.fcf=set("fcf",row.fcf);
+      if(hdr.includes("eps"))s.cons.eps=set("eps",row.eps);
+      if(hdr.includes("pe"))s.cons.pe=set("pe",row.pe);
       if(hdr.includes("priority")){const pv=set("priority",row.priority);s.priority=pv;}
+      // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
+      applyRecalcSticker(s);
       // Auto-calculate tenCap from OE
       if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
       // Auto-calculate PBT from FCF+gr
       if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
+      // If no eps/pe auto-calc, derive sticker from manual MOS
+      if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
       updateSignals(t);nUpd++;}
     save();render();alert(`Updated ${nUpd} stocks${nNew?` (${nNew} new)`:""}.`);
     // Auto-sync triggers to push worker if connected
@@ -909,7 +946,7 @@ function exportExcel(){
   const sRows=Object.entries(stocks).map(([t,s])=>{return{
     ticker:t,name:s.name,currency:s.currency,moat:s.moat,status:s.status,tdSymbol:s.tdSymbol,finnhubSymbol:s.finnhubSymbol||"",
     currentPrice:s.currentPrice,mos:s.cons.mos,tenCap:s.cons.tenCap,
-    pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
+    pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
@@ -967,10 +1004,15 @@ function handleExcelImport(e){
             s.cons.mos=vn(row.mos);s.cons.tenCap=vn(row.tenCap);
             s.cons.pbt=vn(row.pbt);s.cons.pbtYrs=vn(row.pbtYrs);s.cons.gr=vn(row.gr);
             s.cons.oe=vn(row.oe);s.cons.fcf=vn(row.fcf);
+            s.cons.eps=vn(row.eps);s.cons.pe=vn(row.pe);
+            // Auto-calc chain: eps+gr+pe → sticker+mos
+            applyRecalcSticker(s);
             // Auto-calc tenCap from OE, PBT from FCF+gr
             if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
             if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
-            s.cons.sticker=s.cons.mos?s.cons.mos*2:(vn(row.sticker)||null);
+            // If no eps/pe auto-calc, derive sticker from manual MOS
+            if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:(vn(row.sticker)||null);}
+            else{s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
             if(row.prevSticker!=null)s.cons.prevSticker=vn(row.prevSticker);
             if(row.gate!=null)s.gate=String(row.gate)==="FAIL"?false:true;
             if(row.philSticker!=null||row.philGR!=null){
@@ -978,12 +1020,15 @@ function handleExcelImport(e){
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
           }else{
             const ccy=String(row.currency||"USD");const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦"};
-            const mos=vn(row.mos);
+            let mos=vn(row.mos);const eps=vn(row.eps);const pe=vn(row.pe);const gr=vn(row.gr);
+            const rc=recalcSticker(eps,gr,pe);if(rc)mos=rc.mos;
+            let tc=vn(row.tenCap);const oe=vn(row.oe);if(oe!=null)tc=+(oe*10).toFixed(2);
+            let pbt=vn(row.pbt);const fcf=vn(row.fcf);if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
             stocks[t]={name:String(row.name||t),currency:ccy,moat:String(row.moat||"Wide"),sector:"",
               flag:flags[ccy]||"🌍",status:String(row.status||"watchlist"),tdSymbol:String(row.tdSymbol||t),
               finnhubSymbol:row.finnhubSymbol?String(row.finnhubSymbol):undefined,
               priceMult:1,currentPrice:vn(row.currentPrice)||0,gate:row.gate==="FAIL"?false:true,
-              cons:{sticker:mos?mos*2:(vn(row.sticker)||null),mos:mos,tenCap:vn(row.tenCap),pbt:vn(row.pbt),pbtYrs:vn(row.pbtYrs),gr:vn(row.gr),oe:vn(row.oe),fcf:vn(row.fcf),prevSticker:vn(row.prevSticker)||null},
+              cons:{sticker:rc?rc.sticker:(mos?mos*2:(vn(row.sticker)||null)),mos:mos,tenCap:tc,pbt:pbt,pbtYrs:vn(row.pbtYrs),gr:gr,oe:oe,fcf:fcf,eps:eps,pe:pe,prevSticker:vn(row.prevSticker)||null},
               phil:null,signals:{mos:false,tenCap:false,pbt:false}};
           }
           updateSignals(t);nStocks++;
@@ -1109,15 +1154,15 @@ function checkAlerts(){
     });
   });
 
-  // BUY SIGNALS — grid stocks with active signals
+  // BUY SIGNALS — grid stocks with active signals (respecting Sticker Ceiling)
   GRID.forEach(t=>{
     const s=stocks[t];if(!s?.currentPrice||s.gate===false)return;
     const p=s.currentPrice, c=s.cons;
     if(c.mos&&p<=c.mos){const k=`buy-mos-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🟢",
       html:`<strong>${s.flag} ${t}</strong> at <strong>${fmt(p,s.currency)}</strong> — below MOS ${fmt(c.mos,s.currency)}! Screaming buy.`});}
-    else if(c.tenCap&&p<=c.tenCap){const k=`buy-tc-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🔵",
+    else if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")){const k=`buy-tc-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🔵",
       html:`<strong>${s.flag} ${t}</strong> at <strong>${fmt(p,s.currency)}</strong> — below Ten Cap ${fmt(c.tenCap,s.currency)}`});}
-    else if(c.pbt&&p<=c.pbt){const k=`buy-pbt-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🟣",
+    else if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")){const k=`buy-pbt-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🟣",
       html:`<strong>${s.flag} ${t}</strong> at <strong>${fmt(p,s.currency)}</strong> — below PBT ${fmt(c.pbt,s.currency)}`});}
   });
 
@@ -1140,13 +1185,13 @@ function checkAlerts(){
     if(gap>0&&gap<=0.10){const k=`watch-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"👁",
       html:`<strong>${s.flag} ${t}</strong> approaching buy zone — ${fmt(s.currentPrice,s.currency)} is ${Math.round(gap*100)}% above trigger ${fmt(nt,s.currency)}`});}
     else if(gap<=0){
-      // Build list of ALL firing signals for this watchlist stock
+      // Build list of ALL firing signals for this watchlist stock (respecting Sticker Ceiling)
       const p=s.currentPrice,c=s.cons,fires=[];
       if(c.mos&&p<=c.mos)fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
-      if(c.tenCap&&p<=c.tenCap)fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
-      if(c.pbt&&p<=c.pbt)fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
-      const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:"🔥",
-        html:`<strong>${s.flag} ${t}</strong> WATCHLIST BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals — add to grid!</strong>`});
+      if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
+      if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
+      if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:"🔥",
+        html:`<strong>${s.flag} ${t}</strong> WATCHLIST BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals — add to grid!</strong>`});}
     }
   });
 
@@ -1298,7 +1343,10 @@ function sigCellStatus(ticker, sigKey){
   if(!trigger||!p)return{cls:"none",label:"",sub:fmt(trigger,s.currency)||"—"};
   // Sticker for this tranche = buy trigger × 2 (where trailing stop activates)
   const sticker=trigger*2;
-  // BUY: signal firing — always show regardless of shares
+  const muted=isTriggerMuted(s,sigKey);
+  // MUTED: price reached trigger but trigger sits at or above growth-based sticker — no margin of safety
+  if(p<=trigger&&muted)return{cls:"muted",label:"C",sub:fmt(trigger,s.currency),subCls:"",topSub:"≥ sticker"};
+  // BUY: signal firing AND not muted — valid buy signal
   if(p<=trigger)return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub"};
   // Above trigger: check if tranche has shares
   const sigName=sigKey==="mos"?"MOS":sigKey==="tenCap"?"10Cap":"PBT";
@@ -1329,12 +1377,12 @@ function sigCellStatus(ticker, sigKey){
 function openConviction(t){
   const s=stocks[t];if(!s)return;
   const p=s.currentPrice;const c=s.cons;
-  const sticker=c.sticker||c.mos*2;
+  const sticker=c.mos?c.mos*2:(c.sticker||null);
   const mosFromSticker=sticker&&p?Math.round((1-p/sticker)*100):null;
   const sigs=[];
   if(c.mos&&p<=c.mos)sigs.push("MOS");
-  if(c.tenCap&&p<=c.tenCap)sigs.push("Ten Cap");
-  if(c.pbt&&p<=c.pbt)sigs.push("PBT");
+  if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))sigs.push("Ten Cap");
+  if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))sigs.push("PBT");
   const moatLabel=moatDisp(s.moat);
   let h=`<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:24px;text-align:center">
@@ -1375,11 +1423,12 @@ function openConviction(t){
 
   // Signals
   h+=`<div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px">`;
-  [{l:"MOS",v:c.mos,col:"#34d399"},{l:"Ten Cap",v:c.tenCap,col:"#60a5fa"},{l:"PBT",v:c.pbt,col:"#a78bfa"}].forEach(({l,v,col})=>{
-    const on=v&&p<=v;
+  [{l:"MOS",v:c.mos,col:"#34d399",k:"mos"},{l:"Ten Cap",v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:"PBT",v:c.pbt,col:"#a78bfa",k:"pbt"}].forEach(({l,v,col,k})=>{
+    const on=v&&p<=v&&!isTriggerMuted(s,k);
+    const muted=v&&p<=v&&isTriggerMuted(s,k);
     h+=`<div style="padding:6px 14px;border-radius:16px;font-size:11px;font-weight:700;font-family:var(--mono);
-      ${on?`background:${col}20;color:${col};border:1px solid ${col}55`:`background:var(--card);color:var(--muted);border:1px solid var(--border)`}">
-      ${on?"✓ ":""}${l} ${v?fmt(v,s.currency):"—"}</div>`;
+      ${on?`background:${col}20;color:${col};border:1px solid ${col}55`:muted?`background:#92400e20;color:#d97706;border:1.5px dashed #d97706`:`background:var(--card);color:var(--muted);border:1px solid var(--border)`}">
+      ${on?"✓ ":muted?"C ":""}${l} ${v?fmt(v,s.currency):"—"}</div>`;
   });
   h+=`</div>`;
 
@@ -1468,19 +1517,21 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       // Override circle colors per signal: buy/hold/track use signal color, sell/warn stay as-is
       let indStyle="";
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
+      else if(st.cls==="muted")indStyle=`background:#92400e30;border:1.5px dashed #d97706;color:#d97706;font-weight:700`;
       else if(st.cls==="hold")indStyle=`background:${sigCol}15;border:1px solid ${sigCol}30;border-radius:6px;padding:2px 4px;color:${sigCol};font-weight:700`;
       else if(st.cls==="track")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       // sell and warn keep their CSS class colors (red/amber)
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
-      const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:st.cls==="hold"?sigCol+"99":"";
-      const topSubOpacity=st.cls==="hold"?"90":"60";
+      const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:st.cls==="hold"?sigCol+"99":st.cls==="muted"?"#d9770699":"";
+      const topSubOpacity=st.cls==="hold"?"90":st.cls==="muted"?"ff":"60";
       h+=`<div class="sig-cell">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
     // Status column: overall stock status
     const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="sell");
     const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="warn");
-    const statusCol=hasSell?"var(--red)":sig===3?"var(--green)":sig?"var(--accent)":hasWarn?"var(--amber)":"var(--muted)";
+    const hasMuted=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="muted");
+    const statusCol=hasSell?"var(--red)":sig===3?"var(--green)":sig?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
     const statusTxt=hasSell?"SELL":sig?`${sig}/3`:"0/3";
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
   // Totals row
@@ -1636,16 +1687,18 @@ function renderAllocator(c){
   if(currentPf==="personal"){
     h+=renderMonthlyBanner();
     const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS.length;
-    // v2 formula: Tranche = income ÷ ((firing stocks × 3) + 3)
+    // v2 formula with Sticker Ceiling: Tranche = income ÷ (sum of valid trigger slots across firing stocks + 3)
+    // A trigger slot is valid if: MOS (always valid), or TenCap/PBT with trigger price < sticker (mos×2)
     // Only new income is divided. Existing DP stays earmarked.
     const firingStocks=GRID.filter(t=>sigCount(t)>0);
     const nFiring=firingStocks.length;
-    const denom=(nFiring*3)+3;
+    const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t),0);
+    const denom=validSlots+3;
     const income=settings.monthlyIncomeUSD;
     const perTr=denom>0?Math.round(income/denom):0;
-    // Count lit vs unlit signals across firing stocks
+    // Count lit vs unlit signals across firing stocks (only valid triggers)
     const litTotal=firingStocks.reduce((n,t)=>n+sigCount(t),0);
-    const unlitTotal=nFiring*3-litTotal;
+    const unlitTotal=validSlots-litTotal;
     const deployTotal=litTotal*perTr;
     const mosReserveTotal=unlitTotal*perTr;
     const expansionTotal=3*perTr;
@@ -1656,7 +1709,7 @@ function renderAllocator(c){
       <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">not re-divided</div></div></div>
     <div class="alloc-card">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">(${nFiring}×3)+3 = ${denom} slots</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+3 = ${denom} slots</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche ($${income.toLocaleString()} ÷ ${denom})</span><span style="font-size:13px;font-family:var(--mono);color:var(--accent)">$${perTr.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litTotal} lit signals)</span><span style="font-size:13px;font-family:var(--mono);color:var(--green)">$${deployTotal.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">MOS reserves (${unlitTotal} unlit)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${mosReserveTotal.toLocaleString()}</span></div>
@@ -1664,10 +1717,11 @@ function renderAllocator(c){
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${Math.round(toDP/income*100)}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + MOS reserve
-    firingStocks.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const unlit=3-sig;
+    firingStocks.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const slots=validTriggerSlots(t);const unlit=slots-sig;
       const deployUSD=sig*perTr;const mosUSD=unlit*perTr;
       const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
-      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig} lit → deploy · ${unlit} unlit → MOS</div></div>
+      const mutedCount=3-slots;const mutedNote=mutedCount>0?` · ${mutedCount} muted`:"";
+      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig} lit → deploy · ${unlit} unlit → MOS${mutedNote}</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosUSD?` · +$${mosUSD.toLocaleString()} MOS`:""}</div></div></div>`;});
     // Show 0/3 grid stocks (not firing — no allocation)
     const notFiring=GRID.filter(t=>sigCount(t)===0);
@@ -1689,13 +1743,14 @@ function renderAllocator(c){
       // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
+        const sticker=s.cons.mos?s.cons.mos*2:null;
         const triggers=[];
-        if(s.cons.pbt&&s.currentPrice<=s.cons.pbt)triggers.push("PBT");
-        if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap)triggers.push("10Cap");
+        if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker))triggers.push("PBT");
+        if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker))triggers.push("10Cap");
         if(s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
         const pending=[];
-        if(s.cons.pbt&&!triggers.includes("PBT"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
-        if(s.cons.tenCap&&!triggers.includes("10Cap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+        if(s.cons.pbt&&!triggers.includes("PBT")&&!isTriggerMuted(s,"pbt"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+        if(s.cons.tenCap&&!triggers.includes("10Cap")&&!isTriggerMuted(s,"tenCap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
         if(s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
         if(!triggers.length&&!pending.length)return;
         const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
@@ -1768,7 +1823,7 @@ function renderAllocator(c){
     const tier2=[];
     nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");if(isTrophy)return;
-      const sig=sigCount(t);const stk=s.cons?.sticker||(s.cons?.mos?s.cons.mos*2:null);
+      const sig=sigCount(t);const stk=s.cons?.mos?s.cons.mos*2:s.cons?.sticker||null;
       if(sig===0&&stk&&s.currentPrice>stk){
         const gap=((s.currentPrice-stk)/stk*100).toFixed(0);
         const available=toEUR(sh*s.currentPrice,s.currency);
@@ -1821,13 +1876,14 @@ function renderAllocator(c){
     const wlNL=getWatchlist().filter(t=>stocks[t].status==="watchlist");
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
+      const sticker=s.cons.mos?s.cons.mos*2:null;
       const triggers=[];
-      if(s.cons.pbt&&s.currentPrice<=s.cons.pbt)triggers.push("PBT");
-      if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap)triggers.push("10Cap");
+      if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker))triggers.push("PBT");
+      if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker))triggers.push("10Cap");
       if(s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
       const pending=[];
-      if(s.cons.pbt&&!triggers.includes("PBT"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
-      if(s.cons.tenCap&&!triggers.includes("10Cap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+      if(s.cons.pbt&&!triggers.includes("PBT")&&!isTriggerMuted(s,"pbt"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+      if(s.cons.tenCap&&!triggers.includes("10Cap")&&!isTriggerMuted(s,"tenCap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
       if(s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
       if(!triggers.length&&!pending.length)return;
       const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
@@ -2026,33 +2082,40 @@ function openEditStock(t){
     {id:"es-fh",label:"Yahoo Symbol",val:s.finnhubSymbol||"",placeholder:"PGR, WKL.AS, AUTO.L"},
     {id:"es-price",label:"Current Price",val:s.currentPrice,type:"number"},
     {id:"es-moat",label:"Moat",val:s.moat==="Wide"?"Excellent":s.moat==="Narrow"?"Strong":s.moat,select:["Excellent","Strong"]},
+    "— Growth Inputs (→ Sticker → MOS) —",
+    {id:"es-eps",label:"EPS (TTM)",val:s.cons.eps,type:"number"},
     {id:"es-gr",label:"Growth %",val:s.cons.gr,type:"number"},
+    {id:"es-pe",label:"Historical P/E",val:s.cons.pe,type:"number"},
     "— Cash Flow Inputs —",
     {id:"es-oe",label:"OE/share (→ Ten Cap)",val:s.cons.oe,type:"number"},
     {id:"es-fcf",label:"FCF/share (→ PBT)",val:s.cons.fcf,type:"number"},
-    "— Buy Triggers —",
-    {id:"es-mos",label:"MOS (buy trigger)",val:s.cons.mos,type:"number"},
-    {id:"es-tc",label:"Ten Cap (buy trigger)",val:s.cons.tenCap,type:"number"},
-    {id:"es-pbt",label:"PBT Price (buy trigger)",val:s.cons.pbt,type:"number"},
+    "— Buy Triggers (auto-calc from inputs above) —",
+    {id:"es-mos",label:"MOS (= Sticker ÷ 2)",val:s.cons.mos,type:"number"},
+    {id:"es-tc",label:"Ten Cap (= OE × 10)",val:s.cons.tenCap,type:"number"},
+    {id:"es-pbt",label:"PBT Price (= 8yr FCF)",val:s.cons.pbt,type:"number"},
     {id:"es-pbtyrs",label:"PBT Years",val:s.cons.pbtYrs,type:"number"},
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
   ],()=>{
     s.name=gv("es-name")||s.name;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
-    s.currentPrice=nv("es-price")??s.currentPrice;s.cons.gr=nv("es-gr")??s.cons.gr;
+    s.currentPrice=nv("es-price")??s.currentPrice;
+    s.cons.eps=nv("es-eps");s.cons.gr=nv("es-gr")??s.cons.gr;s.cons.pe=nv("es-pe");
     s.cons.oe=nv("es-oe");s.cons.fcf=nv("es-fcf");
+    // Read manual trigger values (may be overwritten by auto-calc below)
     s.cons.mos=nv("es-mos");s.cons.tenCap=nv("es-tc");
     s.cons.pbt=nv("es-pbt");s.cons.pbtYrs=nv("es-pbtyrs");
+    // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
+    applyRecalcSticker(s);
     // Auto-calculate tenCap from OE if OE provided
     if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
     // Auto-calculate PBT from FCF+gr if both provided
     if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
-    // Save previous sticker before recalculating
-    const oldSticker=s.cons.sticker;
-    // Sticker = 2× MOS (auto-calculated)
-    s.cons.sticker=s.cons.mos?s.cons.mos*2:null;
-    // Track sticker change for >20% drop detection
-    if(oldSticker&&s.cons.sticker&&s.cons.sticker!==oldSticker)s.cons.prevSticker=oldSticker;
+    // If no eps/pe auto-calc happened, derive sticker from manual MOS
+    if(s.cons.eps==null||s.cons.pe==null){
+      const oldSticker=s.cons.sticker;
+      s.cons.sticker=s.cons.mos?s.cons.mos*2:null;
+      if(oldSticker&&s.cons.sticker&&s.cons.sticker!==oldSticker)s.cons.prevSticker=oldSticker;
+    }
     // 4M gate — confirm before setting to FAIL (triggers sell-all alert)
     const gateVal=gv("es-gate");
     if(gateVal==="FAIL"&&s.gate!==false){
@@ -2071,27 +2134,34 @@ function openAddStock(){
     {id:"ns-moat",label:"Moat",val:"Excellent",select:["Excellent","Strong"]},
     {id:"ns-fh",label:"Yahoo Symbol",val:"",placeholder:"COST, WKL.AS, AUTO.L"},
     {id:"ns-price",label:"Current Price",val:"",type:"number"},
+    "— Growth Inputs (→ Sticker → MOS) —",
+    {id:"ns-eps",label:"EPS (TTM)",val:"",type:"number"},
+    {id:"ns-gr",label:"Growth %",val:"",type:"number"},
+    {id:"ns-pe",label:"Historical P/E",val:"",type:"number"},
     "— Cash Flow Inputs —",
     {id:"ns-oe",label:"OE/share (→ Ten Cap)",val:"",type:"number"},
     {id:"ns-fcf",label:"FCF/share (→ PBT)",val:"",type:"number"},
-    "— Buy Triggers —",
+    "— Buy Triggers (auto-calc or manual) —",
     {id:"ns-mos",label:"MOS",val:"",type:"number"},
     {id:"ns-tc",label:"Ten Cap",val:"",type:"number"},
     {id:"ns-pbt",label:"PBT Price",val:"",type:"number"},
-    {id:"ns-gr",label:"Growth %",val:"",type:"number"},
     {id:"ns-pbtyrs",label:"PBT Years",val:"",type:"number"},
   ],()=>{
     const t=(gv("ns-ticker")||"").toUpperCase().trim();if(!t){alert("Enter ticker");return false;}
     if(stocks[t]){alert(t+" exists");return false;}
     const ccy=gv("ns-ccy")||"USD";const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦"};
-    const mos=nv("ns-mos");const oe=nv("ns-oe");const fcf=nv("ns-fcf");const gr=nv("ns-gr");
-    let tc=nv("ns-tc");let pbt=nv("ns-pbt");
+    const eps=nv("ns-eps");const gr=nv("ns-gr");const pe=nv("ns-pe");
+    let mos=nv("ns-mos");const oe=nv("ns-oe");const fcf=nv("ns-fcf");
+    let tc=nv("ns-tc");let pbt=nv("ns-pbt");let sticker=mos?mos*2:null;
+    // Auto-calc sticker+MOS from eps+gr+pe if all present
+    const r=recalcSticker(eps,gr,pe);
+    if(r){mos=r.mos;sticker=r.sticker;}
     if(oe!=null)tc=+(oe*10).toFixed(2);
     if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
     const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
       status:"watchlist",finnhubSymbol:gv("ns-fh")||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
-      cons:{sticker:mos?mos*2:null,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,prevSticker:null},
+      cons:{sticker,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,eps,pe,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false}};
     updateSignals(t);save();
   });
