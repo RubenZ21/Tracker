@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.96</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.97</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1969,11 +1969,18 @@ function renderWatchlist(c){
       <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
-    [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap},{l:"MOS",v:s.cons.mos,p:s.phil?.mos}].forEach(({l,v,p})=>{
-      const on=v&&s.currentPrice<=v;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk?calcImpliedReturn(stk,v):null;const col=on?"var(--green)":"var(--muted)";
-      h+=`<div class="wl-trig" ${isClosest?'style="border:1px solid var(--accent)"':''}><div class="wl-trig-label">${l}${isClosest?" ★":""}</div><div class="wl-trig-val" style="color:${col}">${v?fmt(v,s.currency):"—"}</div>${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
+    [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}].forEach(({l,v,p,k})=>{
+      const muted=v&&isTriggerMuted(s,k);const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk&&!muted?calcImpliedReturn(stk,v):null;
+      const col=on?"var(--green)":muted?"#d97706":"var(--muted)";
+      const borderStyle=muted?"border:1.5px dashed #d97706":(isClosest?"border:1px solid var(--accent)":"");
+      h+=`<div class="wl-trig" ${borderStyle?`style="${borderStyle}"`:''}>
+        <div class="wl-trig-label">${l}${isClosest?" ★":""}${muted?" ⌀":""}</div>
+        <div class="wl-trig-val" style="color:${col}${muted?";opacity:0.6":""}">${v?fmt(v,s.currency):"—"}</div>
+        ${muted?`<div style="font-size:8px;color:#d97706;font-family:var(--mono)">≥ sticker</div>`:""}
+        ${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}
+        ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span></span>
+      <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span>${stk?` · Stk ${fmt(stk,s.currency)}`:""}</span>
       <div style="display:flex;gap:4px;align-items:center">
         <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
         <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
