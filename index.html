@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.00</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.01</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1596,10 +1596,11 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above stk":"≈ sticker"}</div>`:""}</div></div>`;
 
     // Notes
-    h+=`<div style="padding:0 2px;margin-bottom:4px;cursor:pointer" onclick="editNotes('${ticker}')">`;
-    if(s.notes){h+=`<div style="font-size:10px;color:var(--muted);line-height:1.4">${s.notes.length>120?s.notes.slice(0,120)+"…":s.notes}</div>`;}
-    else{h+=`<div style="font-size:10px;color:var(--border)">+ add note</div>`;}
-    h+=`</div>`;
+    if(s.notes){
+      h+=`<div style="padding:0 2px;margin-bottom:4px;cursor:pointer" onclick="editNotes('${ticker}')"><div style="font-size:10px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.notes}</div></div>`;
+    }else{
+      h+=`<div style="padding:0 2px;margin-bottom:2px;cursor:pointer;opacity:0.3" onclick="editNotes('${ticker}')"><div style="font-size:9px;color:var(--muted)">+ note</div></div>`;
+    }
 
     // Tranche rows with unified activation price — sorted PBT → 10Cap → MOS
     const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
@@ -2103,10 +2104,11 @@ function renderWatchlist(c){
         <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px;background:#3b111133;border-radius:4px" onclick="removeStock('${t}')">✕</span>
       </div></div>`;
     if(s.phil?.score)h+=`<div style="font-size:10px;color:var(--muted);margin-top:2px">Phil: ${s.phil.score} · GR ${s.phil.gr}% vs ${s.cons.gr}%</div>`;
-    h+=`<div style="margin-top:3px;cursor:pointer" onclick="editNotes('${t}')">`;
-    if(s.notes){h+=`<div style="font-size:10px;color:var(--muted);line-height:1.4">${s.notes.length>100?s.notes.slice(0,100)+"…":s.notes}</div>`;}
-    else{h+=`<div style="font-size:10px;color:var(--border)">+ note</div>`;}
-    h+=`</div>`;
+    if(s.notes){
+      h+=`<div style="margin-top:3px;cursor:pointer" onclick="editNotes('${t}')"><div style="font-size:10px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.notes}</div></div>`;
+    }else{
+      h+=`<div style="margin-top:2px;cursor:pointer;opacity:0.3" onclick="editNotes('${t}')"><div style="font-size:9px;color:var(--muted)">+ note</div></div>`;
+    }
     h+=`</div>`;});
   h+=`</div></div>`;c.innerHTML=h;
 }
@@ -2115,11 +2117,19 @@ function setPriority(t){
   if(v===null)return;const n=parseFloat(v);stocks[t].priority=isNaN(n)?null:n;save();render();
 }
 function editNotes(t){
-  const cur=stocks[t].notes||"";
-  const v=prompt("Notes for "+t+":",cur);
-  if(v===null)return;
-  stocks[t].notes=v.trim()||undefined;
-  save();render();
+  const s=stocks[t];const cur=s.notes||"";
+  const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-title">${s.flag} ${t} — Notes</div>
+    <textarea id="notes-ta" style="width:100%;min-height:180px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:14px;font-family:inherit;line-height:1.5;resize:vertical;box-sizing:border-box">${cur}</textarea>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="modal-done" style="flex:1" id="notes-save">Save</button>
+      <button class="modal-done" style="flex:0;background:var(--bg);color:var(--muted)" id="notes-cancel">Cancel</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const ta=document.getElementById("notes-ta");ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
+  document.getElementById("notes-save").onclick=()=>{s.notes=ta.value.trim()||undefined;save();ov.remove();render();};
+  document.getElementById("notes-cancel").onclick=()=>ov.remove();
 }
 
 // ============ SETTINGS ============
