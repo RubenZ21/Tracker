@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.98</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.99</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -256,6 +256,7 @@ const DATA_VERSION=8;
 
 function getGrid(){return Object.keys(stocks).filter(t=>stocks[t].status==="grid");}
 function getWatchlist(){return Object.keys(stocks).filter(t=>stocks[t].status==="watchlist"||stocks[t].status==="trophy");}
+function getSpeculative(){return Object.keys(stocks).filter(t=>stocks[t].status==="speculative");}
 function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s+(t.bought-t.sold),0);}
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
 function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t=>(t.bought-t.sold)>0).length;}
@@ -371,7 +372,7 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
   if(!s._sigChanges)s._sigChanges=[];
   ["mos","tenCap","pbt"].forEach(sig=>{
     if(prev[sig]&&!s.signals[sig])s._sigChanges.push({sig,dir:"off"});
-    else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(!window._suppressBuyModal&&(s.status==="grid"||s.status==="watchlist"))queueBuyModal(t,sig);}
+    else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(!window._suppressBuyModal&&(s.status==="grid"||s.status==="watchlist"||s.status==="speculative"))queueBuyModal(t,sig);}
   });
   // Track per-tranche state machine + ATH
   ["personal","nl"].forEach(pk=>{
@@ -948,7 +949,8 @@ function exportExcel(){
     currentPrice:s.currentPrice,mos:s.cons.mos,tenCap:s.cons.tenCap,
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
-    philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null};});
+    philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
+    specReason:s.specReason||null,specDate:s.specDate||null};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws1,"Stocks");
 
@@ -1015,6 +1017,8 @@ function handleExcelImport(e){
             else{s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
             if(row.prevSticker!=null)s.cons.prevSticker=vn(row.prevSticker);
             if(row.gate!=null)s.gate=String(row.gate)==="FAIL"?false:true;
+            if(row.specReason!=null)s.specReason=String(row.specReason);
+            if(row.specDate!=null)s.specDate=vn(row.specDate);
             if(row.philSticker!=null||row.philGR!=null){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
@@ -1029,7 +1033,8 @@ function handleExcelImport(e){
               finnhubSymbol:row.finnhubSymbol?String(row.finnhubSymbol):undefined,
               priceMult:1,currentPrice:vn(row.currentPrice)||0,gate:row.gate==="FAIL"?false:true,
               cons:{sticker:rc?rc.sticker:(mos?mos*2:(vn(row.sticker)||null)),mos:mos,tenCap:tc,pbt:pbt,pbtYrs:vn(row.pbtYrs),gr:gr,oe:oe,fcf:fcf,eps:eps,pe:pe,prevSticker:vn(row.prevSticker)||null},
-              phil:null,signals:{mos:false,tenCap:false,pbt:false}};
+              phil:null,signals:{mos:false,tenCap:false,pbt:false},
+              specReason:row.specReason?String(row.specReason):undefined,specDate:vn(row.specDate)||undefined};
           }
           updateSignals(t);nStocks++;
         });
@@ -1103,7 +1108,7 @@ function checkAlerts(){
 
   // CRITICAL: 4M GATE FAIL — sell all (highest priority)
   Object.entries(stocks).forEach(([t,s])=>{
-    if(s.gate===false&&(s.status==="grid"||s.status==="trophy")){
+    if(s.gate===false&&(s.status==="grid"||s.status==="trophy"||s.status==="speculative")){
       const k=`gate-fail-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"critical",icon:"🚫",
         html:`<strong>${s.flag} ${t}</strong> 4M GATE FAILED — SELL ALL tranches immediately!`});}
   });
@@ -1533,6 +1538,24 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const statusCol=hasSell?"var(--red)":sig===3?"var(--green)":sig?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
     const statusTxt=hasSell?"SELL":sig?`${sig}/3`:"0/3";
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
+  // Speculative stocks row(s) — shown in grid but not counted in totals
+  const SPEC=getSpeculative();
+  SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
+    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">SPEC</span>${s.flag} ${t}</div></div>`;
+    ["pbt","tenCap","mos"].forEach(key=>{
+      const st=sigCellStatus(t,key);
+      const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
+      let indStyle="";
+      if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
+      else if(st.cls==="muted")indStyle=`background:#92400e30;border:1.5px dashed #d97706;color:#d97706;font-weight:700`;
+      else if(st.cls==="hold")indStyle=`background:${sigCol}15;border:1px solid ${sigCol}30;border-radius:6px;padding:2px 4px;color:${sigCol};font-weight:700`;
+      else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
+      const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
+      const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":"";
+      h+=`<div class="sig-cell"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
+    });
+    h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${sig?sig+"/3":"0/3"}</div></div>`;
+  });
   // Totals row
   const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k).cls==="buy").length;
   h+=`<div class="sig-total-row"><div style="font-size:12px;font-weight:700;color:var(--muted)">TOTAL</div>
@@ -1552,6 +1575,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const avg=posAvgPrice(pos);const sig=sigCount(ticker);const nTr=posTranchesOwned(pos);
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
+      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/3</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
       s.status==="grid"&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/3</span>`:
       s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`:"";
@@ -1624,6 +1648,23 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     if(s.gate===false){
       h+=`<div style="margin-top:6px;padding:6px;background:#3b111180;border:1px solid var(--red);border-radius:6px;text-align:center">
         <span style="font-size:11px;color:var(--red);font-weight:700">🚫 4M GATE FAILED — SELL ALL</span></div>`;
+    }
+
+    // Speculative bucket info
+    if(s.status==="speculative"){
+      const specAge=s.specDate?Math.round((Date.now()-s.specDate)/86400000):null;
+      const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
+      h+=`<div style="margin-top:6px;padding:8px;background:#332d0d40;border:1px solid #d9770644;border-radius:6px">
+        <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚠ Speculative — Management failing</div>
+        ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px">${s.specReason}</div>`:""}
+        <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
+          <span>${pctOfPf.toFixed(1)}% of portfolio${pctOfPf>10?" ⚠ >10% cap":""}${specAge!=null?" · "+specAge+"d held":""}</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate to Grid</button>
+          <button class="btn-sm" style="flex:0;background:var(--bg);color:var(--muted);font-size:10px;padding:4px" onclick="demoteSpec('${ticker}')">→ Watch</button>
+        </div>
+      </div>`;
     }
 
     h+=`<div class="btn-row">
@@ -1734,6 +1775,33 @@ function renderAllocator(c){
       <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--amber)">$${expansionTotal.toLocaleString()}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">→ DP</div></div></div>`;
     h+=`</div>`;
     h+=`</div>`; // close alloc-waiting wrapper
+
+    // === SPECULATIVE BUCKET ===
+    const specStocks=getSpeculative();
+    {
+      const pfValEUR=pfValueEUR(currentPf);const maxSpec=pfValEUR*0.10;
+      const specInPf=specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
+      const specVal=specInPf.reduce((v,t)=>{const s=stocks[t];return v+toEUR(posShares(pf.positions[t])*s.currentPrice,s.currency);},0);
+      const specAvail=Math.max(0,maxSpec-specVal);
+      if(specStocks.length||specInPf.length){
+        h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:14px;font-weight:700;color:#d97706">⚠ Speculative Bucket</span>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">max 10% · 1 slot</span></div>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">10% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">$${Math.round(fromEUR(maxSpec,"USD")).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${specVal>0?"#d97706":"var(--muted)"}">$${Math.round(fromEUR(specVal,"USD")).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">$${Math.round(fromEUR(specAvail,"USD")).toLocaleString()}</div></div></div>`;
+        specInPf.forEach(t=>{const s=stocks[t];const sh=posShares(pf.positions[t]);const val=sh*s.currentPrice;
+          h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/3 signals</span></div>
+              <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(val),s.currency)} · ${fmtSh(sh)} sh</span></div>
+            ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${s.specReason}</div>`:""}</div>`;});
+        if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only — not from monthly income.</div>`;}
+        h+=`</div>`;
+      }
+    }
 
     // === NEW ENTRY DEPLOYMENT (Personal DP ÷6 rule) ===
     if(pf.dryPowder>0){
@@ -1937,6 +2005,27 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">€${Math.round(val).toLocaleString()}</span></div>`;});
     if(stockCount<TARGET_STOCKS){h+=`<div style="font-size:11px;color:var(--amber);margin-top:4px">${TARGET_STOCKS-stockCount} slot${TARGET_STOCKS-stockCount>1?"s":""} open — watchlist triggers will deploy DP</div>`;}
     h+=`</div>`;
+
+    // === NL SPECULATIVE BUCKET ===
+    const specNL=getSpeculative();
+    const specInNL=specNL.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
+    const nlSpecVal=specInNL.reduce((v,t)=>{const s=stocks[t];return v+toEUR(posShares(pf.positions[t])*s.currentPrice,s.currency);},0);
+    const nlMaxSpec=pvTotal*0.10;
+    if(specNL.length||specInNL.length){
+      h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:14px;font-weight:700;color:#d97706">⚠ Speculative Bucket</span>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">max 10% · 1 slot</span></div>
+        <div style="display:flex;gap:8px;margin-bottom:6px">
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">10% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(nlMaxSpec).toLocaleString()}</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${nlSpecVal>0?"#d97706":"var(--muted)"}">€${Math.round(nlSpecVal).toLocaleString()}</div></div></div>`;
+      specInNL.forEach(t=>{const s=stocks[t];const sh=posShares(pf.positions[t]);
+        h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmtSh(sh)} sh</span></div>
+          ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${s.specReason}</div>`:""}</div>`;});
+      if(!specInNL.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only.</div>`;}
+      h+=`</div>`;
+    }
   }
   h+=`</div>`;c.innerHTML=h;
 }
@@ -1983,6 +2072,7 @@ function renderWatchlist(c){
         <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
         <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
         <span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px;background:#0d332033;border-radius:4px" onclick="promoteToGrid('${t}')">→ Grid</span>
+        <span style="font-size:10px;color:#d97706;cursor:pointer;padding:2px 6px;background:#332d0d33;border-radius:4px" onclick="promoteToSpec('${t}')">→ Spec</span>
         <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px;background:#3b111133;border-radius:4px" onclick="removeStock('${t}')">✕</span>
       </div></div>`;
     if(s.phil?.score)h+=`<div style="font-size:10px;color:var(--muted);margin-top:2px">Phil: ${s.phil.score} · GR ${s.phil.gr}% vs ${s.cons.gr}%</div>`;
@@ -1996,7 +2086,7 @@ function setPriority(t){
 
 // ============ SETTINGS ============
 function renderSettings(c){
-  const GRID=getGrid(),wl=getWatchlist();
+  const GRID=getGrid(),wl=getWatchlist(),SPEC=getSpeculative();
   let h=`<div class="settings-section"><div style="font-size:16px;font-weight:700;margin-bottom:16px">Settings</div>
     <div class="settings-card"><div class="settings-title">🔔 Push Alerts</div>
       <div class="settings-desc">Cloudflare Worker checks prices every 15 min during market hours and sends push notifications even when the app is closed.</div>
@@ -2045,6 +2135,13 @@ function renderSettings(c){
     <button class="settings-save" onclick="const v=document.getElementById('grid-add').value;if(v)promoteToGrid(v);">Add</button></div>`;
   h+=`</div>
 
+    <div class="settings-card"><div class="settings-title" style="color:#d97706">⚠ Speculative (${SPEC.length}/1 slot)</div>`;
+  if(SPEC.length){SPEC.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div><span style="font-size:13px">${stocks[t].flag} ${t}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${stocks[t].specReason||""}</span></div>
+      <div style="display:flex;gap:4px"><span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px" onclick="graduateToGrid('${t}')">✓ Graduate</span><span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px" onclick="demoteSpec('${t}')">✕ Remove</span></div></div>`;});}
+  else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No speculative position. Use → Spec on a watchlist stock to add one.</div>`;}
+  h+=`</div>
+
     <div class="settings-card"><div class="settings-title">💱 FX Rates</div>
       <div style="display:flex;gap:8px">
         <div style="flex:1"><div class="settings-desc">EUR/USD (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxRate}" onchange="settings.fxRate=+this.value;save()"></div>
@@ -2064,6 +2161,34 @@ function promoteToGrid(t){
   updateSignals(t);save();
   currentTab="portfolio";render();
   window.scrollTo(0,0);
+}
+function promoteToSpec(t){
+  // Enforce single slot per portfolio — check if any speculative stock already exists
+  const existing=getSpeculative();
+  if(existing.length){
+    alert(`Speculative slot occupied by ${existing[0]}. Graduate or exit it first.`);return;
+  }
+  const s=stocks[t];
+  const reason=prompt("Catalyst + timeline for the failing M (Management):\ne.g. 'CEO search, expected Q2 2026'","");
+  if(reason===null)return;
+  s.status="speculative";
+  s.specReason=reason||"";
+  s.specDate=Date.now();
+  updateSignals(t);save();
+  currentTab="portfolio";render();
+  window.scrollTo(0,0);
+}
+function graduateToGrid(t){
+  if(!confirm(`Graduate ${t} to grid? The failing M must now pass.\nThis frees the speculative slot.`))return;
+  const s=stocks[t];s.status="grid";
+  delete s.specReason;delete s.specDate;
+  updateSignals(t);save();render();
+}
+function demoteSpec(t){
+  if(!confirm(`Move ${t} back to watchlist? (Position keeps tracking if shares held.)`))return;
+  const s=stocks[t];s.status="watchlist";
+  delete s.specReason;delete s.specDate;
+  save();render();
 }
 function demoteFromGrid(t){
   const hasShares=["personal","nl"].some(pk=>{const pos=portfolios[pk]?.positions?.[t];return pos&&pos.tranches.some(tr=>(tr.bought-tr.sold)>0);});
