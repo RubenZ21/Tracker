@@ -1607,8 +1607,9 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     // MOS reserve bar (only for stocks with unlit valid triggers in this portfolio)
     {const slots=validTriggerSlots(ticker);const unlitRes=slots-sig;
     if(unlitRes>0&&sig>0&&s.status!=="trophy"){
-      const resSym=s.currency==="USD"?"$":s.currency==="GBP"?"\u00a3":"\u20ac";
-      const nTr=posTranchesOwned(pos);const avgTrCost=nTr>0&&avg>0&&shares>0?Math.round(avg*shares/nTr):0;
+      const resSym=s.currency==="USD"?"$":s.currency==="GBp"?"\u00a3":"\u20ac";
+      const resMult=s.currency==="GBp"?100:1;
+      const nTr=posTranchesOwned(pos);const avgTrCost=nTr>0&&avg>0&&shares>0?Math.round(avg*shares/nTr/resMult):0;
       const ideal=avgTrCost*unlitRes;
       const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
       const pct=ideal>0?Math.min(actual/ideal,1.5):0;
@@ -1814,10 +1815,12 @@ function renderAllocator(c){
       const pos=pf.positions?.[t];if(!pos){mosInfo[t]={ideal:0,actual:0,unlit};return;}
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
       let ideal=0;
-      if(nTr>0&&avg>0&&sh>0){ideal=Math.round(avg*sh/nTr*unlit);}
+      const resMult=s.currency==="GBp"?100:1;
+      if(nTr>0&&avg>0&&sh>0){ideal=Math.round(avg*sh/nTr/resMult*unlit);}
       const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
-      mosInfo[t]={ideal,actual,unlit,currency:s.currency};
-      dpMosReserved+=Math.round(fromEUR(toEUR(actual,s.currency),"USD"));
+      const resCcy=s.currency==="GBp"?"GBP":s.currency;
+      mosInfo[t]={ideal,actual,unlit,resCcy};
+      dpMosReserved+=Math.round(fromEUR(toEUR(actual,resCcy),"USD"));
     });
     const dpExpansion=Math.max(0,pf.dryPowder-dpMosReserved);
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>$</span><input type="number" value="${income}" onchange="settings.monthlyIncomeUSD=+this.value;save();render()"></div>
@@ -1837,13 +1840,13 @@ function renderAllocator(c){
       const deployUSD=sig*perTr;const mosUSD=unlit*perTr;
       const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
       const mutedCount=3-slots;const mutedNote=mutedCount>0?` · ${mutedCount} muted`:"";
-      const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0,currency:"USD"};
-      const allocSym=s.currency==="USD"?"$":s.currency==="GBP"?"\u00a3":"\u20ac";
+      const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0,resCcy:"USD"};
+      const allocSym=mi.resCcy==="USD"?"$":mi.resCcy==="GBP"?"\u00a3":"\u20ac";
       const resRatio=mi.ideal>0?(mi.actual/mi.ideal):mi.actual>0?999:1;
       const resCol=resRatio>=0.95?"var(--green)":resRatio>=0.5?"var(--amber)":"var(--red)";
       const resLabel=resRatio>=0.95?"✓":resRatio>=0.5?"▼":"⚠";
       h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig} lit → deploy · ${unlit} unlit → MOS${mutedNote}</div></div>
-        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosUSD?` · +${allocSym}${Math.round(fromEUR(toEUR(mosUSD,"USD"),s.currency)).toLocaleString()}/mo`:""}</div></div></div>`;
+        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosUSD?` · +${allocSym}${Math.round(fromEUR(toEUR(mosUSD,"USD"),mi.resCcy)).toLocaleString()}/mo`:""}</div></div></div>`;
       // MOS reserve row (only if stock has unlit triggers)
       if(mi.unlit>0){
         const pos=pf.positions?.[t];const hasOverride=pos&&pos.mosReserve!=null;
@@ -1987,9 +1990,11 @@ function renderAllocator(c){
       const pos=nlPos[t];if(!pos)return;
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
       if(nTr>0&&avg>0&&sh>0){
-        const ideal=Math.round(avg*sh/nTr*unlit);
+        const resMult=s.currency==="GBp"?100:1;
+        const ideal=Math.round(avg*sh/nTr/resMult*unlit);
         const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
-        nlMosReserved+=Math.round(toEUR(actual,s.currency));
+        const resCcy=s.currency==="GBp"?"GBP":s.currency;
+        nlMosReserved+=Math.round(toEUR(actual,resCcy));
       }
     });
     const nlDpAvail=Math.max(0,pf.dryPowder-nlMosReserved);
