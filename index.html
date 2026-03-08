@@ -59,7 +59,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .sig-sub.buy-sub{color:#34d399}.sig-sub.track-sub{color:#60a5fa}.sig-sub.warn-sub{color:#fbbf24}.sig-sub.sell-sub{color:#f87171}
 .sell-card{background:var(--card);border-radius:8px;padding:12px;margin-bottom:8px}
 .wl-card{background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--border)}
-.wl-trig{flex:1;background:var(--bg);border-radius:4px;padding:4px;text-align:center}
+.wl-trig{flex:1;background:var(--bg);border-radius:4px;padding:4px;text-align:center;min-width:0;overflow:hidden}
 .wl-trig-label{font-size:9px;color:var(--muted)}.wl-trig-val{font-size:11px;font-family:var(--mono)}
 .wl-trig-phil{font-size:9px;font-family:var(--mono);color:var(--muted)}
 .alloc-card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid var(--border)}
@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.01</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.02</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2085,6 +2085,7 @@ function renderWatchlist(c){
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
     [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}].forEach(({l,v,p,k})=>{
+      if(!v&&!p)return; // skip empty triggers entirely
       const muted=v&&isTriggerMuted(s,k);const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk&&!muted?calcImpliedReturn(stk,v):null;
       const col=on?"var(--green)":muted?"#d97706":"var(--muted)";
       const borderStyle=muted?"border:1.5px dashed #d97706":(isClosest?"border:1px solid var(--accent)":"");
