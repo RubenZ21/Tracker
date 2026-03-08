@@ -58,8 +58,8 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .sig-sub{font-size:8px;color:var(--muted);font-family:var(--mono);text-align:center;line-height:1.2}
 .sig-sub.buy-sub{color:#34d399}.sig-sub.track-sub{color:#60a5fa}.sig-sub.warn-sub{color:#fbbf24}.sig-sub.sell-sub{color:#f87171}
 .sell-card{background:var(--card);border-radius:8px;padding:12px;margin-bottom:8px}
-.wl-card{background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--border)}
-.wl-trig{flex:1;background:var(--bg);border-radius:4px;padding:4px;text-align:center;min-width:0;overflow:hidden}
+.wl-card{background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--border);overflow:hidden}
+.wl-trig{flex:1;max-width:33%;background:var(--bg);border-radius:4px;padding:4px;text-align:center;min-width:0;overflow:hidden}
 .wl-trig-label{font-size:9px;color:var(--muted)}.wl-trig-val{font-size:11px;font-family:var(--mono)}
 .wl-trig-phil{font-size:9px;font-family:var(--mono);color:var(--muted)}
 .alloc-card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid var(--border)}
@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.02</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.03</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
