@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v1.99</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.00</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -950,7 +950,7 @@ function exportExcel(){
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
-    specReason:s.specReason||null,specDate:s.specDate||null};});
+    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws1,"Stocks");
 
@@ -1019,6 +1019,7 @@ function handleExcelImport(e){
             if(row.gate!=null)s.gate=String(row.gate)==="FAIL"?false:true;
             if(row.specReason!=null)s.specReason=String(row.specReason);
             if(row.specDate!=null)s.specDate=vn(row.specDate);
+            if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
             if(row.philSticker!=null||row.philGR!=null){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
@@ -1034,7 +1035,8 @@ function handleExcelImport(e){
               priceMult:1,currentPrice:vn(row.currentPrice)||0,gate:row.gate==="FAIL"?false:true,
               cons:{sticker:rc?rc.sticker:(mos?mos*2:(vn(row.sticker)||null)),mos:mos,tenCap:tc,pbt:pbt,pbtYrs:vn(row.pbtYrs),gr:gr,oe:oe,fcf:fcf,eps:eps,pe:pe,prevSticker:vn(row.prevSticker)||null},
               phil:null,signals:{mos:false,tenCap:false,pbt:false},
-              specReason:row.specReason?String(row.specReason):undefined,specDate:vn(row.specDate)||undefined};
+              specReason:row.specReason?String(row.specReason):undefined,specDate:vn(row.specDate)||undefined,
+              notes:row.notes?String(row.notes):undefined};
           }
           updateSignals(t);nStocks++;
         });
@@ -1593,6 +1595,12 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
       <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above stk":"≈ sticker"}</div>`:""}</div></div>`;
 
+    // Notes
+    h+=`<div style="padding:0 2px;margin-bottom:4px;cursor:pointer" onclick="editNotes('${ticker}')">`;
+    if(s.notes){h+=`<div style="font-size:10px;color:var(--muted);line-height:1.4">${s.notes.length>120?s.notes.slice(0,120)+"…":s.notes}</div>`;}
+    else{h+=`<div style="font-size:10px;color:var(--border)">+ add note</div>`;}
+    h+=`</div>`;
+
     // Tranche rows with unified activation price — sorted PBT → 10Cap → MOS
     const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
     const active=pos.tranches.filter(t=>(t.bought-t.sold)>0).sort((a,b)=>(sigOrder[a.signal]??9)-(sigOrder[b.signal]??9));
@@ -1688,6 +1696,25 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
         <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
         <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:var(--amber)" onclick="demoteFromGrid('${ticker}')">→ Watch</button>
+      </div></div>`;
+  });
+
+  // Ghost cards for speculative stocks NOT in this portfolio (0 shares)
+  SPEC.forEach(ticker=>{
+    if(pf.positions[ticker])return;
+    const s=stocks[ticker];if(!s)return;
+    const sig=sigCount(ticker);
+    const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/3</span>`;
+    h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
+      <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 10%)</div>
+      ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706">${s.specReason}</div>`:""}
+      ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer" onclick="editNotes('${ticker}')">${s.notes.length>80?s.notes.slice(0,80)+"…":s.notes}</div>`:""}
+      <div class="btn-row">
+        <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
+        <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
+        <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:#d97706" onclick="demoteSpec('${ticker}')">→ Watch</button>
       </div></div>`;
   });
 
@@ -2076,12 +2103,23 @@ function renderWatchlist(c){
         <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px;background:#3b111133;border-radius:4px" onclick="removeStock('${t}')">✕</span>
       </div></div>`;
     if(s.phil?.score)h+=`<div style="font-size:10px;color:var(--muted);margin-top:2px">Phil: ${s.phil.score} · GR ${s.phil.gr}% vs ${s.cons.gr}%</div>`;
+    h+=`<div style="margin-top:3px;cursor:pointer" onclick="editNotes('${t}')">`;
+    if(s.notes){h+=`<div style="font-size:10px;color:var(--muted);line-height:1.4">${s.notes.length>100?s.notes.slice(0,100)+"…":s.notes}</div>`;}
+    else{h+=`<div style="font-size:10px;color:var(--border)">+ note</div>`;}
+    h+=`</div>`;
     h+=`</div>`;});
   h+=`</div></div>`;c.innerHTML=h;
 }
 function setPriority(t){
   const cur=stocks[t].priority;const v=prompt("Priority for "+t+" (1 = deploy first, empty to clear):",cur||"");
   if(v===null)return;const n=parseFloat(v);stocks[t].priority=isNaN(n)?null:n;save();render();
+}
+function editNotes(t){
+  const cur=stocks[t].notes||"";
+  const v=prompt("Notes for "+t+":",cur);
+  if(v===null)return;
+  stocks[t].notes=v.trim()||undefined;
+  save();render();
 }
 
 // ============ SETTINGS ============
