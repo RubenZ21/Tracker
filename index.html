@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.03</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.06</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -960,7 +960,7 @@ function exportExcel(){
     Object.entries(pf.positions).forEach(([t,pos])=>{
       pos.tranches.forEach((tr,i)=>{pRows.push({portfolio:pk,portfolioName:pf.name,ticker:t,
         tranche:i+1,signal:tr.signal,bought:tr.bought,sold:tr.sold,buyPrice:tr.buyPrice,
-        remaining:tr.bought-tr.sold,ath:tr.ath||null,state:tr.state||"accumulating"});});});});
+        remaining:tr.bought-tr.sold,ath:tr.ath||null,state:tr.state||"accumulating",mosReserve:i===0&&pos.mosReserve!=null?pos.mosReserve:null});});});});
   const ws2=XLSX.utils.json_to_sheet(pRows);ws2["!cols"]=[{wch:10},{wch:12},{wch:8},{wch:8},{wch:8},{wch:10},{wch:8},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws2,"Positions");
 
@@ -1052,6 +1052,8 @@ function handleExcelImport(e){
             const pk=String(row.portfolio||"personal");const t=String(row.ticker||"").toUpperCase().trim();
             if(!t||!newPos[pk])return;
             if(!newPos[pk][t])newPos[pk][t]={tranches:[]};
+            // Read mosReserve override (stored on first tranche row)
+            if(row.mosReserve!=null&&row.mosReserve!=="")newPos[pk][t].mosReserve=Number(row.mosReserve);
             newPos[pk][t].tranches.push({
               signal:String(row.signal||"PBT"),bought:Number(row.bought)||0,
               sold:Number(row.sold)||0,buyPrice:Number(row.buyPrice)||0,
@@ -1774,10 +1776,24 @@ function renderAllocator(c){
     const expansionTotal=3*perTr;
     const toDP=mosReserveTotal+expansionTotal;
     h+=`<div class="${salaryLanded?"":"alloc-waiting"}">`;
+    // Calculate MOS reserves: ideal (cost-matched) vs actual (override or ideal)
+    const mosInfo={}; // per-stock: {ideal, actual, unlit}
+    let dpMosReserved=0;
+    firingStocks.forEach(t=>{const s=stocks[t];const slots=validTriggerSlots(t);const sig=sigCount(t);const unlit=slots-sig;
+      if(unlit<=0){mosInfo[t]={ideal:0,actual:0,unlit:0};return;}
+      const pos=pf.positions?.[t];if(!pos){mosInfo[t]={ideal:0,actual:0,unlit};return;}
+      const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
+      let ideal=0;
+      if(nTr>0&&avg>0&&sh>0){ideal=Math.round(fromEUR(toEUR(avg*sh/nTr,s.currency),"USD")*unlit);}
+      const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
+      mosInfo[t]={ideal,actual,unlit};
+      dpMosReserved+=actual;
+    });
+    const dpExpansion=Math.max(0,pf.dryPowder-dpMosReserved);
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>$</span><input type="number" value="${income}" onchange="settings.monthlyIncomeUSD=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${Math.round(income/settings.fxRate).toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">not re-divided</div></div></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${dpMosReserved>0?`<span style="color:var(--amber)">$${Math.round(dpMosReserved).toLocaleString()} MOS</span> · <span style="color:var(--green)">$${Math.round(dpExpansion).toLocaleString()} avail</span>`:"not re-divided"}</div></div></div>
     <div class="alloc-card">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+3 = ${denom} slots</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche ($${income.toLocaleString()} ÷ ${denom})</span><span style="font-size:13px;font-family:var(--mono);color:var(--accent)">$${perTr.toLocaleString()}</span></div>
@@ -1791,8 +1807,22 @@ function renderAllocator(c){
       const deployUSD=sig*perTr;const mosUSD=unlit*perTr;
       const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
       const mutedCount=3-slots;const mutedNote=mutedCount>0?` · ${mutedCount} muted`:"";
+      const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0};
+      const resRatio=mi.ideal>0?(mi.actual/mi.ideal):mi.actual>0?999:1;
+      const resCol=resRatio>=0.95?"var(--green)":resRatio>=0.5?"var(--amber)":"var(--red)";
+      const resLabel=resRatio>=0.95?"✓":resRatio>=0.5?"▼":"⚠";
       h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig} lit → deploy · ${unlit} unlit → MOS${mutedNote}</div></div>
-        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosUSD?` · +$${mosUSD.toLocaleString()} MOS`:""}</div></div></div>`;});
+        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosUSD?` · +$${mosUSD.toLocaleString()}/mo`:""}</div></div></div>`;
+      // MOS reserve row (only if stock has unlit triggers)
+      if(mi.unlit>0){
+        const pos=pf.positions?.[t];const hasOverride=pos&&pos.mosReserve!=null;
+        h+=`<div style="display:flex;align-items:center;gap:6px;padding:2px 8px;margin:-2px 0 4px">
+          <span style="font-size:10px;color:var(--muted)">MOS reserve</span>
+          <span style="font-size:10px;color:${resCol};font-family:var(--mono);font-weight:600">${resLabel} $<input type="number" value="${mi.actual}" style="width:56px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px;font-family:var(--mono);padding:1px 3px;text-align:right" onchange="if(portfolios['${currentPf}'].positions['${t}'])portfolios['${currentPf}'].positions['${t}'].mosReserve=+this.value||0;save();render()"></span>
+          <span style="font-size:9px;color:var(--muted)">ideal $${mi.ideal.toLocaleString()}${hasOverride?` · <span style="cursor:pointer;color:var(--accent)" onclick="delete portfolios['${currentPf}'].positions['${t}'].mosReserve;save();render()">reset</span>`:""}</span>
+        </div>`;
+      }
+    });
     // Show 0/3 grid stocks (not firing — no allocation)
     const notFiring=GRID.filter(t=>sigCount(t)===0);
     if(notFiring.length){notFiring.forEach(t=>{const s=stocks[t];
@@ -1832,8 +1862,10 @@ function renderAllocator(c){
     }
 
     // === NEW ENTRY DEPLOYMENT (Personal DP ÷6 rule) ===
+    // dpMosReserved and dpExpansion already calculated above
+    const dpAvailable=dpExpansion;
     if(pf.dryPowder>0){
-      const dp=pf.dryPowder;const trSize=Math.max(Math.round(dp/settings.dpDivisor),settings.dpFloor);const maxDeploys=Math.min(settings.dpDivisor,Math.floor(dp/trSize));
+      const dp=dpAvailable;const trSize=Math.max(Math.round(dp/settings.dpDivisor),settings.dpFloor);const maxDeploys=dp>=settings.dpFloor?Math.min(settings.dpDivisor,Math.floor(dp/trSize)):0;
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
       const wl=getWatchlist().filter(t=>stocks[t].status==="watchlist");
@@ -1860,7 +1892,8 @@ function renderAllocator(c){
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">÷${settings.dpDivisor} rule</span></div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">$${Math.round(dp).toLocaleString()}</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Total DP</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">$${Math.round(pf.dryPowder).toLocaleString()}</div>
+            ${dpMosReserved>0?`<div style="font-size:9px;color:var(--amber);margin-top:2px">−$${Math.round(dpMosReserved).toLocaleString()} MOS</div><div style="font-size:9px;color:var(--green)">=$${Math.round(dpAvailable).toLocaleString()} avail</div>`:""}</div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Tranche</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">$${trSize.toLocaleString()}</div>
             <div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.dpDivisor}" onchange="settings.dpDivisor=Math.max(1,+this.value);save();render()"><span style="font-size:9px;color:var(--muted)">floor $</span><input type="number" style="width:52px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.dpFloor}" onchange="settings.dpFloor=Math.max(0,+this.value);save();render()"></div></div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Max Deploys</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${maxDeploys}</div></div></div>`;
@@ -1910,8 +1943,8 @@ function renderAllocator(c){
     // Cap at Personal portfolio's tranche size so Caca never over-deploys relative to Personal
     const personalDP=portfolios.personal?.dryPowder||0;
     const personalTr=Math.max(Math.round(personalDP/settings.dpDivisor),settings.dpFloor);
-    const targetTr=Math.min(targetTrRaw,Math.round(toEUR(personalTr,"USD")));
-    const trCapped=targetTr<targetTrRaw;
+    const targetTr=settings.nlCapAtPersonal?Math.min(targetTrRaw,Math.round(toEUR(personalTr,"USD"))):targetTrRaw;
+    const trCapped=settings.nlCapAtPersonal&&targetTr<targetTrRaw;
     const dpCovers=targetTr>0?Math.floor(pf.dryPowder/targetTr):0;
     const MIN_FLOOR=1500;
     const dpOk=pf.dryPowder>=MIN_FLOOR;
@@ -1937,7 +1970,7 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal).toLocaleString()}</div></div>
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}</div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px">via IBKR sync</div></div>
