@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.14</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.15</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1592,9 +1592,9 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=8?"DP\u2009"+Math.round(dpPct)+"%":dpPct>=5?Math.round(dpPct)+"%":""}</div>`;
       }
       h+=`</div>`;
-      // Below-bar labels for segments too small to show text
-      const needLabel=_wSegs.filter(sg=>sg.valEUR/_wTotal*100<5);
-      const dpNeed=dpEUR>0&&dpEUR/_wTotal*100<5;
+      // Below-bar labels for segments that couldn't show their ticker in the bar
+      const needLabel=_wSegs.filter(sg=>sg.valEUR/_wTotal*100<8);
+      const dpNeed=dpEUR>0&&dpEUR/_wTotal*100<8;
       if(needLabel.length||dpNeed){
         h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
         needLabel.forEach(sg=>{h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${sg.col};margin-right:2px;vertical-align:middle"></span>${sg.t}\u2009${Math.round(sg.valEUR/_wTotal*100)}%</span>`;});
