@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.15</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.17</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1108,7 +1108,7 @@ function cleanDismissed(){const week=7*86400000;const now=Date.now();Object.keys
 function checkAlerts(){
   cleanDismissed();
   const alerts=[];
-  const GRID=getGrid(),WL=getWatchlist();
+  const GRID=getGrid(),WL=[...getWatchlist(),...getSpeculative()];
 
   // CRITICAL: 4M GATE FAIL — sell all (highest priority)
   Object.entries(stocks).forEach(([t,s])=>{
@@ -1199,8 +1199,9 @@ function checkAlerts(){
       if(c.mos&&p<=c.mos)fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
       if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
       if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
-      if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:"🔥",
-        html:`<strong>${s.flag} ${t}</strong> WATCHLIST BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals — add to grid!</strong>`});}
+      const isSpec=s.status==="speculative";
+      if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
+        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"SPEC":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals${isSpec?"":` — add to grid!`}</strong>`});}
     }
   });
 
@@ -1471,12 +1472,13 @@ function checkNewSignals(){
     if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT"});
   });
   // Also check watchlist for new fires
-  getWatchlist().forEach(t=>{
+  [...getWatchlist(),...getSpeculative()].forEach(t=>{
     const s=stocks[t];if(!s?.signals)return;
     const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
-    if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS",wl:true});
-    if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap",wl:true});
-    if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT",wl:true});
+    const tag=s.status==="speculative"?"spec":"wl";
+    if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS",wl:true,tag});
+    if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap",wl:true,tag});
+    if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT",wl:true,tag});
   });
   // Save current state
   Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
@@ -1491,7 +1493,7 @@ function showSignalCelebration(fires){
   fires.forEach(f=>{
     const sigCol=f.signal==="MOS"?"#34d399":f.signal==="Ten Cap"?"#60a5fa":"#a78bfa";
     h+=`<div style="margin:8px 0"><span style="font-size:16px;font-weight:700">${stocks[f.ticker]?.flag} ${f.ticker}</span>
-      <div style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:6px;background:${sigCol}20;color:${sigCol};border:1px solid ${sigCol}55">${f.signal}${f.wl?" (watchlist)":""}</div></div>`;
+      <div style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:6px;background:${sigCol}20;color:${sigCol};border:1px solid ${sigCol}55">${f.signal}${f.tag==="spec"?" (speculative)":f.wl?" (watchlist)":""}</div></div>`;
   });
   h+=`<div style="font-size:13px;color:var(--green);margin-top:12px;font-weight:600">Price dropped into buy territory.<br>The system is working.</div>
     <button class="modal-done" style="margin-top:16px" onclick="this.closest('.buy-modal-overlay').remove()">Deploy capital →</button>
@@ -2592,6 +2594,7 @@ async function syncTriggersToCloud(){
       alertStocks.push({
         ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
+        sticker:s.cons.mos?s.cons.mos*2:null,
         triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
         signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}
       });
@@ -2666,7 +2669,7 @@ function sendTriggerNotification(fires){
     fires.forEach(f=>{
       const s=stocks[f.ticker];if(!s)return;
       const price=s.currentPrice?fmt(s.currentPrice,s.currency):"?";
-      const label=f.wl?"📡 Watchlist":"🔥 Grid";
+      const label=f.tag==="spec"?"⚡ Spec":f.wl?"📡 Watchlist":"🔥 Grid";
       reg.showNotification(`${label}: ${f.ticker} hit ${f.signal}`,{
         body:`${s.name} at ${price}`,tag:`ttt-${f.ticker}-${f.signal}`,renotify:true
       }).catch(()=>{});
