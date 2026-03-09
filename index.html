@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.09</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.10</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1567,6 +1567,40 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("tenCap")}/${GRID.length}</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("mos")}/${GRID.length}</div>
     <div style="text-align:center;font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${ts}/${fgs}</div></div></div>`;
+
+  // Portfolio weight bar
+  if(!hideValues){
+    const _wTickers=Object.keys(pf.positions);
+    const _wSegs=[];let _wTotal=0;
+    _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
+      const valEUR=toEUR(sh*(s.currentPrice||0),s.currency);if(valEUR<=0)return;
+      const sig=sigCount(t);
+      const col=s.status==="trophy"?"#c084fc":s.status==="speculative"?"#d97706":sig>0?"#22c55e":"#f59e0b";
+      _wSegs.push({t,valEUR,col});_wTotal+=valEUR;
+    });
+    const dpEUR=toEUR(pf.dryPowder||0,pfBaseCcy(currentPf));
+    _wTotal+=dpEUR;
+    if(_wTotal>0){
+      _wSegs.sort((a,b)=>b.valEUR-a.valEUR);
+      h+=`<div style="display:flex;height:20px;margin:6px 0 2px;border-radius:5px;overflow:hidden;gap:1px">`;
+      _wSegs.forEach(sg=>{const pct=sg.valEUR/_wTotal*100;
+        h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;min-width:${pct>5?0:20}px;font-size:9px;font-weight:700;font-family:var(--mono);color:var(--bg);white-space:nowrap;overflow:hidden">${pct>=8?sg.t+" "+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;
+      });
+      if(dpEUR>0){const dpPct=dpEUR/_wTotal*100;
+        h+=`<div style="width:${dpPct}%;background:#374151;display:flex;align-items:center;justify-content:center;min-width:${dpPct>5?0:20}px;font-size:9px;font-weight:700;font-family:var(--mono);color:#94a3b8;white-space:nowrap;overflow:hidden">${dpPct>=8?"DP "+Math.round(dpPct)+"%":dpPct>=5?Math.round(dpPct)+"%":""}</div>`;
+      }
+      h+=`</div>`;
+      // Legend row for small segments that couldn't fit labels
+      const smallSegs=_wSegs.filter(sg=>sg.valEUR/_wTotal*100<5);
+      const dpSmall=dpEUR>0&&dpEUR/_wTotal*100<5;
+      if(smallSegs.length||dpSmall){
+        h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:1px 0 2px">`;
+        smallSegs.forEach(sg=>{h+=`<span style="font-size:9px;color:var(--muted);font-family:var(--mono)"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${sg.col};margin-right:2px;vertical-align:middle"></span>${sg.t} ${Math.round(sg.valEUR/_wTotal*100)}%</span>`;});
+        if(dpSmall){h+=`<span style="font-size:9px;color:var(--muted);font-family:var(--mono)"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#374151;margin-right:2px;vertical-align:middle"></span>DP ${Math.round(dpEUR/_wTotal*100)}%</span>`;}
+        h+=`</div>`;
+      }
+    }
+  }
 
   // Per-stock unified cards
   h+=`<div class="pos-grid">`;
