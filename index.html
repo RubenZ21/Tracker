@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.17</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.18</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2267,6 +2267,7 @@ function renderSettings(c){
           ?`<button class="settings-save" style="background:#1a3322;color:var(--green)" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();syncTriggersToCloud()">☁ Sync Triggers</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testPushFromCloud()">🔔 Test Push</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="checkFromCloud()">▶ Check Now</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#33170d;color:#f59e0b" onclick="resetWorkerSignals()">🔄 Reset Signals</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#3b1111;color:var(--red)" onclick="unsubscribePush()">Disconnect</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testLocalNotification()">🔔 Test Local</button>`
           :`<button class="settings-save" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();subscribePush()">🔗 Connect & Subscribe</button>
@@ -2634,6 +2635,46 @@ async function checkFromCloud(){
     const data=await resp.json();
     if(data.error){if(el)el.textContent="✕ "+data.error;return;}
     if(el)el.textContent=data.fires?`🔥 ${data.fires} new signal(s)!`:`✓ Checked ${data.checked} stocks — no new signals`;
+  }catch(e){if(el)el.textContent="✕ "+e.message;}
+}
+
+// Reset Worker signal state to all-false then immediately check prices.
+// This forces the Worker to treat every currently-firing trigger as a fresh
+// off→on transition, sending a push notification for each one.
+async function resetWorkerSignals(){
+  if(!settings.pushWorkerUrl)return;
+  if(!confirm("This resets all Worker signal states to OFF, then checks prices.\n\nYou'll get a notification for EVERY currently-firing trigger (grid + watchlist + speculative).\n\nContinue?"))return;
+  const el=document.getElementById("push-sync-status");
+  if(el)el.textContent="Resetting signals...";
+  try{
+    // Step 1: sync triggers with all signals forced to false
+    const alertStocks=[];
+    Object.entries(stocks).forEach(([t,s])=>{
+      if(!s.cons)return;
+      const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;
+      if(!hasTriggers)return;
+      alertStocks.push({
+        ticker:t,symbol:s.finnhubSymbol||null,
+        currency:s.currency,priceMult:s.priceMult||1,
+        sticker:s.cons.mos?s.cons.mos*2:null,
+        triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
+        signals:{mos:false,tenCap:false,pbt:false}
+      });
+    });
+    const syncResp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({stocks:alertStocks,workerUrl:settings.ibkrWorker||""})
+    });
+    const syncData=await syncResp.json();
+    if(!syncData.ok)throw new Error(syncData.error||"Sync failed");
+    if(el)el.textContent=`Reset ${syncData.count} stocks — checking prices...`;
+    // Step 2: immediately trigger a price check so notifications fire now
+    const checkResp=await fetch(`${settings.pushWorkerUrl}/check`,{method:"POST"});
+    const checkData=await checkResp.json();
+    if(checkData.error)throw new Error(checkData.error);
+    if(el)el.textContent=checkData.fires?`🔥 ${checkData.fires} notification(s) sent!`:`✓ Checked ${checkData.checked} stocks — no triggers currently firing`;
+    // Step 3: re-sync with real signal state so future checks are correct
+    await syncTriggersToCloud();
   }catch(e){if(el)el.textContent="✕ "+e.message;}
 }
 
