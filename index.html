@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.18</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.19</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1542,7 +1542,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="warn");
     const hasMuted=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="muted");
     const statusCol=hasSell?"var(--red)":sig===3?"var(--green)":sig?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
-    const statusTxt=hasSell?"SELL":sig?`${sig}/3`:"0/3";
+    const vSlots=validTriggerSlots(t);const statusTxt=hasSell?"SELL":sig?`${sig}/${vSlots}`:`0/${vSlots}`;
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
   // Speculative stocks row(s) — shown in grid but not counted in totals
   const SPEC=getSpeculative();
@@ -1560,7 +1560,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":"";
       h+=`<div class="sig-cell"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
-    h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${sig?sig+"/3":"0/3"}</div></div>`;
+    h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${sig?sig+"/"+validTriggerSlots(t):"0/"+validTriggerSlots(t)}</div></div>`;
   });
   // Totals row
   const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k).cls==="buy").length;
@@ -1617,10 +1617,10 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const avg=posAvgPrice(pos);const sig=sigCount(ticker);const nTr=posTranchesOwned(pos);
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
-      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/3</span>`:
+      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/${validTriggerSlots(ticker)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
-      s.status==="grid"&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/3</span>`:
-      s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`:"";
+      s.status==="grid"&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:
+      s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/${validTriggerSlots(ticker)}</span>`:"";
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
@@ -1759,7 +1759,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     if(pf.positions[ticker])return; // already rendered above
     const s=stocks[ticker];if(!s)return;
     const sig=sigCount(ticker);
-    const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/3</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/3</span>`;
+    const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/${validTriggerSlots(ticker)}</span>`;
     h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -1776,7 +1776,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     if(pf.positions[ticker])return;
     const s=stocks[ticker];if(!s)return;
     const sig=sigCount(ticker);
-    const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/3</span>`;
+    const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/${validTriggerSlots(ticker)}</span>`;
     h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -1898,7 +1898,7 @@ function renderAllocator(c){
     // Show 0/3 grid stocks (not firing — no allocation)
     const notFiring=GRID.filter(t=>sigCount(t)===0);
     if(notFiring.length){notFiring.forEach(t=>{const s=stocks[t];
-      h+=`<div class="alloc-stock" style="opacity:0.4"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">0/3 — no allocation</div></div>
+      h+=`<div class="alloc-stock" style="opacity:0.4"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">0/${validTriggerSlots(t)} — no allocation</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--muted)">$0</div></div></div>`;});}
     // Expansion row
     h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">🔮 Expansion</div><div style="font-size:11px;color:var(--muted)">3 slots for new entries</div></div>
@@ -1925,7 +1925,7 @@ function renderAllocator(c){
         specInPf.forEach(t=>{const s=stocks[t];const sh=posShares(pf.positions[t]);const val=sh*s.currentPrice;
           h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/3 signals</span></div>
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t)} signals</span></div>
               <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(val),s.currency)} · ${fmtSh(sh)} sh</span></div>
             ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${s.specReason}</div>`:""}</div>`;});
         if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only — not from monthly income.</div>`;}
@@ -2151,7 +2151,7 @@ function renderAllocator(c){
       const val=toEUR(sh*s.currentPrice,s.currency);const stk=s.cons?.sticker||(s.cons?.mos?s.cons.mos*2:null);
       const aboveStk=stk&&s.currentPrice>stk;
       h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
-        <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:${sig?"var(--green)":"var(--muted)"};margin-left:6px">${sig}/3 · ${nTr} tranche${nTr!==1?"s":""}</span></div>
+        <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:${sig?"var(--green)":"var(--muted)"};margin-left:6px">${sig}/${validTriggerSlots(t)} · ${nTr} tranche${nTr!==1?"s":""}</span></div>
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">€${Math.round(val).toLocaleString()}</span></div>`;});
     if(stockCount<TARGET_STOCKS){h+=`<div style="font-size:11px;color:var(--amber);margin-top:4px">${TARGET_STOCKS-stockCount} slot${TARGET_STOCKS-stockCount>1?"s":""} open — watchlist triggers will deploy DP</div>`;}
     h+=`</div>`;
