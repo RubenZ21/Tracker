@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.21</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.22</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -1836,7 +1836,8 @@ function renderAllocator(c){
     const firingStocks=GRID.filter(t=>sigCount(t)>0);
     const nFiring=firingStocks.length;
     const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t),0);
-    const denom=validSlots+3;
+    const expSlots=settings.expansionSlots||3;
+    const denom=validSlots+expSlots;
     const income=settings.monthlyIncomeUSD;
     const perTr=denom>0?Math.round(income/denom):0;
     // Count lit vs unlit signals across firing stocks (only valid triggers)
@@ -1844,7 +1845,7 @@ function renderAllocator(c){
     const unlitTotal=validSlots-litTotal;
     const deployTotal=litTotal*perTr;
     const mosReserveTotal=unlitTotal*perTr;
-    const expansionTotal=3*perTr;
+    const expansionTotal=expSlots*perTr;
     const toDP=mosReserveTotal+expansionTotal;
     h+=`<div class="${salaryLanded?"":"alloc-waiting"}">`;
     // Calculate MOS reserves: ideal (cost-matched) vs actual (override or ideal)
@@ -1865,14 +1866,16 @@ function renderAllocator(c){
     const dpExpansion=Math.max(0,pf.dryPowder-dpMosReserved);
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>$</span><input type="number" value="${income}" onchange="settings.monthlyIncomeUSD=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${Math.round(income/settings.fxRate).toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
+      <div class="input-box" style="flex:0 0 70px"><div class="input-label">Exp.</div><div class="input-field"><input type="number" value="${expSlots}" min="0" max="9" style="width:36px;text-align:center" onchange="settings.expansionSlots=Math.max(0,+this.value||0);save();render()"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">slots</div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;portfolios.personal.dpManual=true;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${dpMosReserved>0?`<span style="color:var(--amber)">$${Math.round(dpMosReserved).toLocaleString()} MOS</span> · <span style="color:var(--green)">$${Math.round(dpExpansion).toLocaleString()} avail</span>`:"not re-divided"}</div></div></div>
     <div class="alloc-card">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+3 = ${denom} slots</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+${expSlots} = ${denom} slots</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche ($${income.toLocaleString()} ÷ ${denom})</span><span style="font-size:13px;font-family:var(--mono);color:var(--accent)">$${perTr.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litTotal} lit signals)</span><span style="font-size:13px;font-family:var(--mono);color:var(--green)">$${deployTotal.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">MOS reserves (${unlitTotal} unlit)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${mosReserveTotal.toLocaleString()}</span></div>
-      <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Expansion (3 slots)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${expansionTotal.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Expansion (${expSlots} slots)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${expansionTotal.toLocaleString()}</span></div>
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${Math.round(toDP/income*100)}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + MOS reserve
@@ -1903,7 +1906,7 @@ function renderAllocator(c){
       h+=`<div class="alloc-stock" style="opacity:0.4"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">0/${validTriggerSlots(t)} — no allocation</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--muted)">$0</div></div></div>`;});}
     // Expansion row
-    h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">🔮 Expansion</div><div style="font-size:11px;color:var(--muted)">3 slots for new entries</div></div>
+    h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">🔮 Expansion</div><div style="font-size:11px;color:var(--muted)">${expSlots} slots for new entries</div></div>
       <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--amber)">$${expansionTotal.toLocaleString()}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">→ DP</div></div></div>`;
     h+=`</div>`;
     h+=`</div>`; // close alloc-waiting wrapper
