@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.20</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.21</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -772,7 +772,7 @@ function applyIBKR(pfKey){
 
   // Update cash as dry powder (personal=USD, nl=EUR)
   const totalCash=pfKey==="personal"?cashUSD+(cashEUR*settings.fxRate):cashEUR+(cashUSD/settings.fxRate);
-  if(totalCash>0)pf.dryPowder=Math.round(totalCash);
+  if(totalCash>0){pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
 
   save();render();showBuyModals();
   ibkrStatus(`✓ Applied to ${pf.name}`,false,pfKey);
@@ -850,7 +850,7 @@ async function autoSyncIBKR(pfKey){
     doc.querySelectorAll("CashReportCurrency").forEach(cn=>{const ccy=cn.getAttribute("currency"),bal=parseFloat(cn.getAttribute("endingCash")||cn.getAttribute("endingSettledCash")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
     if(!cashEUR&&!cashUSD)doc.querySelectorAll("CashBalance").forEach(cb=>{const ccy=cb.getAttribute("currency"),bal=parseFloat(cb.getAttribute("balance")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
     const totalCash=pfKey==="personal"?cashUSD+(cashEUR*settings.fxRate):cashEUR+(cashUSD/settings.fxRate);
-    if(totalCash>0)pf.dryPowder=Math.round(totalCash);
+    if(totalCash>0){pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
 
     return true;
   }catch(e){return false;}
@@ -1330,7 +1330,7 @@ function render(){
   const totalV=pfValueEUR(currentPf);
   const pfLabel=currentPf==="personal"?"🧑":"🧓";
   const dpCcy=currentPf==="personal"?"$":"€";
-  document.getElementById("pf-total-val").innerHTML=hideValues?`<span onclick="toggleValues()" style="cursor:pointer;opacity:0.25;font-size:9px">👁</span>`:`${pfLabel} DP ${dpCcy}${Math.round(portfolios[currentPf]?.dryPowder||0).toLocaleString()} <span onclick="toggleValues()" style="cursor:pointer;opacity:0.2;font-size:9px">👁</span>`;
+  document.getElementById("pf-total-val").innerHTML=hideValues?`<span onclick="toggleValues()" style="cursor:pointer;opacity:0.25;font-size:9px">👁</span>`:`${pfLabel} DP ${dpCcy}${Math.round(portfolios[currentPf]?.dryPowder||0).toLocaleString()} <span style="font-size:8px;color:${portfolios[currentPf]?.dpManual?"#f59e0b":"#22c55e"};cursor:pointer" onclick="editDP('${currentPf}')">${portfolios[currentPf]?.dpManual?"✏":"✓"}</span> <span onclick="toggleValues()" style="cursor:pointer;opacity:0.2;font-size:9px">👁</span>`;
   const fxEl=document.getElementById("fx-display");
   if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);const ibkrAge=settings.lastIbkrSync?timeAgo(settings.lastIbkrSync):"";
     fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
@@ -1505,6 +1505,7 @@ function showSignalCelebration(fires){
 function renderPortfolio(c){
   const pf=portfolios[currentPf];const val=pfValueEUR(currentPf);
   const GRID=getGrid();const fgs=firingGridSize();const ts=totalSignals();
+  const dpCcy=currentPf==="personal"?"$":"€";
   let h=`<div class="pf-toggle">
     <button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';localStorage.setItem('r1-pf','personal');render()">🧑 Personal</button>
     <button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';localStorage.setItem('r1-pf','nl');render()">🧓 Caca</button>
@@ -1513,7 +1514,8 @@ function renderPortfolio(c){
     <span style="font-size:11px;color:var(--muted);background:var(--card);padding:3px 8px;border-radius:4px;${hideValues?"visibility:hidden":""}">
 ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleString()+" · €"+settings.monthlyIncome.toLocaleString()+"/mo"}</span>
     <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":"DP "+(currentPf==="personal"?"$":"€")+Math.round(pf.dryPowder).toLocaleString()} <span style="opacity:0.2;font-size:9px">👁</span></span>
+      <span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="toggleValues()">${hideValues?"••••••":`DP ${dpCcy}${Math.round(pf.dryPowder).toLocaleString()}`} <span style="opacity:0.2;font-size:9px">👁</span></span>
+      ${!hideValues?`<span style="font-size:9px;color:${pf.dpManual?"#f59e0b":"#22c55e"};cursor:pointer" onclick="editDP('${currentPf}')">${pf.dpManual?"✏":"✓"}</span>`:""}
     </div>
   </div>`;
 
@@ -1863,7 +1865,7 @@ function renderAllocator(c){
     const dpExpansion=Math.max(0,pf.dryPowder-dpMosReserved);
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>$</span><input type="number" value="${income}" onchange="settings.monthlyIncomeUSD=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= €${Math.round(income/settings.fxRate).toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
-      <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;save();render()"></div>
+      <div class="input-box"><div class="input-label">Dry Powder</div><div class="input-field"><span>$</span><input type="number" value="${pf.dryPowder}" onchange="portfolios.personal.dryPowder=+this.value;portfolios.personal.dpManual=true;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${dpMosReserved>0?`<span style="color:var(--amber)">$${Math.round(dpMosReserved).toLocaleString()} MOS</span> · <span style="color:var(--green)">$${Math.round(dpExpansion).toLocaleString()} avail</span>`:"not re-divided"}</div></div></div>
     <div class="alloc-card">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+3 = ${denom} slots</span></div>
@@ -2253,6 +2255,26 @@ function editNotes(t){
   const ta=document.getElementById("notes-ta");ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
   document.getElementById("notes-save").onclick=()=>{s.notes=ta.value.trim()||undefined;save();ov.remove();render();};
   document.getElementById("notes-cancel").onclick=()=>ov.remove();
+}
+
+function editDP(pfKey){
+  const pf=portfolios[pfKey];const ccy=pfKey==="personal"?"$":"€";
+  const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-title">Dry Powder — ${pf.name}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">${pf.dpManual?"✏ Manual — will be overwritten on next IBKR sync":"✓ Last set by IBKR sync"}</div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <span style="font-size:18px;font-weight:700;font-family:var(--mono)">${ccy}</span>
+      <input id="dp-input" type="number" value="${Math.round(pf.dryPowder)}" style="flex:1;font-size:18px;font-weight:700;font-family:var(--mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px 12px;text-align:right">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="modal-done" style="flex:1" id="dp-save">Save</button>
+      <button class="modal-done" style="flex:0;background:var(--bg);color:var(--muted)" id="dp-cancel">Cancel</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const inp=document.getElementById("dp-input");inp.focus();inp.select();
+  document.getElementById("dp-save").onclick=()=>{pf.dryPowder=+inp.value||0;pf.dpManual=true;save();ov.remove();render();};
+  document.getElementById("dp-cancel").onclick=()=>ov.remove();
 }
 
 // ============ SETTINGS ============
