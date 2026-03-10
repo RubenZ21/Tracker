@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.22</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.23</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1574,20 +1574,33 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
 
   // Portfolio weight bar
   if(!hideValues){
+    // Build global color map: Personal portfolio value order determines colors for both portfolios
+    const _wPal=["#1d4e6e","#3b2d5e","#1d5e4e","#2d4a5e","#4e2d4e","#1a5565","#3d3d5e","#2d5e3d"];
+    if(!window._stockColorMap){window._stockColorMap={};}
+    // Rebuild color map from Personal portfolio sorted by value (largest first)
+    const _pPersonal=portfolios.personal;const _pRef=[];
+    if(_pPersonal)Object.keys(_pPersonal.positions).forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(_pPersonal.positions[t]);if(sh<=0)return;
+      _pRef.push({t,valEUR:toEUR(sh*(s.currentPrice||0),s.currency)});});
+    _pRef.sort((a,b)=>b.valEUR-a.valEUR);
+    const _cMap={};let _ci=0;
+    _pRef.forEach(p=>{_cMap[p.t]=_wPal[_ci%_wPal.length];_ci++;});
+    // Add any stocks only in Caca (not in Personal) with next available colors
+    const _pNl=portfolios.nl;
+    if(_pNl)Object.keys(_pNl.positions).forEach(t=>{if(_cMap[t])return;const s=stocks[t];if(!s)return;const sh=posShares(_pNl.positions[t]);if(sh<=0)return;
+      _cMap[t]=_wPal[_ci%_wPal.length];_ci++;});
+
+    // Now render bar for current portfolio using the global color map
     const _wTickers=Object.keys(pf.positions);
     const _wSegs=[];let _wTotal=0;
-    // Distinct muted palette — cool tones matching the app's dark blue/teal/indigo theme
-    const _wPal=["#1d4e6e","#3b2d5e","#1d5e4e","#2d4a5e","#4e2d4e","#1a5565","#3d3d5e","#2d5e3d"];
-    let _pi=0;
     _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
       const valEUR=toEUR(sh*(s.currentPrice||0),s.currency);if(valEUR<=0)return;
-      const col=_wPal[_pi%_wPal.length];_pi++;
+      const col=_cMap[t]||_wPal[0];
       _wSegs.push({t,valEUR,col});_wTotal+=valEUR;
     });
     const dpEUR=toEUR(pf.dryPowder||0,pfBaseCcy(currentPf));
     _wTotal+=dpEUR;
     if(_wTotal>0){
-      _wSegs.sort((a,b)=>b.valEUR-a.valEUR);
+      _wSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.valEUR-a.valEUR);});
       h+=`<div style="display:flex;height:16px;margin:6px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
       _wSegs.forEach(sg=>{const pct=sg.valEUR/_wTotal*100;
         h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=8?sg.t+"\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;
