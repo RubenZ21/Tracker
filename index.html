@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.24</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.25</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1521,7 +1521,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
 
   // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
-  [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||sb-sa;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
+  [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||a.localeCompare(b);}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key);
@@ -1623,7 +1623,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
 
   // Per-stock unified cards
   h+=`<div class="pos-grid">`;
-  const tickers=Object.keys(pf.positions);
+  const tickers=Object.keys(pf.positions).sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=sa?.status==="speculative"?1:0,specB=sb?.status==="speculative"?1:0;if(specA!==specB)return specA-specB;const fa=sigCount(a)>0?0:1,fb=sigCount(b)>0?0:1;return fa-fb||a.localeCompare(b);});
   if(!tickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
   const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
   tickers.forEach(ticker=>{
@@ -1770,7 +1770,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
   });
 
   // Ghost cards for grid stocks NOT in this portfolio (0 shares)
-  GRID.forEach(ticker=>{
+  [...GRID].sort((a,b)=>{const fa=sigCount(a)>0?0:1,fb=sigCount(b)>0?0:1;return fa-fb||a.localeCompare(b);}).forEach(ticker=>{
     if(pf.positions[ticker])return; // already rendered above
     const s=stocks[ticker];if(!s)return;
     const sig=sigCount(ticker);
