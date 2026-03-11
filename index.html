@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.25</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.26</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1623,11 +1623,55 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
 
   // Per-stock unified cards
   h+=`<div class="pos-grid">`;
-  const tickers=Object.keys(pf.positions).sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=sa?.status==="speculative"?1:0,specB=sb?.status==="speculative"?1:0;if(specA!==specB)return specA-specB;const fa=sigCount(a)>0?0:1,fb=sigCount(b)>0?0:1;return fa-fb||a.localeCompare(b);});
-  if(!tickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
+  // Build unified ticker list: owned + grid ghosts + speculative ghosts (deduped)
+  const _ownedSet=new Set(Object.keys(pf.positions));
+  const _allCardTickers=[..._ownedSet];
+  GRID.forEach(t=>{if(!_ownedSet.has(t))_allCardTickers.push(t);});
+  SPEC.forEach(t=>{if(!_ownedSet.has(t)&&!GRID.includes(t))_allCardTickers.push(t);});
+  // Sort: firing grid alpha → non-firing grid alpha → speculative last
+  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=sa?.status==="speculative"?1:0,specB=sb?.status==="speculative"?1:0;if(specA!==specB)return specA-specB;const fa=sigCount(a)>0?0:1,fb=sigCount(b)>0?0:1;return fa-fb||a.localeCompare(b);});
+  if(!_allCardTickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
   const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
-  tickers.forEach(ticker=>{
-    const pos=pf.positions[ticker];const s=stocks[ticker];if(!s)return;
+  _allCardTickers.forEach(ticker=>{
+    const s=stocks[ticker];if(!s)return;
+    const isOwned=_ownedSet.has(ticker);
+    const pos=isOwned?pf.positions[ticker]:null;
+    const isSpec=s.status==="speculative";
+    const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.length);
+    // Ghost card for grid stock not in this portfolio
+    if(isGhost&&!isSpec&&(GRID.includes(ticker))){
+      const sig=sigCount(ticker);
+      const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/${validTriggerSlots(ticker)}</span>`;
+      h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
+        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
+          <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
+        <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
+        <div class="btn-row">
+          <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
+          <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
+          <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:var(--amber)" onclick="demoteFromGrid('${ticker}')">→ Watch</button>
+        </div></div>`;
+      return;
+    }
+    // Ghost card for speculative stock not in this portfolio
+    if(isGhost&&isSpec){
+      const sig=sigCount(ticker);
+      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/${validTriggerSlots(ticker)}</span>`;
+      h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
+        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
+          <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
+        <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 10%)</div>
+        ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.specReason}</div>`:""}
+        ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editNotes('${ticker}')">${s.notes}</div>`:""}
+        <div class="btn-row">
+          <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
+          <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
+          <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:#d97706" onclick="demoteSpec('${ticker}')">→ Watch</button>
+        </div></div>`;
+      return;
+    }
+    // Owned position card (original logic continues below)
+    if(!pos)return;
     const shares=posShares(pos);if(shares<=0&&!pos.tranches.length)return;
     const avg=posAvgPrice(pos);const sig=sigCount(ticker);const nTr=posTranchesOwned(pos);
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
@@ -1767,42 +1811,6 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
       <button class="btn-sm btn-red" style="flex:0 0 auto" onclick="removePosition('${currentPf}','${ticker}')">✕</button>
     </div></div>`;
-  });
-
-  // Ghost cards for grid stocks NOT in this portfolio (0 shares)
-  [...GRID].sort((a,b)=>{const fa=sigCount(a)>0?0:1,fb=sigCount(b)>0?0:1;return fa-fb||a.localeCompare(b);}).forEach(ticker=>{
-    if(pf.positions[ticker])return; // already rendered above
-    const s=stocks[ticker];if(!s)return;
-    const sig=sigCount(ticker);
-    const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/${validTriggerSlots(ticker)}</span>`;
-    h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
-      <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
-      <div class="btn-row">
-        <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
-        <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
-        <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:var(--amber)" onclick="demoteFromGrid('${ticker}')">→ Watch</button>
-      </div></div>`;
-  });
-
-  // Ghost cards for speculative stocks NOT in this portfolio (0 shares)
-  SPEC.forEach(ticker=>{
-    if(pf.positions[ticker])return;
-    const s=stocks[ticker];if(!s)return;
-    const sig=sigCount(ticker);
-    const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/${validTriggerSlots(ticker)}</span>`;
-    h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
-      <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 10%)</div>
-      ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.specReason}</div>`:""}
-      ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editNotes('${ticker}')">${s.notes}</div>`:""}
-      <div class="btn-row">
-        <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
-        <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
-        <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:#d97706" onclick="demoteSpec('${ticker}')">→ Watch</button>
-      </div></div>`;
   });
 
   h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button></div>`;
