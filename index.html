@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.29</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.30</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1650,6 +1650,36 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         needLabel.forEach(sg=>{h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${sg.col};margin-right:2px;vertical-align:middle"></span>${sg.t}\u2009${Math.round(sg.valEUR/_wTotal*100)}%</span>`;});
         if(dpNeed){h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${Math.round(dpEUR/_wTotal*100)}%</span>`;}
         h+=`</div>`;
+      }
+      // Cost basis bar (same colors & order, cost instead of market value)
+      const _cSegs=[];let _cTotal=0;
+      _wSegs.forEach(sg=>{
+        const pos=pf.positions[sg.t];if(!pos)return;
+        const s=stocks[sg.t];if(!s)return;
+        const avg=posAvgPrice(pos);const sh=posShares(pos);
+        const costEUR=toEUR(avg*sh,s.currency);
+        if(costEUR>0){_cSegs.push({t:sg.t,costEUR,col:sg.col});_cTotal+=costEUR;}
+      });
+      _cTotal+=dpEUR;
+      if(_cTotal>0){
+        h+=`<div style="display:flex;height:10px;margin:2px 0 1px;border-radius:3px;overflow:hidden;gap:1px;opacity:0.55">`;
+        _cSegs.forEach(sg=>{const pct=sg.costEUR/_cTotal*100;
+          h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
+        });
+        if(dpEUR>0){const dpPct=dpEUR/_cTotal*100;
+          h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=10?Math.round(dpPct)+"%":""}</div>`;
+        }
+        h+=`</div>`;
+        // Labels for cost bar
+        const cNeedLabel=_cSegs.filter(sg=>sg.costEUR/_cTotal*100<10);
+        const cDpNeed=dpEUR>0&&dpEUR/_cTotal*100<10;
+        if(cNeedLabel.length||cDpNeed){
+          h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:1px 0 0">`;
+          h+=`<span style="font-size:7px;color:var(--muted);opacity:0.6">cost:</span>`;
+          cNeedLabel.forEach(sg=>{h+=`<span style="font-size:7px;font-family:var(--mono);color:var(--muted);opacity:0.6"><span style="display:inline-block;width:4px;height:4px;border-radius:2px;background:${sg.col};margin-right:1px;vertical-align:middle"></span>${sg.t}\u2009${Math.round(sg.costEUR/_cTotal*100)}%</span>`;});
+          if(cDpNeed){h+=`<span style="font-size:7px;font-family:var(--mono);color:var(--muted);opacity:0.6">DP\u2009${Math.round(dpEUR/_cTotal*100)}%</span>`;}
+          h+=`</div>`;
+        }
       }
     }
   }
