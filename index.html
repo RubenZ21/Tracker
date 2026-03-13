@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.30</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.31</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1642,15 +1642,6 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=8?"DP\u2009"+Math.round(dpPct)+"%":dpPct>=5?Math.round(dpPct)+"%":""}</div>`;
       }
       h+=`</div>`;
-      // Below-bar labels for segments that couldn't show their ticker in the bar
-      const needLabel=_wSegs.filter(sg=>sg.valEUR/_wTotal*100<8);
-      const dpNeed=dpEUR>0&&dpEUR/_wTotal*100<8;
-      if(needLabel.length||dpNeed){
-        h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
-        needLabel.forEach(sg=>{h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${sg.col};margin-right:2px;vertical-align:middle"></span>${sg.t}\u2009${Math.round(sg.valEUR/_wTotal*100)}%</span>`;});
-        if(dpNeed){h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${Math.round(dpEUR/_wTotal*100)}%</span>`;}
-        h+=`</div>`;
-      }
       // Cost basis bar (same colors & order, cost instead of market value)
       const _cSegs=[];let _cTotal=0;
       _wSegs.forEach(sg=>{
@@ -1670,16 +1661,30 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
           h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=10?Math.round(dpPct)+"%":""}</div>`;
         }
         h+=`</div>`;
-        // Labels for cost bar
-        const cNeedLabel=_cSegs.filter(sg=>sg.costEUR/_cTotal*100<10);
-        const cDpNeed=dpEUR>0&&dpEUR/_cTotal*100<10;
-        if(cNeedLabel.length||cDpNeed){
-          h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:1px 0 0">`;
-          h+=`<span style="font-size:7px;color:var(--muted);opacity:0.6">cost:</span>`;
-          cNeedLabel.forEach(sg=>{h+=`<span style="font-size:7px;font-family:var(--mono);color:var(--muted);opacity:0.6"><span style="display:inline-block;width:4px;height:4px;border-radius:2px;background:${sg.col};margin-right:1px;vertical-align:middle"></span>${sg.t}\u2009${Math.round(sg.costEUR/_cTotal*100)}%</span>`;});
-          if(cDpNeed){h+=`<span style="font-size:7px;font-family:var(--mono);color:var(--muted);opacity:0.6">DP\u2009${Math.round(dpEUR/_cTotal*100)}%</span>`;}
-          h+=`</div>`;
+      }
+      // Single combined label row for tickers that didn't fit in either bar
+      const _cMap2={};_cSegs.forEach(sg=>{_cMap2[sg.t]=sg;});
+      const _labelTickers=new Set();
+      _wSegs.forEach(sg=>{if(sg.valEUR/_wTotal*100<8)_labelTickers.add(sg.t);});
+      if(_cTotal>0)_cSegs.forEach(sg=>{if(sg.costEUR/_cTotal*100<10)_labelTickers.add(sg.t);});
+      const dpNeedMkt=dpEUR>0&&dpEUR/_wTotal*100<8;
+      const dpNeedCost=_cTotal>0&&dpEUR>0&&dpEUR/_cTotal*100<10;
+      if(_labelTickers.size||dpNeedMkt||dpNeedCost){
+        h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
+        _labelTickers.forEach(t=>{
+          const mSg=_wSegs.find(s=>s.t===t);const cSg=_cMap2[t];
+          const mPct=mSg?Math.round(mSg.valEUR/_wTotal*100):0;
+          const cPct=cSg&&_cTotal>0?Math.round(cSg.costEUR/_cTotal*100):0;
+          const col=mSg?mSg.col:(cSg?cSg.col:_wPal[0]);
+          const parts=[];if(mPct)parts.push(mPct+"%");if(cPct&&cPct!==mPct)parts.push(cPct+"% cost");
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${col};margin-right:2px;vertical-align:middle"></span>${t}\u2009${parts.join(" · ")}</span>`;
+        });
+        if(dpNeedMkt||dpNeedCost){
+          const mPct=Math.round(dpEUR/_wTotal*100);const cPct=_cTotal>0?Math.round(dpEUR/_cTotal*100):0;
+          const parts=[];if(mPct)parts.push(mPct+"%");if(cPct&&cPct!==mPct)parts.push(cPct+"% cost");
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${parts.join(" · ")}</span>`;
         }
+        h+=`</div>`;
       }
     }
   }
