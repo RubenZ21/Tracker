@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.31</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.32</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -267,8 +267,13 @@ function moatDisp(m){return m==="Wide"?"Excellent":m==="Narrow"?"Strong":m||"Str
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 // Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2)
 function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
-// Count valid (non-muted) trigger SLOTS for allocation denominator — includes both lit and unlit valid triggers
-function validTriggerSlots(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null&&!isTriggerMuted(s,k))n++;});return n;}
+// Piggyback: a muted trigger deploys when price is below it AND at least one valid signal is firing
+function isPiggyback(s,sigKey){if(!isTriggerMuted(s,sigKey))return false;const p=s.currentPrice;const tp=s.cons?.[sigKey];return tp!=null&&p!=null&&p<=tp&&sigCount_raw(s)>0;}
+function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+// Deploy count: valid firing signals + piggybacking muted signals
+function deployCount(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;const valid=sigCount(t);if(valid===0)return 0;let n=valid;["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k))n++;});return n;}
+// Count ALL populated trigger slots (muted or not) — every populated trigger is a slot
+function validTriggerSlots(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
 
 // Recalculate Sticker+MOS from EPS, Growth Rate, and Historical P/E
 // Returns {sticker, mos} or null if any input is missing
@@ -355,7 +360,7 @@ function ringState(ticker, pfKey) {
   }
   return result;
 }
-function totalSignals(){return getGrid().reduce((s,t)=>s+sigCount(t),0);}
+function totalSignals(){return getGrid().reduce((s,t)=>s+deployCount(t),0);}
 function gridSize(){return getGrid().reduce((n,t)=>n+validTriggerSlots(t),0);}
 function firingGridSize(){return getGrid().filter(t=>sigCount(t)>0).reduce((n,t)=>n+validTriggerSlots(t),0);}
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
@@ -1385,7 +1390,9 @@ function sigCellStatus(ticker, sigKey){
   const trigger=s.cons?.[sigKey];
   if(!trigger||!p)return{cls:"none",label:"",sub:fmt(trigger,s.currency)||"—"};
   const muted=isTriggerMuted(s,sigKey);
-  // MUTED: price reached trigger but trigger sits at or above growth-based sticker — no margin of safety
+  // PIGGYBACK: muted trigger but price below it AND a valid signal is also firing — deploys
+  if(p<=trigger&&muted&&sigCount(ticker)>0)return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub",topSub:"piggyback"};
+  // MUTED: price reached trigger but no valid signal firing — cannot deploy alone
   if(p<=trigger&&muted)return{cls:"muted",label:"C",sub:fmt(trigger,s.currency),subCls:"",topSub:"≥ sticker"};
   // BUY: signal firing AND not muted — valid buy signal
   if(p<=trigger)return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub"};
@@ -1424,7 +1431,9 @@ function openConviction(t){
   const sigs=[];
   if(c.mos&&p<=c.mos)sigs.push("MOS");
   if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))sigs.push("Ten Cap");
+  else if(c.tenCap&&p<=c.tenCap&&isPiggyback(s,"tenCap"))sigs.push("Ten Cap ↗");
   if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))sigs.push("PBT");
+  else if(c.pbt&&p<=c.pbt&&isPiggyback(s,"pbt"))sigs.push("PBT ↗");
   const moatLabel=moatDisp(s.moat);
   let h=`<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:24px;text-align:center">
@@ -1576,8 +1585,9 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="sell");
     const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="warn");
     const hasMuted=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="muted");
-    const statusCol=hasSell?"var(--red)":sig===3?"var(--green)":sig?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
-    const vSlots=validTriggerSlots(t);const statusTxt=hasSell?"SELL":sig?`${sig}/${vSlots}`:`0/${vSlots}`;
+    const dc=deployCount(t);const vSlots=validTriggerSlots(t);
+    const statusCol=hasSell?"var(--red)":dc===vSlots?"var(--green)":dc?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
+    const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
   // Speculative stocks row(s) — shown in grid but not counted in totals
   const SPEC=getSpeculative();
@@ -1595,7 +1605,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":"";
       h+=`<div class="sig-cell"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
-    h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${sig?sig+"/"+validTriggerSlots(t):"0/"+validTriggerSlots(t)}</div></div>`;
+    h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${deployCount(t)||"0"}/${validTriggerSlots(t)}</div></div>`;
   });
   // Totals row
   const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k).cls==="buy").length;
@@ -1708,8 +1718,8 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.length);
     // Ghost card for grid stock not in this portfolio
     if(isGhost&&!isSpec&&(GRID.includes(ticker))){
-      const sig=sigCount(ticker);
-      const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/${validTriggerSlots(ticker)}</span>`;
+      const sig=sigCount(ticker);const dc=deployCount(ticker);
+      const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -1723,8 +1733,8 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     }
     // Ghost card for speculative stock not in this portfolio
     if(isGhost&&isSpec){
-      const sig=sigCount(ticker);
-      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/${validTriggerSlots(ticker)}</span>`;
+      const sig=sigCount(ticker);const dc=deployCount(ticker);
+      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -1741,13 +1751,13 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     // Owned position card (original logic continues below)
     if(!pos)return;
     const shares=posShares(pos);if(shares<=0&&!pos.tranches.length)return;
-    const avg=posAvgPrice(pos);const sig=sigCount(ticker);const nTr=posTranchesOwned(pos);
+    const avg=posAvgPrice(pos);const sig=sigCount(ticker);const dc=deployCount(ticker);const nTr=posTranchesOwned(pos);
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
-      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${sig}/${validTriggerSlots(ticker)}</span>`:
+      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
       s.status==="grid"&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:
-      s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${sig}/${validTriggerSlots(ticker)}</span>`:"";
+      s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker)}</span>`:"";
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
@@ -1770,8 +1780,8 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     }
 
     // MOS reserve bar (only for stocks with unlit valid triggers in this portfolio)
-    {const slots=validTriggerSlots(ticker);const unlitRes=slots-sig;
-    if(unlitRes>0&&sig>0&&s.status!=="trophy"&&s.status!=="speculative"){
+    {const slots=validTriggerSlots(ticker);const dc=deployCount(ticker);const unlitRes=slots-dc;
+    if(unlitRes>0&&dc>0&&s.status!=="trophy"&&s.status!=="speculative"){
       const resSym=s.currency==="USD"?"$":s.currency==="GBp"?"\u00a3":"\u20ac";
       const resMult=s.currency==="GBp"?100:1;
       const nTr=posTranchesOwned(pos);const avgTrCost=nTr>0&&avg>0&&shares>0?Math.round(avg*shares/nTr/resMult):0;
@@ -1780,11 +1790,11 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       const pct=ideal>0?Math.min(actual/ideal,1.5):0;
       const barCol=pct>=0.95?"var(--green)":pct>=0.5?"var(--amber)":"var(--red)";
       const statusTxt=pct>=0.95?"funded":pct>=0.5?"undersized":"low";
-      // Which triggers are unlit?
+      // Which triggers are unlit (not deploying — excludes both valid-firing and piggybacking)
       const unlitNames=[];
-      if(s.cons.mos&&!s.signals.mos&&!isTriggerMuted(s,"mos"))unlitNames.push("MOS");
-      if(s.cons.tenCap&&!s.signals.tenCap&&!isTriggerMuted(s,"tenCap"))unlitNames.push("10Cap");
-      if(s.cons.pbt&&!s.signals.pbt&&!isTriggerMuted(s,"pbt"))unlitNames.push("PBT");
+      if(s.cons.mos&&!s.signals.mos)unlitNames.push("MOS");
+      if(s.cons.tenCap&&!s.signals.tenCap&&!isPiggyback(s,"tenCap"))unlitNames.push("10Cap");
+      if(s.cons.pbt&&!s.signals.pbt&&!isPiggyback(s,"pbt"))unlitNames.push("PBT");
       const hasOverride=pos.mosReserve!=null;
       h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
@@ -1929,8 +1939,8 @@ function renderAllocator(c){
     const denom=validSlots+expSlots;
     const income=settings.monthlyIncomeUSD;
     const perTr=denom>0?Math.round(income/denom):0;
-    // Count lit vs unlit signals across firing stocks (only valid triggers)
-    const litTotal=firingStocks.reduce((n,t)=>n+sigCount(t),0);
+    // Count lit (deploy) vs unlit signals across firing stocks — deployCount includes piggyback
+    const litTotal=firingStocks.reduce((n,t)=>n+deployCount(t),0);
     const unlitTotal=validSlots-litTotal;
     const deployTotal=litTotal*perTr;
     const mosReserveTotal=unlitTotal*perTr;
@@ -1940,7 +1950,7 @@ function renderAllocator(c){
     // Calculate MOS reserves: ideal (cost-matched) vs actual (override or ideal)
     const mosInfo={}; // per-stock: {ideal, actual, unlit}
     let dpMosReserved=0;
-    firingStocks.forEach(t=>{const s=stocks[t];const slots=validTriggerSlots(t);const sig=sigCount(t);const unlit=slots-sig;
+    firingStocks.forEach(t=>{const s=stocks[t];const slots=validTriggerSlots(t);const dc=deployCount(t);const unlit=slots-dc;
       if(unlit<=0){mosInfo[t]={ideal:0,actual:0,unlit:0};return;}
       const pos=pf.positions?.[t];if(!pos){mosInfo[t]={ideal:0,actual:0,unlit};return;}
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
@@ -1970,16 +1980,16 @@ function renderAllocator(c){
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">$${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${Math.round(toDP/income*100)}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + MOS reserve
-    firingStocks.forEach(t=>{const s=stocks[t];const sig=sigCount(t);const slots=validTriggerSlots(t);const unlit=slots-sig;
-      const deployUSD=sig*perTr;const mosUSD=unlit*perTr;
+    firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t);const slots=validTriggerSlots(t);const unlit=slots-dc;
+      const deployUSD=dc*perTr;const mosUSD=unlit*perTr;
       const localDeploy=fromEUR(toEUR(deployUSD,"USD"),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
-      const mutedCount=3-slots;const mutedNote=mutedCount>0?` · ${mutedCount} muted`:"";
       const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0,resCcy:"USD"};
       const allocSym=mi.resCcy==="USD"?"$":mi.resCcy==="GBP"?"\u00a3":"\u20ac";
       const resRatio=mi.ideal>0?(mi.actual/mi.ideal):mi.actual>0?999:1;
       const resCol=resRatio>=0.95?"var(--green)":resRatio>=0.5?"var(--amber)":"var(--red)";
       const resLabel=resRatio>=0.95?"✓":resRatio>=0.5?"▼":"⚠";
-      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${sig} lit → deploy · ${unlit} unlit → MOS${mutedNote}</div></div>
+      const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
+      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → deploy · ${unlit} unlit → MOS${pbNote}</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosUSD?` · +${allocSym}${Math.round(fromEUR(toEUR(mosUSD,"USD"),mi.resCcy)).toLocaleString()}/mo`:""}</div></div></div>`;
       // MOS reserve row (only if stock has unlit triggers)
       if(mi.unlit>0){
@@ -2120,8 +2130,8 @@ function renderAllocator(c){
 
     // MOS reserves for NL: firing stocks with unlit valid triggers
     let nlMosReserved=0;
-    nlTickers.forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const sig=sigCount(t);if(sig<=0)return;
-      const slots=validTriggerSlots(t);const unlit=slots-sig;if(unlit<=0)return;
+    nlTickers.forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const dc=deployCount(t);if(dc<=0)return;
+      const slots=validTriggerSlots(t);const unlit=slots-dc;if(unlit<=0)return;
       const pos=nlPos[t];if(!pos)return;
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
       if(nTr>0&&avg>0&&sh>0){
