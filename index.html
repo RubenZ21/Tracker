@@ -963,11 +963,12 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc\n";
+  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate\n";
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc}\n`;});
+    const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
 }
 function handleCSVImport(e){
@@ -1021,6 +1022,8 @@ function handleCSVImport(e){
       // Set trigger freshness date: use CSV value if present, else mark as updated now
       if(hdr.includes("lastcalc")&&row.lastcalc){const d=new Date(row.lastcalc);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
       else{s.lastCalcDate=Date.now();}
+      // Import earnings date from CSV
+      if(hdr.includes("earningsdate")&&row.earningsdate){const d=new Date(row.earningsdate);s.earningsDate=isNaN(d)?null:d.getTime();}
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calculate tenCap from OE
