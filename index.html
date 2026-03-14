@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.36</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.37</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -583,7 +583,7 @@ async function fetchPrices(){
     }
   }
 
-  // Re-enable buy modals, then queue only for signals that genuinely changed (off before refresh → on after)
+  // Re-enable buy modals, then queue for signals that genuinely changed (off before refresh → on after)
   window._suppressBuyModal=false;
   Object.entries(stocks).forEach(([t,s])=>{
     if(!s.signals||!(s.status==="grid"||s.status==="watchlist"||s.status==="speculative"))return;
@@ -591,6 +591,13 @@ async function fetchPrices(){
     ["mos","tenCap","pbt"].forEach(sig=>{
       if(!pre[sig]&&s.signals[sig])queueBuyModal(t,sig);
     });
+    // If this stock has any snoozed signal, also queue any un-snoozed firing signals
+    // (catches: PBT snoozed, 10Cap was already firing but never shown)
+    if(s.snoozed&&Object.keys(s.snoozed).length){
+      ["mos","tenCap","pbt"].forEach(sig=>{
+        if(s.signals[sig])queueBuyModal(t,sig); // dedupes + checks snoozed + shown
+      });
+    }
   });
 
   settings.lastFetch=Date.now();save();render();
