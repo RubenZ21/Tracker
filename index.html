@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.47</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.48</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -274,6 +274,35 @@ function calcFreshness(ts){
   if(days<30)return{label:new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"short"}),color:"var(--green)",stale:false,days};
   if(days<90){const mo=Math.round(days/30);return{label:"⚠ "+mo+"mo ago",color:"var(--amber)",stale:true,days};}
   const mo=Math.round(days/30);return{label:"⚠ "+mo+"mo ago",color:"var(--red)",stale:true,days};
+}
+
+// Earnings calendar: format and classify earnings date relative to today and lastCalcDate
+function earningsInfo(s){
+  const ed=s.earningsDate;const lc=s.lastCalcDate;
+  if(!ed)return null;
+  const now=Date.now();const dt=new Date(ed);
+  const daysUntil=Math.ceil((ed-now)/86400000);
+  const fmt=dt.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  // Upcoming: within next 30 days
+  if(daysUntil>0&&daysUntil<=30)return{label:"📅 "+fmt,color:"var(--accent)",status:"upcoming",days:daysUntil,soon:daysUntil<=14};
+  // Just reported: in the past, check if triggers are stale
+  if(daysUntil<=0&&daysUntil>=-90){
+    if(lc&&lc>=ed)return{label:"✓ "+fmt,color:"var(--green)",status:"fresh",days:daysUntil,soon:false};
+    return{label:"📅 "+fmt+" → update",color:"var(--amber)",status:"stale",days:daysUntil,soon:false};
+  }
+  // Far future (>30 days)
+  if(daysUntil>30)return{label:"📅 "+fmt,color:"var(--muted)",status:"future",days:daysUntil,soon:false};
+  // Old (>90 days ago)
+  return null;
+}
+
+// Earnings date display snippet for stock cards
+function earningsChip(t){
+  const s=stocks[t];const ei=earningsInfo(s);
+  if(!ei)return"";
+  const bgMap={upcoming:"#1e3a5f30",stale:"#332d0d40",fresh:"#0d332020",future:"transparent"};
+  const borderMap={upcoming:"var(--accent)",stale:"var(--amber)",fresh:"var(--green)",future:"var(--border)"};
+  return`<div style="font-size:9px;font-family:var(--mono);color:${ei.color};margin-top:1px;padding:1px 4px;background:${bgMap[ei.status]||'transparent'};border-radius:3px;display:inline-block;border:1px solid ${borderMap[ei.status]||'var(--border)'}22">${ei.label}${ei.soon?' ⏰':''}</div>`;
 }
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 // Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2)
@@ -468,6 +497,7 @@ function load(){
     if(s.cons&&s.cons.fcf===undefined)s.cons.fcf=null;
     // Migration: add lastCalcDate if missing (trigger freshness tracking)
     if(s.lastCalcDate===undefined)s.lastCalcDate=null;
+    if(s.earningsDate===undefined)s.earningsDate=null;
   });
   // Migration: backfill finnhubSymbol from defaults for existing stocks
   Object.entries(STOCK_DEFAULTS).forEach(([k,def])=>{
@@ -589,6 +619,8 @@ async function fetchPrices(){
           const q=d[s.finnhubSymbol];
           if(q&&q.price>0){
             s.currentPrice=q.price*s.priceMult;s.lastUpdate=Date.now();s.priceSource="yahoo";
+            if(q.earningsTimestamp&&q.earningsTimestamp>0){s.earningsDate=q.earningsTimestamp*1000;}
+            else if(q.earningsDate&&q.earningsDate>0){s.earningsDate=q.earningsDate;}
             updateSignals(t);yfOk++;
           }
         });
@@ -1019,7 +1051,7 @@ function exportExcel(){
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
-    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null};});
+    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws1,"Stocks");
 
@@ -1110,6 +1142,7 @@ function handleExcelImport(e){
             if(row.priority!=null)s.priority=vn(row.priority);
             // Trigger freshness: read from sheet or mark as updated now
             if(row.lastCalcDate){const d=new Date(row.lastCalcDate);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
+            if(row.earningsDate){const d=new Date(row.earningsDate);s.earningsDate=isNaN(d)?null:d.getTime();}
             else{s.lastCalcDate=Date.now();}
             if(row.philSticker!=null||row.philGR!=null){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
@@ -1470,6 +1503,28 @@ function marketStatus(){
   strip.innerHTML=h;
 }
 
+
+// Earnings banner: show stocks reporting within 14 days
+function renderEarningsBanner(){
+  const upcoming=[];
+  Object.entries(stocks).forEach(([t,s])=>{
+    const ei=earningsInfo(s);
+    if(!ei)return;
+    if(ei.status==="upcoming"&&ei.soon)upcoming.push({t,s,ei});
+    else if(ei.status==="stale")upcoming.push({t,s,ei});
+  });
+  if(!upcoming.length)return"";
+  let h='<div style="margin:6px 10px">';
+  upcoming.forEach(({t,s,ei})=>{
+    const cls=ei.status==="upcoming"?"info":"watch";
+    const icon=ei.status==="upcoming"?"📅":"⚠️";
+    const msg=ei.status==="upcoming"?
+      `<strong>${s.flag} ${t}</strong> reports in <strong>${ei.days}d</strong> — prep trigger inputs`:
+      `<strong>${s.flag} ${t}</strong> reported ${ei.label.replace("📅 ","").replace(" → update","")} — <strong>triggers need update</strong>`;
+    h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px">${msg}</span></div>`;
+  });
+  h+='</div>';return h;
+}
 function render(){
   const ts=totalSignals(),gs=firingGridSize();
   const b=document.getElementById("grid-badge");b.textContent=ts+"/"+gs;
@@ -1489,7 +1544,10 @@ function render(){
   if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);const ibkrAge=settings.lastIbkrSync?timeAgo(settings.lastIbkrSync):"";
     fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
-  ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
+  const _earBanner=renderEarningsBanner();
+  const _contentEl=document.getElementById("content");
+  ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](_contentEl);
+  if(_earBanner&&(currentTab==="portfolio"||currentTab==="watchlist")){_contentEl.innerHTML=_earBanner+_contentEl.innerHTML;}
   // Update watchlist nav badge — count watchlist stocks with any buy signal firing (excluding snoozed)
   const wlFiring=getWatchlist().reduce((n,t)=>{const s=stocks[t];if(!s?.currentPrice||s.gate===false)return n;return n+(s.signals?.mos&&!isSnoozed(t,"mos")?1:0)+(s.signals?.tenCap&&!isSnoozed(t,"tenCap")?1:0)+(s.signals?.pbt&&!isSnoozed(t,"pbt")?1:0);},0);
   const wb=document.getElementById("watch-badge");if(wb){if(wlFiring>0){wb.textContent=wlFiring;wb.style.display="flex";}else{wb.style.display="none";}}
@@ -1681,7 +1739,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
   // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||a.localeCompare(b);}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
@@ -1880,6 +1938,8 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const stk=s.cons?.mos?s.cons.mos*2:null;if(!stk)return"";const pv=s.currentPrice?((s.currentPrice/stk-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">sticker ${fmt(stk,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>`;
 
+    // Earnings date
+    h+=earningsChip(ticker);
     // Stats row
     const sticker=s.cons?.mos?s.cons.mos*2:null;
     const avgIR=avg&&sticker?calcImpliedReturn(sticker,avg):null;
@@ -2444,7 +2504,7 @@ function renderWatchlist(c){
         ${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}
         ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:9px;color:${calcFreshness(s.lastCalcDate).color};font-family:var(--mono);padding:1px 5px;background:${calcFreshness(s.lastCalcDate).stale?calcFreshness(s.lastCalcDate).color+'15':'var(--bg)'};border-radius:3px;flex-shrink:0">${calcFreshness(s.lastCalcDate).label}</span>
+      <span style="font-size:9px;color:${calcFreshness(s.lastCalcDate).color};font-family:var(--mono);padding:1px 5px;background:${calcFreshness(s.lastCalcDate).stale?calcFreshness(s.lastCalcDate).color+'15':'var(--bg)'};border-radius:3px;flex-shrink:0">${calcFreshness(s.lastCalcDate).label}</span>${earningsChip(t)}
       <div style="display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-wrap:wrap">
         <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
         ${snoozed?`<span style="font-size:10px;color:var(--amber);cursor:pointer;padding:2px 6px;background:#92400e33;border-radius:4px" onclick="unsnoozeStock('${t}');render()">⏰ Wake</span>`:`<span style="font-size:10px;color:var(--muted);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="['mos','tenCap','pbt'].forEach(sig=>{if(stocks['${t}']?.signals?.[sig])snoozeSignal('${t}',sig)});render()">😴</span>`}
@@ -2749,6 +2809,8 @@ function openEditStock(t){
     {id:"es-tc",label:"Ten Cap (= OE × 10)",val:s.cons.tenCap,type:"number"},
     {id:"es-pbt",label:"PBT Price (= 8yr FCF)",val:s.cons.pbt,type:"number"},
     {id:"es-pbtyrs",label:"PBT Years",val:s.cons.pbtYrs,type:"number"},
+    "— Earnings —",
+    {id:"es-earn",label:"Next Earnings Date (YYYY-MM-DD)",val:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"",placeholder:"2026-04-23"},
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
   ],()=>{
@@ -2776,6 +2838,7 @@ function openEditStock(t){
     if(gateVal==="FAIL"&&s.gate!==false){
       if(!confirm(`⚠️ Setting ${t} gate to FAIL triggers a SELL ALL alert.\n\nThis means the business fundamentals have broken down and all tranches should be sold immediately.\n\nAre you sure?`)){return false;}
     }
+    const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed))s.earningsDate=ed.getTime();}else{s.earningsDate=null;}
     s.gate=(gateVal==="FAIL")?false:true;
     // Mark triggers as freshly calculated
     s.lastCalcDate=Date.now();
