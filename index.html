@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.33</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.35</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -275,7 +275,12 @@ function deployCount(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;c
 // Count ALL populated trigger slots (muted or not) — every populated trigger is a slot
 function validTriggerSlots(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
 
-// Recalculate Sticker+MOS from EPS, Growth Rate, and Historical P/E
+// Snooze: suppress a stock's signals until end of month
+function endOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,999).getTime();}
+function isSnoozed(t,sig){const s=stocks[t];if(!s?.snoozed)return false;if(sig){const exp=s.snoozed[sig];if(!exp)return false;if(Date.now()>exp){delete s.snoozed[sig];return false;}return true;}return Object.keys(s.snoozed).some(k=>isSnoozed(t,k));}
+function snoozeSignal(t,sig){if(!stocks[t].snoozed)stocks[t].snoozed={};stocks[t].snoozed[sig]=endOfMonth();save();render();}
+function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
+function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?"10Cap":"PBT");return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
 // Returns {sticker, mos} or null if any input is missing
 function recalcSticker(eps,gr,pe){
   if(eps==null||gr==null||pe==null)return null;
@@ -504,6 +509,14 @@ function load(){
     Object.values(pf.positions).forEach(pos=>{
       pos.tranches.forEach(tr=>{if(!tr.state)tr.state=(tr.bought-tr.sold)>0?"accumulating":"sold";});
     });
+  });
+  // Migration: convert old per-stock snoozedUntil to per-signal snoozed
+  Object.values(stocks).forEach(s=>{
+    if(s.snoozedUntil&&!s.snoozed){
+      s.snoozed={};
+      ["mos","tenCap","pbt"].forEach(k=>{if(s.signals?.[k])s.snoozed[k]=s.snoozedUntil;});
+      delete s.snoozedUntil;
+    }
   });
   // Recalculate all signals from current prices/triggers (suppress buy modals — these aren't new signals)
   window._suppressBuyModal=true;
@@ -1205,11 +1218,11 @@ function checkAlerts(){
   GRID.forEach(t=>{
     const s=stocks[t];if(!s?.currentPrice||s.gate===false)return;
     const p=s.currentPrice, c=s.cons;
-    if(c.mos&&p<=c.mos){const k=`buy-mos-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🟢",
+    if(c.mos&&p<=c.mos&&!isSnoozed(t,"mos")){const k=`buy-mos-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🟢",
       html:`<strong>${s.flag} ${t}</strong> at <strong>${fmt(p,s.currency)}</strong> — below MOS ${fmt(c.mos,s.currency)}! Screaming buy.`});}
-    else if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")){const k=`buy-tc-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🔵",
+    else if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap")){const k=`buy-tc-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🔵",
       html:`<strong>${s.flag} ${t}</strong> at <strong>${fmt(p,s.currency)}</strong> — below Ten Cap ${fmt(c.tenCap,s.currency)}`});}
-    else if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")){const k=`buy-pbt-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🟣",
+    else if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt")){const k=`buy-pbt-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"🟣",
       html:`<strong>${s.flag} ${t}</strong> at <strong>${fmt(p,s.currency)}</strong> — below PBT ${fmt(c.pbt,s.currency)}`});}
   });
 
@@ -1229,14 +1242,14 @@ function checkAlerts(){
     const s=stocks[t],nt=nearestTrigger(t);
     if(!s?.currentPrice||!nt)return;
     const gap=(s.currentPrice-nt)/s.currentPrice;
-    if(gap>0&&gap<=0.10){const k=`watch-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"👁",
+    if(gap>0&&gap<=0.10&&!isSnoozed(t)){const k=`watch-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"👁",
       html:`<strong>${s.flag} ${t}</strong> approaching buy zone — ${fmt(s.currentPrice,s.currency)} is ${Math.round(gap*100)}% above trigger ${fmt(nt,s.currency)}`});}
     else if(gap<=0){
-      // Build list of ALL firing signals for this watchlist stock (respecting Sticker Ceiling)
+      // Build list of ALL firing signals for this watchlist stock (respecting Sticker Ceiling + per-signal snooze)
       const p=s.currentPrice,c=s.cons,fires=[];
-      if(c.mos&&p<=c.mos)fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
-      if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
-      if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
+      if(c.mos&&p<=c.mos&&!isSnoozed(t,"mos"))fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
+      if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
+      if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
       const isSpec=s.status==="speculative";
       if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
         html:`<strong>${s.flag} ${t}</strong> ${isSpec?"SPEC":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals${isSpec?"":` — add to grid!`}</strong>`});}
@@ -1259,12 +1272,13 @@ let buyModalShown={}; // session-only: tracks signals already shown this page lo
 function queueBuyModal(ticker,signal){
   const k=`${ticker}-${signal}`;
   if(buyModalShown[k])return; // already shown this session
+  if(isSnoozed(ticker,signal))return; // this signal snoozed until end of month
   if(!buyModalQueue.find(q=>q.ticker===ticker&&q.signal===signal))
     buyModalQueue.push({ticker,signal});
 }
 function showBuyModals(){
-  // Filter out stale signals (e.g., IBKR stale price triggered it, then API corrected)
-  buyModalQueue=buyModalQueue.filter(q=>{const s=stocks[q.ticker];return s?.signals?.[q.signal];});
+  // Filter out stale signals and snoozed signals
+  buyModalQueue=buyModalQueue.filter(q=>{const s=stocks[q.ticker];return s?.signals?.[q.signal]&&!isSnoozed(q.ticker,q.signal);});
   if(!buyModalQueue.length){document.getElementById("buy-modal").innerHTML="";return;}
   const q=buyModalQueue[0]; // Show one at a time
   const s=stocks[q.ticker];if(!s)return;
@@ -1276,6 +1290,7 @@ function showBuyModals(){
   const discount=triggerPrice?Math.round((1-s.currentPrice/triggerPrice)*100):0;
   const borderColor=isWL?"#fbbf24":"#34d399";
   const glowColor=isWL?"#fbbf24":"#34d399";
+  const eom=new Date(endOfMonth()).toLocaleDateString("en-GB",{day:"numeric",month:"short"});
   document.getElementById("buy-modal").innerHTML=`
     <div class="buy-modal-overlay" onclick="if(event.target===this)dismissBuyModal()">
       <div class="buy-modal" style="border-color:${borderColor};box-shadow:0 0 40px ${glowColor}40,0 0 80px ${glowColor}20">
@@ -1288,6 +1303,7 @@ function showBuyModals(){
         <div class="buy-modal-detail">Trigger: ${fmt(triggerPrice,s.currency)}${discount>0?` · ${discount}% below`:" · at trigger"}</div>
         <div class="buy-modal-detail">${isWL?"Consider adding to grid!":"Grid now: "+totalSignals()+"/"+firingGridSize()+" signals"}</div>
         <button class="buy-modal-dismiss" onclick="dismissBuyModal()">GOT IT</button>
+        <button style="width:100%;padding:10px;margin-top:8px;background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:12px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)" onclick="snoozeBuyModal()">😴 Snooze until ${eom}</button>
       </div>
     </div>`;
 }
@@ -1295,6 +1311,16 @@ function dismissBuyModal(){
   if(buyModalQueue.length){
     const q=buyModalQueue.shift();
     buyModalShown[`${q.ticker}-${q.signal}`]=true; // mark shown this session
+  }
+  if(buyModalQueue.length)showBuyModals();
+  else document.getElementById("buy-modal").innerHTML="";
+}
+function snoozeBuyModal(){
+  if(buyModalQueue.length){
+    const q=buyModalQueue[0];
+    snoozeSignal(q.ticker,q.signal);
+    // Remove only this signal's modal from the queue
+    buyModalQueue=buyModalQueue.filter(x=>!(x.ticker===q.ticker&&x.signal===q.signal));
   }
   if(buyModalQueue.length)showBuyModals();
   else document.getElementById("buy-modal").innerHTML="";
@@ -2309,9 +2335,11 @@ function renderWatchlist(c){
     const gStr=sc>0?sc+"/3 signals":g!=null?g+"%":"—";
     const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
     const pri=s.priority;
+    const snoozed=isSnoozed(t);
     const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
-    h+=`<div class="wl-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
+    h+=`<div class="wl-card" ${snoozed?'style="opacity:0.5"':''}><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
+      <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
     [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}].forEach(({l,v,p,k})=>{
@@ -2329,6 +2357,7 @@ function renderWatchlist(c){
       <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span>${stk?` · Stk ${fmt(stk,s.currency)}`:""}</span>
       <div style="display:flex;gap:4px;align-items:center">
         <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
+        ${snoozed?`<span style="font-size:10px;color:var(--amber);cursor:pointer;padding:2px 6px;background:#92400e33;border-radius:4px" onclick="unsnoozeStock('${t}');render()">⏰ Wake</span>`:`<span style="font-size:10px;color:var(--muted);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="['mos','tenCap','pbt'].forEach(sig=>{if(stocks['${t}']?.signals?.[sig])snoozeSignal('${t}',sig)});render()">😴</span>`}
         <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
         <span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px;background:#0d332033;border-radius:4px" onclick="promoteToGrid('${t}')">→ Grid</span>
         <span style="font-size:10px;color:#d97706;cursor:pointer;padding:2px 6px;background:#332d0d33;border-radius:4px" onclick="promoteToSpec('${t}')">→ Spec</span>
