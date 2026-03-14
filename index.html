@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.35</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.36</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1400,8 +1400,8 @@ function render(){
     fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](document.getElementById("content"));
-  // Update watchlist nav badge — count watchlist stocks with any buy signal firing
-  const wlFiring=getWatchlist().reduce((n,t)=>{const s=stocks[t];if(!s?.currentPrice||s.gate===false)return n;return n+(s.signals?.mos?1:0)+(s.signals?.tenCap?1:0)+(s.signals?.pbt?1:0);},0);
+  // Update watchlist nav badge — count watchlist stocks with any buy signal firing (excluding snoozed)
+  const wlFiring=getWatchlist().reduce((n,t)=>{const s=stocks[t];if(!s?.currentPrice||s.gate===false)return n;return n+(s.signals?.mos&&!isSnoozed(t,"mos")?1:0)+(s.signals?.tenCap&&!isSnoozed(t,"tenCap")?1:0)+(s.signals?.pbt&&!isSnoozed(t,"pbt")?1:0);},0);
   const wb=document.getElementById("watch-badge");if(wb){if(wlFiring>0){wb.textContent=wlFiring;wb.style.display="flex";}else{wb.style.display="none";}}
   checkAlerts();
   marketStatus();
