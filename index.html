@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.37</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.38</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -264,6 +264,14 @@ function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/600
 function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";if(ccy==="CAD")return"C$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
 function moatDisp(m){return m==="Wide"?"Excellent":m==="Narrow"?"Strong":m||"Strong";}
+// Trigger freshness: how stale are the calculated triggers?
+function calcFreshness(ts){
+  if(!ts)return{label:"no date",color:"var(--red)",stale:true,days:null};
+  const days=Math.floor((Date.now()-ts)/86400000);
+  if(days<30)return{label:new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"short"}),color:"var(--green)",stale:false,days};
+  if(days<90){const mo=Math.round(days/30);return{label:"⚠ "+mo+"mo ago",color:"var(--amber)",stale:true,days};}
+  const mo=Math.round(days/30);return{label:"⚠ "+mo+"mo ago",color:"var(--red)",stale:true,days};
+}
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 // Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2)
 function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
@@ -455,6 +463,8 @@ function load(){
     // Migration: add oe/fcf fields if missing
     if(s.cons&&s.cons.oe===undefined)s.cons.oe=null;
     if(s.cons&&s.cons.fcf===undefined)s.cons.fcf=null;
+    // Migration: add lastCalcDate if missing (trigger freshness tracking)
+    if(s.lastCalcDate===undefined)s.lastCalcDate=null;
   });
   // Migration: backfill finnhubSymbol from defaults for existing stocks
   Object.entries(STOCK_DEFAULTS).forEach(([k,def])=>{
@@ -918,10 +928,11 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe\n";
+  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc\n";
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)}\n`;});
+    const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
 }
 function handleCSVImport(e){
@@ -951,7 +962,7 @@ function handleCSVImport(e){
         stocks[t]={name:t,currency:ccy,moat:"Wide",sector:"",flag:flags[ccy]||"🌍",
           status:"watchlist",tdSymbol:td,finnhubSymbol:fh,priceMult:1,currentPrice:0,gate:true,
           cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,eps:null,pe:null,prevSticker:null},
-          phil:null,signals:{mos:false,tenCap:false,pbt:false}};
+          phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
         nNew++;
       }
       const s=stocks[t];
@@ -972,6 +983,9 @@ function handleCSVImport(e){
       if(hdr.includes("eps"))s.cons.eps=set("eps",row.eps);
       if(hdr.includes("pe"))s.cons.pe=set("pe",row.pe);
       if(hdr.includes("priority")){const pv=set("priority",row.priority);s.priority=pv;}
+      // Set trigger freshness date: use CSV value if present, else mark as updated now
+      if(hdr.includes("lastcalc")&&row.lastcalc){const d=new Date(row.lastcalc);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
+      else{s.lastCalcDate=Date.now();}
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calculate tenCap from OE
@@ -1002,7 +1016,7 @@ function exportExcel(){
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
-    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null};});
+    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws1,"Stocks");
 
@@ -1074,6 +1088,9 @@ function handleExcelImport(e){
             if(row.specReason!=null)s.specReason=String(row.specReason);
             if(row.specDate!=null)s.specDate=vn(row.specDate);
             if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
+            // Trigger freshness: read from sheet or mark as updated now
+            if(row.lastCalcDate){const d=new Date(row.lastCalcDate);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
+            else{s.lastCalcDate=Date.now();}
             if(row.philSticker!=null||row.philGR!=null){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
@@ -1090,7 +1107,7 @@ function handleExcelImport(e){
               cons:{sticker:rc?rc.sticker:(mos?mos*2:(vn(row.sticker)||null)),mos:mos,tenCap:tc,pbt:pbt,pbtYrs:vn(row.pbtYrs),gr:gr,oe:oe,fcf:fcf,eps:eps,pe:pe,prevSticker:vn(row.prevSticker)||null},
               phil:null,signals:{mos:false,tenCap:false,pbt:false},
               specReason:row.specReason?String(row.specReason):undefined,specDate:vn(row.specDate)||undefined,
-              notes:row.notes?String(row.notes):undefined};
+              notes:row.notes?String(row.notes):undefined,lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now()};
           }
           updateSignals(t);nStocks++;
         });
@@ -1597,7 +1614,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
   // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||a.localeCompare(b);}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}</div></div>`;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
@@ -2361,7 +2378,7 @@ function renderWatchlist(c){
         ${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}
         ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span>${stk?` · Stk ${fmt(stk,s.currency)}`:""}</span>
+      <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span>${stk?` · Stk ${fmt(stk,s.currency)}`:""}<span style="margin-left:6px;color:${calcFreshness(s.lastCalcDate).color};font-family:var(--mono)">${calcFreshness(s.lastCalcDate).label}</span></span>
       <div style="display:flex;gap:4px;align-items:center">
         <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
         ${snoozed?`<span style="font-size:10px;color:var(--amber);cursor:pointer;padding:2px 6px;background:#92400e33;border-radius:4px" onclick="unsnoozeStock('${t}');render()">⏰ Wake</span>`:`<span style="font-size:10px;color:var(--muted);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="['mos','tenCap','pbt'].forEach(sig=>{if(stocks['${t}']?.signals?.[sig])snoozeSignal('${t}',sig)});render()">😴</span>`}
@@ -2607,6 +2624,8 @@ function openEditStock(t){
       if(!confirm(`⚠️ Setting ${t} gate to FAIL triggers a SELL ALL alert.\n\nThis means the business fundamentals have broken down and all tranches should be sold immediately.\n\nAre you sure?`)){return false;}
     }
     s.gate=(gateVal==="FAIL")?false:true;
+    // Mark triggers as freshly calculated
+    s.lastCalcDate=Date.now();
     updateSignals(t);save();
   });
 }
@@ -2647,7 +2666,7 @@ function openAddStock(){
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
       status:"watchlist",finnhubSymbol:gv("ns-fh")||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,eps,pe,prevSticker:null},
-      phil:null,signals:{mos:false,tenCap:false,pbt:false}};
+      phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
     updateSignals(t);save();
   });
 }
