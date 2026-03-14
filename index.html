@@ -2378,8 +2378,9 @@ function renderWatchlist(c){
         ${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}
         ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span>${stk?` · Stk ${fmt(stk,s.currency)}`:""}<span style="margin-left:6px;color:${calcFreshness(s.lastCalcDate).color};font-family:var(--mono)">${calcFreshness(s.lastCalcDate).label}</span></span>
+      <span style="font-size:10px;color:var(--muted)">Gap: <span style="color:${gCol};font-family:var(--mono)">${gStr}</span>${stk?` · Stk ${fmt(stk,s.currency)}`:""}</span>
       <div style="display:flex;gap:4px;align-items:center">
+        <span style="font-size:9px;color:${calcFreshness(s.lastCalcDate).color};font-family:var(--mono);padding:1px 5px;background:${calcFreshness(s.lastCalcDate).stale?calcFreshness(s.lastCalcDate).color+'15':'var(--bg)'};border-radius:3px">${calcFreshness(s.lastCalcDate).label}</span>
         <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
         ${snoozed?`<span style="font-size:10px;color:var(--amber);cursor:pointer;padding:2px 6px;background:#92400e33;border-radius:4px" onclick="unsnoozeStock('${t}');render()">⏰ Wake</span>`:`<span style="font-size:10px;color:var(--muted);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="['mos','tenCap','pbt'].forEach(sig=>{if(stocks['${t}']?.signals?.[sig])snoozeSignal('${t}',sig)});render()">😴</span>`}
         <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
