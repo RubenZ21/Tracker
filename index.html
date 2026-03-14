@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.43</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.47</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -264,6 +264,8 @@ function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t
 function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/60000),h=Math.floor(d/3600000),dy=Math.floor(d/86400000);if(m<1)return"just now";if(m<60)return m+"m ago";if(h<24)return h+"h ago";return dy+"d ago";}
 function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";if(ccy==="CAD")return"C$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
+// Escape HTML entities in user-supplied text to prevent injection
+function esc(s){if(!s)return"";return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function moatDisp(m){return m==="Wide"?"Excellent":m==="Narrow"?"Strong":m||"Strong";}
 // Trigger freshness: how stale are the calculated triggers?
 function calcFreshness(ts){
@@ -434,8 +436,8 @@ function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(
   const ir=calcImpliedReturn(sticker,closest.price);if(ir==null)return null;
   return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,aboveMarr:ir>=0.15};}
 // FIX #5: Convert any currency amount to EUR for allocation
-function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;return amount;}
-function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;if(ccy==="CAD")return eur*settings.fxCAD;return eur;}
+function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="GBP")return amount/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;return amount;}
+function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;if(ccy==="GBP")return eur*settings.fxGBP;if(ccy==="CAD")return eur*settings.fxCAD;return eur;}
 // FIX #8: Total portfolio value in EUR
 function pfBaseCcy(pfKey){return pfKey==="personal"?"USD":"EUR";}
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(pfKey==="personal"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;pf.dryPowder=pfKey==="personal"?Math.round(pf.dpUSD+(pf.dpEUR*settings.fxRate)):Math.round(pf.dpEUR+(pf.dpUSD/settings.fxRate));}
@@ -1012,8 +1014,8 @@ function exportExcel(){
 
   // Sheet 1: Stocks
   const sRows=Object.entries(stocks).map(([t,s])=>{return{
-    ticker:t,name:s.name,currency:s.currency,moat:s.moat,status:s.status,tdSymbol:s.tdSymbol,finnhubSymbol:s.finnhubSymbol||"",
-    currentPrice:s.currentPrice,mos:s.cons.mos,tenCap:s.cons.tenCap,
+    ticker:t,name:s.name,currency:s.currency,moat:s.moat,status:s.status,priority:s.priority||null,tdSymbol:s.tdSymbol,finnhubSymbol:s.finnhubSymbol||"",
+    currentPrice:s.currentPrice,sticker:s.cons.sticker||null,mos:s.cons.mos,tenCap:s.cons.tenCap,
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
@@ -1040,9 +1042,25 @@ function exportExcel(){
     {key:"dryPowder_personal",value:portfolios.personal?.dryPowder||0},
     {key:"dryPowder_nl",value:portfolios.nl?.dryPowder||0},
     {key:"dpUSD_personal",value:portfolios.personal?.dpUSD||0},{key:"dpEUR_personal",value:portfolios.personal?.dpEUR||0},
-    {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0}];
+    {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},
+    {key:"expansionSlots",value:settings.expansionSlots??3},
+    {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
+    {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""}];
   const ws3=XLSX.utils.json_to_sheet(stRows);ws3["!cols"]=[{wch:22},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws3,"Settings");
+
+  // Sheet 4: Deploy Log
+  if(deployLog.length){
+    const logRows=deployLog.map(e=>({
+      date:e.date,
+      ticker:e.ticker,action:e.action,signal:e.signal,
+      shares:e.shares,price:e.price,currency:e.currency,
+      portfolio:e.portfolio,triggerPrice:e.triggerPrice||null,
+      note:e.note||""}));
+    const ws4=XLSX.utils.json_to_sheet(logRows);
+    ws4["!cols"]=[{wch:12},{wch:8},{wch:6},{wch:8},{wch:8},{wch:10},{wch:6},{wch:10},{wch:10},{wch:30}];
+    XLSX.utils.book_append_sheet(wb,ws4,"DeployLog");
+  }
 
   XLSX.writeFile(wb,"r1_backup_"+dateStr()+".xlsx");
 }
@@ -1089,6 +1107,7 @@ function handleExcelImport(e){
             if(row.specReason!=null)s.specReason=String(row.specReason);
             if(row.specDate!=null)s.specDate=vn(row.specDate);
             if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
+            if(row.priority!=null)s.priority=vn(row.priority);
             // Trigger freshness: read from sheet or mark as updated now
             if(row.lastCalcDate){const d=new Date(row.lastCalcDate);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
             else{s.lastCalcDate=Date.now();}
@@ -1108,7 +1127,12 @@ function handleExcelImport(e){
               cons:{sticker:rc?rc.sticker:(mos?mos*2:(vn(row.sticker)||null)),mos:mos,tenCap:tc,pbt:pbt,pbtYrs:vn(row.pbtYrs),gr:gr,oe:oe,fcf:fcf,eps:eps,pe:pe,prevSticker:vn(row.prevSticker)||null},
               phil:null,signals:{mos:false,tenCap:false,pbt:false},
               specReason:row.specReason?String(row.specReason):undefined,specDate:vn(row.specDate)||undefined,
-              notes:row.notes?String(row.notes):undefined,lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now()};
+              notes:row.notes?String(row.notes):undefined,lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now(),
+              priority:vn(row.priority)||null};
+            // Restore Phil (Toolbox) data for new stocks
+            if(row.philSticker!=null||row.philGR!=null){
+              stocks[t].phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
+                pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
           }
           updateSignals(t);nStocks++;
         });
@@ -1155,12 +1179,53 @@ function handleExcelImport(e){
           if(k==="dpEUR_personal"&&val!=null)portfolios.personal.dpEUR=Number(val);
           if(k==="dpUSD_nl"&&val!=null)portfolios.nl.dpUSD=Number(val);
           if(k==="dpEUR_nl"&&val!=null)portfolios.nl.dpEUR=Number(val);
+          if(k==="expansionSlots"&&val!=null)settings.expansionSlots=Number(val);
+          if(k==="nlCapAtPersonal"&&val!=null)settings.nlCapAtPersonal=Number(val)===1;
+          if(k==="pushWorkerUrl"&&val!=null&&val!=="")settings.pushWorkerUrl=String(val);
+          if(k==="ibkrWorker"&&val!=null&&val!=="")settings.ibkrWorker=String(val);
+          if(k==="ibkrTokenPersonal"&&val!=null&&val!=="")settings.ibkrTokenPersonal=String(val);
+          if(k==="ibkrQueryPersonal"&&val!=null&&val!=="")settings.ibkrQueryPersonal=String(val);
+          if(k==="ibkrTokenNl"&&val!=null&&val!=="")settings.ibkrTokenNl=String(val);
+          if(k==="ibkrQueryNl"&&val!=null&&val!=="")settings.ibkrQueryNl=String(val);
           nSet++;
         });
       }
 
+      // Sheet 4: Deploy Log
+      let nLog=0;
+      if(wb.SheetNames.includes("DeployLog")){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets["DeployLog"]);
+        if(rows.length>0){
+          // Merge: imported entries are added to existing log, deduped by date+ticker+signal+shares
+          const existing=new Set(deployLog.map(e=>(e.date||"")+"|"+e.ticker+"|"+e.signal+"|"+e.shares));
+          rows.forEach(row=>{
+            const d=row.date?new Date(row.date):new Date();
+            const key=((row.date||"")+"|"+(row.ticker||"")+"|"+(row.signal||"")+"|"+(row.shares||0));
+            if(existing.has(key))return; // skip duplicates
+            const s=stocks[(row.ticker||"").toUpperCase()];
+            deployLog.push({
+              id:d.getTime()+Math.random()*1000|0,
+              date:d.toISOString(),
+              ticker:String(row.ticker||""),
+              flag:s?.flag||"",
+              action:String(row.action||"buy"),
+              signal:String(row.signal||""),
+              shares:Number(row.shares)||0,
+              price:Number(row.price)||0,
+              currency:String(row.currency||"USD"),
+              portfolio:String(row.portfolio||"personal"),
+              triggerPrice:row.triggerPrice?Number(row.triggerPrice):null,
+              note:String(row.note||"")
+            });
+            nLog++;
+          });
+          // Re-sort by date descending (newest first)
+          deployLog.sort((a,b)=>new Date(b.date)-new Date(a.date));
+        }
+      }
+
       save();render();
-      alert(`Imported: ${nStocks} stocks, ${nPos} tranches, ${nSet} settings.`);
+      alert(`Imported: ${nStocks} stocks, ${nPos} tranches, ${nSet} settings${nLog?`, ${nLog} log entries`:""}. `);
     }catch(err){alert("Import error: "+err.message);}
   };r.readAsArrayBuffer(f);e.target.value="";
 }
@@ -1468,9 +1533,10 @@ function sigCellStatus(ticker, sigKey){
     return{cls,label:cls==="warn"?"!":"↑",sub:`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
   }
   // HOLD: circle shows current price, activation above, trigger below
-  const sym=s.currency==="USD"?"$":s.currency==="GBP"?"£":"€";
+  const sym=s.currency==="USD"?"$":s.currency==="GBp"?"":s.currency==="CAD"?"C$":"€";
+  const sfx=s.currency==="GBp"?"p":"";
   const act=activationPrice(s);
-  return{cls:"hold",label:`${sym}${Math.round(p)}`,topSub:act?`act ${fmt(act,s.currency)}`:"",sub:fmt(trigger,s.currency),subCls:""};
+  return{cls:"hold",label:`${sym}${Math.round(p)}${sfx}`,topSub:act?`act ${fmt(act,s.currency)}`:"",sub:fmt(trigger,s.currency),subCls:""};
 }
 
 // ============ CONVICTION CARD (panic antidote) ============
@@ -1790,8 +1856,8 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 10%)</div>
-        ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.specReason}</div>`:""}
-        ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editNotes('${ticker}')">${s.notes}</div>`:""}
+        ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.specReason)}</div>`:""}
+        ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editNotes('${ticker}')">${esc(s.notes)}</div>`:""}
         <div class="btn-row">
           <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
           <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
@@ -1825,7 +1891,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
 
     // Notes
     if(s.notes){
-      h+=`<div style="padding:0 2px;margin-bottom:4px;cursor:pointer" onclick="editNotes('${ticker}')"><div style="font-size:10px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.notes}</div></div>`;
+      h+=`<div style="padding:0 2px;margin-bottom:4px;cursor:pointer" onclick="editNotes('${ticker}')"><div style="font-size:10px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.notes)}</div></div>`;
     }else{
       h+=`<div style="padding:0 2px;margin-bottom:2px;cursor:pointer;opacity:0.3" onclick="editNotes('${ticker}')"><div style="font-size:9px;color:var(--muted)">+ note</div></div>`;
     }
@@ -1924,7 +1990,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
       const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
       h+=`<div style="margin-top:6px;padding:8px;background:#332d0d40;border:1px solid #d9770644;border-radius:6px">
         <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚠ Speculative — Management failing</div>
-        ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${s.specReason}</div>`:""}
+        ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(s.specReason)}</div>`:""}
         <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
           <span>${pctOfPf.toFixed(1)}% of portfolio${pctOfPf>10?" ⚠ >10% cap":""}${specAge!=null?" · "+specAge+"d held":""}</span>
         </div>
@@ -2084,7 +2150,7 @@ function renderAllocator(c){
             <div style="display:flex;justify-content:space-between;align-items:center">
               <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t)} signals</span></div>
               <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(val),s.currency)} · ${fmtSh(sh)} sh</span></div>
-            ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${s.specReason}</div>`:""}</div>`;});
+            ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
         if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only — not from monthly income.</div>`;}
         h+=`</div>`;
       }
@@ -2161,12 +2227,11 @@ function renderAllocator(c){
   }else{
     // === CACA (NL) CLOSED FUND ALLOCATOR ===
     const nlPos=pf.positions;const nlTickers=Object.keys(nlPos);
-    // Full portfolio value including all positions
+    // Full portfolio value EXCLUDING trophy positions (per reference: "excl. ASML trophy")
     let pvTotal=0;let slotsFilled=0;
     nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
-      pvTotal+=toEUR(sh*s.currentPrice,s.currency);
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");
-      if(!isTrophy)slotsFilled+=posTranchesOwned(nlPos[t]);});
+      if(!isTrophy){pvTotal+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
     const TARGET_STOCKS=5;const TARGET_SLOTS=TARGET_STOCKS*3;
     const targetTrRaw=Math.round(pvTotal/TARGET_SLOTS);
@@ -2216,7 +2281,7 @@ function renderAllocator(c){
         <span style="font-size:14px;font-weight:700">Closed Fund</span>
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal).toLocaleString()}</div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value <span style="opacity:.6">(excl. trophy)</span></div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal).toLocaleString()}</div></div>
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
@@ -2331,7 +2396,7 @@ function renderAllocator(c){
       specInNL.forEach(t=>{const s=stocks[t];const sh=posShares(pf.positions[t]);
         h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
           <div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmtSh(sh)} sh</span></div>
-          ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${s.specReason}</div>`:""}</div>`;});
+          ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
       if(!specInNL.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only.</div>`;}
       h+=`</div>`;
     }
@@ -2390,7 +2455,7 @@ function renderWatchlist(c){
       </div></div>`;
     if(s.phil?.score)h+=`<div style="font-size:10px;color:var(--muted);margin-top:2px">Phil: ${s.phil.score} · GR ${s.phil.gr}% vs ${s.cons.gr}%</div>`;
     if(s.notes){
-      h+=`<div style="margin-top:3px;cursor:pointer" onclick="editNotes('${t}')"><div style="font-size:10px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.notes}</div></div>`;
+      h+=`<div style="margin-top:3px;cursor:pointer" onclick="editNotes('${t}')"><div style="font-size:10px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.notes)}</div></div>`;
     }else{
       h+=`<div style="margin-top:2px;cursor:pointer;opacity:0.3" onclick="editNotes('${t}')"><div style="font-size:9px;color:var(--muted)">+ note</div></div>`;
     }
@@ -2501,7 +2566,7 @@ function exportDeployLog(){
   let csv="date,ticker,action,signal,shares,price,currency,portfolio,triggerPrice,note\n";
   deployLog.forEach(e=>{
     const d=new Date(e.date).toISOString().slice(0,10);
-    const note=(e.note||"").replace(/"/g,'""');
+    const note=(e.note||"").replace(/"/g,'""').replace(/[\r\n]+/g," ");
     csv+=`${d},${e.ticker},${e.action},${e.signal},${e.shares},${e.price},${e.currency},${e.portfolio},${e.triggerPrice||""},"${note}"\n`;
   });
   dlFile("deploy_log_"+dateStr()+".csv",csv,"text/csv");
@@ -2561,7 +2626,7 @@ function renderSettings(c){
 
     <div class="settings-card"><div class="settings-title" style="color:#d97706">⚠ Speculative (${SPEC.length}/1 slot)</div>`;
   if(SPEC.length){SPEC.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-      <div><span style="font-size:13px">${stocks[t].flag} ${t}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${stocks[t].specReason||""}</span></div>
+      <div><span style="font-size:13px">${stocks[t].flag} ${t}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${esc(stocks[t].specReason)||""}</span></div>
       <div style="display:flex;gap:4px"><span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px" onclick="graduateToGrid('${t}')">✓ Graduate</span><span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px" onclick="demoteSpec('${t}')">✕ Remove</span></div></div>`;});}
   else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No speculative position. Use → Spec on a watchlist stock to add one.</div>`;}
   h+=`</div>
@@ -2597,7 +2662,7 @@ function renderSettings(c){
             <div style="font-size:10px;color:var(--muted);font-family:var(--mono);flex-shrink:0">${dateLabel} · <span style="color:${dotCol}">${pfLabel}</span></div>
           </div>
           <div style="font-size:11px;font-family:var(--mono);color:var(--text);margin-top:1px">${isSell?"Sold":"Bought"} ${e.shares} sh @ ${fmt(e.price,e.currency)}${trigDist!=null&&trigDist>0?` <span style="font-size:9px;color:var(--green)">${trigDist}% below trigger</span>`:""}</div>
-          ${e.note?`<div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.note}</div>`:`<div style="font-size:9px;color:var(--muted);margin-top:2px;opacity:0.4">+ add note</div>`}
+          ${e.note?`<div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.note)}</div>`:`<div style="font-size:9px;color:var(--muted);margin-top:2px;opacity:0.4">+ add note</div>`}
         </div>
         <div style="flex-shrink:0;margin-top:2px"><span style="font-size:9px;color:var(--red);cursor:pointer;padding:2px 4px;opacity:0.3" onclick="event.stopPropagation();deleteLogEntry(${e.id})">✕</span></div>
       </div>`;
@@ -2770,7 +2835,13 @@ function openAddPosition(pk){
     {id:"ap-bp",label:"Buy Price",val:0,type:"number"},
   ],()=>{
     const raw=gv("ap-t");const t=raw.split(" — ")[0].trim();if(!t)return;
-    portfolios[pk].positions[t]={tranches:[{signal:gv("ap-sig")||"PBT",bought:nv("ap-sh")||0,sold:0,buyPrice:nv("ap-bp")||0,state:"accumulating"}]};save();
+    const sig=gv("ap-sig")||"PBT";const sh=nv("ap-sh")||0;const bp=nv("ap-bp")||0;
+    portfolios[pk].positions[t]={tranches:[{signal:sig,bought:sh,sold:0,buyPrice:bp,state:"accumulating"}]};
+    // Auto-log the buy
+    const s=stocks[t];
+    const trigMap={MOS:s?.cons?.mos,"10Cap":s?.cons?.tenCap,PBT:s?.cons?.pbt};
+    if(sh>0)logDeploy({ticker:t,action:"buy",signal:sig,shares:sh,price:bp,currency:s?.currency||"USD",portfolio:pk,triggerPrice:trigMap[sig]||null});
+    save();
   });
 }
 
@@ -2799,9 +2870,9 @@ function openAddTranche(pk,t){
   ],()=>{if(!portfolios[pk].positions[t])portfolios[pk].positions[t]={tranches:[]};
     const sig=gv("at-sig")||"PBT";const sh=nv("at-sh")||0;const bp=nv("at-p")||0;
     portfolios[pk].positions[t].tranches.push({signal:sig,bought:sh,sold:0,buyPrice:bp,state:"accumulating"});
-    // Auto-log the buy
+    // Auto-log the buy (skip zero-share entries)
     const trigMap={MOS:s.cons?.mos,"10Cap":s.cons?.tenCap,PBT:s.cons?.pbt};
-    logDeploy({ticker:t,action:"buy",signal:sig,shares:sh,price:bp,currency:s.currency,portfolio:pk,triggerPrice:trigMap[sig]||null});
+    if(sh>0)logDeploy({ticker:t,action:"buy",signal:sig,shares:sh,price:bp,currency:s.currency,portfolio:pk,triggerPrice:trigMap[sig]||null});
     save();});
 }
 
