@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.42</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.43</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -250,6 +250,7 @@ const PF_DEFAULTS={
 
 let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
+let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
 const DATA_VERSION=8;
@@ -547,7 +548,7 @@ function load(){
     });
   });
 }
-function save(){recalcDP("personal");recalcDP("nl");localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));}
+function save(){recalcDP("personal");recalcDP("nl");localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));}
 
 async function fetchPrices(){
   if(!settings.ibkrWorker){document.getElementById("refresh-status").textContent="⚠ Set Worker URL in Settings";return;}
@@ -2452,6 +2453,60 @@ function dpPreviewTotal(pfKey){
   document.getElementById("dp-total").textContent=sym+total.toLocaleString();
 }
 
+// ============ DEPLOYMENT LOG ============
+function logDeploy(opts){
+  // opts: {ticker, action, signal, shares, price, currency, portfolio, triggerPrice, note}
+  const s=stocks[opts.ticker];
+  deployLog.unshift({
+    id:Date.now(),
+    date:new Date().toISOString(),
+    ticker:opts.ticker,
+    flag:s?.flag||"",
+    action:opts.action||"buy",
+    signal:opts.signal||"",
+    shares:opts.shares||0,
+    price:opts.price||0,
+    currency:opts.currency||s?.currency||"USD",
+    portfolio:opts.portfolio||currentPf,
+    triggerPrice:opts.triggerPrice||null,
+    note:opts.note||""
+  });
+  save();
+}
+function editLogNote(id){
+  const entry=deployLog.find(e=>e.id===id);if(!entry)return;
+  const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  const s=stocks[entry.ticker];
+  const sigCol=entry.signal==="MOS"?"#34d399":entry.signal==="10Cap"?"#60a5fa":"#a78bfa";
+  const dateStr=new Date(entry.date).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+  ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-title">${entry.flag} ${entry.ticker} — ${entry.action==="sell"?"Sell":"Buy"} Note</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">${dateStr} · <span style="color:${sigCol}">${entry.signal}</span> · ${entry.shares} sh @ ${fmt(entry.price,entry.currency)} · ${entry.portfolio==="nl"?"Caca":"Personal"}</div>
+    <textarea id="log-note-ta" style="width:100%;min-height:120px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:14px;font-family:inherit;line-height:1.5;resize:vertical;box-sizing:border-box" placeholder="Why this trade? What was the thesis?">${entry.note||""}</textarea>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="modal-done" style="flex:1" id="log-note-save">Save</button>
+      <button class="modal-done" style="flex:0;background:var(--bg);color:var(--muted)" id="log-note-cancel">Cancel</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const ta=document.getElementById("log-note-ta");ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
+  document.getElementById("log-note-save").onclick=()=>{entry.note=ta.value.trim();save();ov.remove();render();};
+  document.getElementById("log-note-cancel").onclick=()=>ov.remove();
+}
+function deleteLogEntry(id){
+  if(!confirm("Delete this log entry?"))return;
+  deployLog=deployLog.filter(e=>e.id!==id);save();render();
+}
+function exportDeployLog(){
+  if(!deployLog.length){alert("No log entries to export.");return;}
+  let csv="date,ticker,action,signal,shares,price,currency,portfolio,triggerPrice,note\n";
+  deployLog.forEach(e=>{
+    const d=new Date(e.date).toISOString().slice(0,10);
+    const note=(e.note||"").replace(/"/g,'""');
+    csv+=`${d},${e.ticker},${e.action},${e.signal},${e.shares},${e.price},${e.currency},${e.portfolio},${e.triggerPrice||""},"${note}"\n`;
+  });
+  dlFile("deploy_log_"+dateStr()+".csv",csv,"text/csv");
+}
+
 // ============ SETTINGS ============
 function renderSettings(c){
   const GRID=getGrid(),wl=getWatchlist(),SPEC=getSpeculative();
@@ -2517,6 +2572,39 @@ function renderSettings(c){
         <div style="flex:1"><div class="settings-desc">GBP/EUR (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxGBP}" onchange="settings.fxGBP=+this.value;save()"></div>
         <div style="flex:1"><div class="settings-desc">CAD/EUR (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxCAD}" onchange="settings.fxCAD=+this.value;save()"></div></div>
       <div style="font-size:9px;color:var(--muted);margin-top:4px">Last FX update: ${settings.lastFxUpdate?new Date(settings.lastFxUpdate).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})+" ("+timeAgo(settings.lastFxUpdate)+")":"never"}</div></div>
+
+    <div class="settings-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="settings-title" style="margin:0">📒 Deployment Log (${deployLog.length})</div>
+      ${deployLog.length?`<button class="settings-save" style="font-size:10px;padding:3px 8px;background:var(--bg)" onclick="exportDeployLog()">↓ CSV</button>`:""}</div>
+      <div class="settings-desc">Every buy and sell is logged automatically. Tap a row to add a note.</div>
+      <div id="deploy-log-list" style="max-height:400px;overflow-y:auto">`;
+  if(!deployLog.length){
+    h+=`<div style="font-size:11px;color:var(--muted);padding:16px;text-align:center">No entries yet. Add a tranche to start logging.</div>`;
+  }else{
+    const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",hold:"#818cf8",trophy:"#c084fc"};
+    deployLog.slice(0,50).forEach(e=>{
+      const d=new Date(e.date);
+      const dateLabel=d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+      const isSell=e.action==="sell";
+      const dotCol=isSell?"var(--red)":"var(--green)";
+      const sigCol=SC[e.signal]||"var(--muted)";
+      const pfLabel=e.portfolio==="nl"?"C":"P";
+      const trigDist=e.triggerPrice&&e.price?Math.round((1-e.price/e.triggerPrice)*100):null;
+      h+=`<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer" onclick="editLogNote(${e.id})">
+        <div style="width:6px;height:6px;border-radius:50%;background:${dotCol};margin-top:5px;flex-shrink:0"></div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="font-size:12px;font-weight:600">${e.flag||""} ${e.ticker} <span style="font-size:10px;font-weight:600;color:${sigCol};background:${sigCol}15;padding:1px 5px;border-radius:3px">${e.signal}</span></div>
+            <div style="font-size:10px;color:var(--muted);font-family:var(--mono);flex-shrink:0">${dateLabel} · <span style="color:${dotCol}">${pfLabel}</span></div>
+          </div>
+          <div style="font-size:11px;font-family:var(--mono);color:var(--text);margin-top:1px">${isSell?"Sold":"Bought"} ${e.shares} sh @ ${fmt(e.price,e.currency)}${trigDist!=null&&trigDist>0?` <span style="font-size:9px;color:var(--green)">${trigDist}% below trigger</span>`:""}</div>
+          ${e.note?`<div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.note}</div>`:`<div style="font-size:9px;color:var(--muted);margin-top:2px;opacity:0.4">+ add note</div>`}
+        </div>
+        <div style="flex-shrink:0;margin-top:2px"><span style="font-size:9px;color:var(--red);cursor:pointer;padding:2px 4px;opacity:0.3" onclick="event.stopPropagation();deleteLogEntry(${e.id})">✕</span></div>
+      </div>`;
+    });
+    if(deployLog.length>50)h+=`<div style="font-size:10px;color:var(--muted);padding:8px;text-align:center">Showing 50 of ${deployLog.length} entries. Export CSV for full log.</div>`;
+  }
+  h+=`</div></div>
 
     <div class="settings-card"><div class="settings-title" style="color:var(--red)">🗑 Factory Reset</div>
       <div class="settings-desc">Wipes ALL data (positions, triggers, settings, IBKR keys). After reset, re-import your CSV or Excel backup to restore.</div>
@@ -2696,7 +2784,10 @@ function openTrEdit(pk,t,i){
     {id:"ed-l",label:"Signal",val:tr.signal},
     {id:"ed-ath",label:"ATH (trailing stop)",val:tr.ath||"",type:"number"},
     {id:"ed-st",label:"State",val:tr.state||"accumulating",select:["accumulating","stopActive","stopped","sold"]},
-  ],()=>{tr.bought=nv("ed-b")||0;tr.sold=nv("ed-s")||0;tr.buyPrice=nv("ed-p")||0;tr.signal=gv("ed-l")||"avg";const a=nv("ed-ath");tr.ath=a||undefined;tr.state=gv("ed-st")||"accumulating";save();},
+  ],()=>{const prevSold=tr.sold;const newSold=nv("ed-s")||0;tr.bought=nv("ed-b")||0;tr.sold=newSold;tr.buyPrice=nv("ed-p")||0;tr.signal=gv("ed-l")||"avg";const a=nv("ed-ath");tr.ath=a||undefined;tr.state=gv("ed-st")||"accumulating";
+    // Log sell if sold count increased
+    if(newSold>prevSold){const s=stocks[t];logDeploy({ticker:t,action:"sell",signal:tr.signal,shares:+(newSold-prevSold).toFixed(2),price:s?.currentPrice||tr.buyPrice,currency:s?.currency||"USD",portfolio:pk});}
+    save();},
   ()=>{if(!confirm("Delete tranche?"))return false;portfolios[pk].positions[t].tranches.splice(i,1);if(!portfolios[pk].positions[t].tranches.length)delete portfolios[pk].positions[t];save();return true;});
 }
 function openAddTranche(pk,t){
@@ -2706,7 +2797,12 @@ function openAddTranche(pk,t){
     {id:"at-sh",label:"Shares",val:0,type:"number"},
     {id:"at-p",label:"Buy Price ("+s.currency+")",val:s.currentPrice||0,type:"number"},
   ],()=>{if(!portfolios[pk].positions[t])portfolios[pk].positions[t]={tranches:[]};
-    portfolios[pk].positions[t].tranches.push({signal:gv("at-sig")||"PBT",bought:nv("at-sh")||0,sold:0,buyPrice:nv("at-p")||0,state:"accumulating"});save();});
+    const sig=gv("at-sig")||"PBT";const sh=nv("at-sh")||0;const bp=nv("at-p")||0;
+    portfolios[pk].positions[t].tranches.push({signal:sig,bought:sh,sold:0,buyPrice:bp,state:"accumulating"});
+    // Auto-log the buy
+    const trigMap={MOS:s.cons?.mos,"10Cap":s.cons?.tenCap,PBT:s.cons?.pbt};
+    logDeploy({ticker:t,action:"buy",signal:sig,shares:sh,price:bp,currency:s.currency,portfolio:pk,triggerPrice:trigMap[sig]||null});
+    save();});
 }
 
 // ============ GENERIC MODAL ============
