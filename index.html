@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.32</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.33</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -340,9 +340,9 @@ function ringState(ticker, pfKey) {
   // Map signal names to ring keys
   const keyMap={PBT:'pbt','10Cap':'tc',MOS:'mos'};
   const sigMap={pbt:'pbt',tenCap:'tc',mos:'mos'};
-  // First: check buy signals (highest priority — overrides tranche state)
-  if(s.signals?.pbt) result.pbt="buy";
-  if(s.signals?.tenCap) result.tc="buy";
+  // First: check buy signals (highest priority — overrides tranche state). Include piggyback.
+  if(s.signals?.pbt||isPiggyback(s,"pbt")) result.pbt="buy";
+  if(s.signals?.tenCap||isPiggyback(s,"tenCap")) result.tc="buy";
   if(s.signals?.mos) result.mos="buy";
   // Then: check tranche lifecycle for non-buy rings
   if(pos){
