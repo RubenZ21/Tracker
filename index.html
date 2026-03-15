@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.49</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.50</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -301,7 +301,7 @@ function earningsChip(t){
   const s=stocks[t];const ei=earningsInfo(s);
   if(!ei)return"";
   const dStr=ei.status==="upcoming"?ei.days+"d":"";
-  const lbl=ei.status==="stale"?"earnings → update":ei.status==="upcoming"?(ei.soon?"earnings "+dStr+" ⏰":"earnings "+dStr):ei.status==="fresh"?"earnings ✓":"earnings "+ei.label.replace("📅 ","");
+  const lbl=ei.status==="stale"?"EC → update":ei.status==="upcoming"?(ei.soon?"EC "+dStr+" ⏰":"EC "+dStr):ei.status==="fresh"?"EC ✓":"EC "+ei.label.replace("📅 ","");
   return` <span style="font-size:8px;font-family:var(--mono);color:${ei.color};padding:0 3px;background:${ei.soon||ei.status==='stale'?ei.color+'15':'transparent'};border-radius:2px">${lbl}</span>`;
 }
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
