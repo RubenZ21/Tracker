@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.51</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.52</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -991,6 +991,8 @@ function handleCSVImport(e){
           BNZL:{ccy:"GBp",td:"BNZL:LSE",fh:"BNZL.L"},TRN:{ccy:"GBp",td:"TRN:LSE",fh:"TRN.L"},
           WKL:{ccy:"EUR",td:"WKL:AMS",fh:"WKL.AS"},ASML:{ccy:"EUR",td:"ASML:AMS",fh:"ASML.AS"},
           SAP:{ccy:"EUR",td:"SAP:XETR",fh:"SAP.DE"},ADYEN:{ccy:"EUR",td:"ADYEN:AMS",fh:"ADYEN.AS"},
+          6146:{ccy:"JPY",name:"Disco",fh:"6146.T",sector:"Semicon Equip"},
+          6098:{ccy:"JPY",name:"Recruit Holdings",fh:"6098.T",sector:"HR Tech"},
         };
         const csvCcy=(row.currency||"").trim();
         const ex=EXCHANGES[t];
@@ -998,7 +1000,7 @@ function handleCSVImport(e){
         const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
         let td=ex?.td||(ccy==="GBp"?t+":LSE":t);
         let fh=ex?.fh||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":ccy==="EUR"?undefined:t);
-        stocks[t]={name:t,currency:ccy,moat:"Wide",sector:"",flag:flags[ccy]||"🌍",
+        stocks[t]={name:ex?.name||t,currency:ccy,moat:"Wide",sector:ex?.sector||"",flag:flags[ccy]||"🌍",
           status:"watchlist",tdSymbol:td,finnhubSymbol:fh,priceMult:1,currentPrice:0,gate:true,
           cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,eps:null,pe:null,prevSticker:null},
           phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
