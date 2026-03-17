@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.53</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.54</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1518,6 +1518,22 @@ function marketStatus(){
 
 
 // Earnings banner: show stocks reporting within 14 days
+// Dismissals stored in settings.earningsBannerDismissed = { ticker: earningsDateMs }
+// Dismissed banners reappear on the actual earnings day
+function isEarningsBannerDismissed(t,s){
+  const d=settings.earningsBannerDismissed;if(!d||!d[t])return false;
+  // Reappear on the earnings day itself
+  const ei=earningsInfo(s);if(!ei)return false;
+  const today=new Date();today.setHours(0,0,0,0);
+  const earnDay=new Date(s.earningsDate);earnDay.setHours(0,0,0,0);
+  if(today.getTime()>=earnDay.getTime())return false; // earnings day or past → show
+  return true;
+}
+function dismissEarningsBanner(t){
+  if(!settings.earningsBannerDismissed)settings.earningsBannerDismissed={};
+  settings.earningsBannerDismissed[t]=Date.now();
+  localStorage.setItem("r1-settings",JSON.stringify(settings));render();
+}
 function renderEarningsBanner(){
   const upcoming=[];
   Object.entries(stocks).forEach(([t,s])=>{
@@ -1529,12 +1545,14 @@ function renderEarningsBanner(){
   if(!upcoming.length)return"";
   let h='<div style="margin:6px 10px">';
   upcoming.forEach(({t,s,ei})=>{
+    if(ei.status==="upcoming"&&isEarningsBannerDismissed(t,s))return;
     const cls=ei.status==="upcoming"?"info":"watch";
     const icon=ei.status==="upcoming"?"📅":"⚠️";
     const msg=ei.status==="upcoming"?
       `<strong>${s.flag} ${t}</strong> reports in <strong>${ei.days}d</strong> — prep trigger inputs`:
       `<strong>${s.flag} ${t}</strong> reported ${ei.label.replace("📅 ","").replace(" → update","")} — <strong>triggers need update</strong>`;
-    h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px">${msg}</span></div>`;
+    const dismissBtn=ei.status==="upcoming"?` <span class="alert-dismiss" onclick="event.stopPropagation();dismissEarningsBanner('${t}')" title="Dismiss until earnings day">×</span>`:"";
+    h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px;display:flex;align-items:center"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px;flex:1">${msg}</span>${dismissBtn}</div>`;
   });
   h+='</div>';return h;
 }
