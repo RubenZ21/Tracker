@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.54</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.55</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1518,15 +1518,19 @@ function marketStatus(){
 
 
 // Earnings banner: show stocks reporting within 14 days
-// Dismissals stored in settings.earningsBannerDismissed = { ticker: earningsDateMs }
-// Dismissed banners reappear on the actual earnings day
+// Dismissals stored in settings.earningsBannerDismissed = { ticker: dismissTimestamp }
+// Dismissed BEFORE earnings day → reappears on earnings day
+// Dismissed ON earnings day → stays dismissed for the day
 function isEarningsBannerDismissed(t,s){
   const d=settings.earningsBannerDismissed;if(!d||!d[t])return false;
-  // Reappear on the earnings day itself
-  const ei=earningsInfo(s);if(!ei)return false;
+  const dismissTime=d[t];
   const today=new Date();today.setHours(0,0,0,0);
   const earnDay=new Date(s.earningsDate);earnDay.setHours(0,0,0,0);
-  if(today.getTime()>=earnDay.getTime())return false; // earnings day or past → show
+  const dismissDay=new Date(dismissTime);dismissDay.setHours(0,0,0,0);
+  // Dismissed on earnings day itself → stays dismissed
+  if(dismissDay.getTime()>=earnDay.getTime())return true;
+  // Dismissed before earnings day → reappear on earnings day
+  if(today.getTime()>=earnDay.getTime())return false;
   return true;
 }
 function dismissEarningsBanner(t){
