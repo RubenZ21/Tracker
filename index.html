@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.56</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.57</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1925,7 +1925,7 @@ ${pf.type==="closed"?"Closed":"Rolling $"+settings.monthlyIncomeUSD.toLocaleStri
     const isOwned=_ownedSet.has(ticker);
     const pos=isOwned?pf.positions[ticker]:null;
     const isSpec=s.status==="speculative";
-    const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.length);
+    const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.some(tr=>(tr.bought-tr.sold)>0));
     // Ghost card for grid stock not in this portfolio
     if(isGhost&&!isSpec&&(GRID.includes(ticker))){
       const sig=sigCount(ticker);const dc=deployCount(ticker);
