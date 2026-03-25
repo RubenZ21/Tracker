@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.58</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.59</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1847,22 +1847,23 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _cMap[t]=_wPal[_ci%_wPal.length];_ci++;});
 
     // Now render bar for current portfolio using the global color map
+    const _wBase=pfBaseCcy(currentPf); // compute weights in portfolio's base currency
     const _wTickers=Object.keys(pf.positions);
     const _wSegs=[];let _wTotal=0;
     _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
-      const valEUR=toEUR(sh*(s.currentPrice||0),s.currency);if(valEUR<=0)return;
+      const val=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),_wBase);if(val<=0)return;
       const col=_cMap[t]||_wPal[0];
-      _wSegs.push({t,valEUR,col});_wTotal+=valEUR;
+      _wSegs.push({t,val,col});_wTotal+=val;
     });
-    const dpEUR=toEUR(pf.dryPowder||0,pfBaseCcy(currentPf));
-    _wTotal+=dpEUR;
+    const dpBase=fromEUR(toEUR(pf.dryPowder||0,pfBaseCcy(currentPf)),_wBase);
+    _wTotal+=dpBase;
     if(_wTotal>0){
-      _wSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.valEUR-a.valEUR);});
+      _wSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
       h+=`<div style="display:flex;height:16px;margin:6px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
-      _wSegs.forEach(sg=>{const pct=sg.valEUR/_wTotal*100;
+      _wSegs.forEach(sg=>{const pct=sg.val/_wTotal*100;
         h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=8?sg.t+"\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;
       });
-      if(dpEUR>0){const dpPct=dpEUR/_wTotal*100;
+      if(dpBase>0){const dpPct=dpBase/_wTotal*100;
         h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=8?"DP\u2009"+Math.round(dpPct)+"%":dpPct>=5?Math.round(dpPct)+"%":""}</div>`;
       }
       h+=`</div>`;
@@ -1872,16 +1873,16 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const pos=pf.positions[sg.t];if(!pos)return;
         const s=stocks[sg.t];if(!s)return;
         const avg=posAvgPrice(pos);const sh=posShares(pos);
-        const costEUR=toEUR(avg*sh,s.currency);
-        if(costEUR>0){_cSegs.push({t:sg.t,costEUR,col:sg.col});_cTotal+=costEUR;}
+        const cost=fromEUR(toEUR(avg*sh,s.currency),_wBase);
+        if(cost>0){_cSegs.push({t:sg.t,cost,col:sg.col});_cTotal+=cost;}
       });
-      _cTotal+=dpEUR;
+      _cTotal+=dpBase;
       if(_cTotal>0){
         h+=`<div style="display:flex;height:10px;margin:2px 0 1px;border-radius:3px;overflow:hidden;gap:1px;opacity:0.55">`;
-        _cSegs.forEach(sg=>{const pct=sg.costEUR/_cTotal*100;
+        _cSegs.forEach(sg=>{const pct=sg.cost/_cTotal*100;
           h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
         });
-        if(dpEUR>0){const dpPct=dpEUR/_cTotal*100;
+        if(dpBase>0){const dpPct=dpBase/_cTotal*100;
           h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=10?Math.round(dpPct)+"%":""}</div>`;
         }
         h+=`</div>`;
@@ -1889,22 +1890,22 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       // Single combined label row for tickers that didn't fit in either bar
       const _cMap2={};_cSegs.forEach(sg=>{_cMap2[sg.t]=sg;});
       const _labelTickers=new Set();
-      _wSegs.forEach(sg=>{if(sg.valEUR/_wTotal*100<8)_labelTickers.add(sg.t);});
-      if(_cTotal>0)_cSegs.forEach(sg=>{if(sg.costEUR/_cTotal*100<10)_labelTickers.add(sg.t);});
-      const dpNeedMkt=dpEUR>0&&dpEUR/_wTotal*100<8;
-      const dpNeedCost=_cTotal>0&&dpEUR>0&&dpEUR/_cTotal*100<10;
+      _wSegs.forEach(sg=>{if(sg.val/_wTotal*100<8)_labelTickers.add(sg.t);});
+      if(_cTotal>0)_cSegs.forEach(sg=>{if(sg.cost/_cTotal*100<10)_labelTickers.add(sg.t);});
+      const dpNeedMkt=dpBase>0&&dpBase/_wTotal*100<8;
+      const dpNeedCost=_cTotal>0&&dpBase>0&&dpBase/_cTotal*100<10;
       if(_labelTickers.size||dpNeedMkt||dpNeedCost){
         h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
         _labelTickers.forEach(t=>{
           const mSg=_wSegs.find(s=>s.t===t);const cSg=_cMap2[t];
-          const mPct=mSg?Math.round(mSg.valEUR/_wTotal*100):0;
-          const cPct=cSg&&_cTotal>0?Math.round(cSg.costEUR/_cTotal*100):0;
+          const mPct=mSg?Math.round(mSg.val/_wTotal*100):0;
+          const cPct=cSg&&_cTotal>0?Math.round(cSg.cost/_cTotal*100):0;
           const col=mSg?mSg.col:(cSg?cSg.col:_wPal[0]);
           const parts=[];if(mPct)parts.push(mPct+"%");if(cPct&&cPct!==mPct)parts.push(cPct+"% cost");
           h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${col};margin-right:2px;vertical-align:middle"></span>${t}\u2009${parts.join(" · ")}</span>`;
         });
         if(dpNeedMkt||dpNeedCost){
-          const mPct=Math.round(dpEUR/_wTotal*100);const cPct=_cTotal>0?Math.round(dpEUR/_cTotal*100):0;
+          const mPct=Math.round(dpBase/_wTotal*100);const cPct=_cTotal>0?Math.round(dpBase/_cTotal*100):0;
           const parts=[];if(mPct)parts.push(mPct+"%");if(cPct&&cPct!==mPct)parts.push(cPct+"% cost");
           h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${parts.join(" · ")}</span>`;
         }
@@ -2517,7 +2518,7 @@ function renderWatchlist(c){
   let h=`<div class="section-pad"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700">Watchlist</div>
     <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>
-  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Priority</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button></div>`;
+  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Moat</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button></div>`;
 
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   h+=`<div class="wl-grid">`;
@@ -2563,7 +2564,7 @@ function renderWatchlist(c){
   h+=`</div></div>`;c.innerHTML=h;
 }
 function setPriority(t){
-  const cur=stocks[t].priority;const v=prompt("Priority for "+t+" (1 = deploy first, empty to clear):",cur||"");
+  const cur=stocks[t].priority;const v=prompt("Moat strength for "+t+" (1 = strongest, empty to clear):",cur||"");
   if(v===null)return;const n=parseFloat(v);stocks[t].priority=isNaN(n)?null:n;save();render();
 }
 function editNotes(t){
