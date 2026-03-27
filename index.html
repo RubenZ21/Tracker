@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.59</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.60</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -476,6 +476,41 @@ function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfB
 function pfValueEUR(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;
   Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=toEUR(posShares(pos)*s.currentPrice,s.currency);});
   return v+toEUR(pf.dryPowder,pfBaseCcy(pfKey));}
+
+// Caca portfolio: total market value (excl trophy) + DP, and tranche size (÷15)
+function cacaInfo(){
+  const pf=portfolios.nl;if(!pf)return{total:0,tranche:0};
+  let mv=0;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;
+    const isTrophy=pos.tranches.every(tr=>tr.signal==="trophy");
+    if(!isTrophy){const sh=posShares(pos);if(sh>0)mv+=toEUR(sh*s.currentPrice,s.currency);}});
+  const total=mv+(pf.dryPowder||0);
+  return{total,tranche:Math.round(total/15),mv};
+}
+// Per-stock cost allocation status for Caca: target cost vs actual cost
+function cacaAllocStatus(ticker){
+  const pf=portfolios.nl;if(!pf)return null;
+  const pos=pf.positions?.[ticker];if(!pos)return null;
+  const s=stocks[ticker];if(!s)return null;
+  const sh=posShares(pos);if(sh<=0)return null;
+  const avg=posAvgPrice(pos);
+  const costEUR=toEUR(avg*sh,s.currency);
+  const ci=cacaInfo();
+  const dc=deployCount(ticker);const sig=sigCount(ticker);
+  // Target = lit signals × tranche; 0/3 stocks get 0 target
+  const target=dc*ci.tranche;
+  const sticker=s.cons?.mos?s.cons.mos*2:null;
+  const aboveSticker=sticker&&s.currentPrice>sticker;
+  const diff=costEUR-target;
+  const aboveCost=s.currentPrice>=avg;
+  // Status: sellAll (above sticker, 0/3), overAllocated, underAllocated, balanced
+  let status="balanced";
+  if(sig===0&&aboveSticker)status="sellAll";
+  else if(target===0&&sig===0)status="noTarget";
+  else if(diff>ci.tranche*0.15)status="over";
+  else if(diff<-ci.tranche*0.15)status="under";
+  return{costEUR,target,diff,status,aboveCost,aboveSticker,tranche:ci.tranche,dc};
+}
 
 function load(){
   try{
@@ -1775,6 +1810,25 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     </div>
   </div>`;
 
+  // Caca-specific: total portfolio value and tranche size banner
+  if(currentPf==="nl"&&!hideValues){
+    const ci=cacaInfo();
+    h+=`<div style="display:flex;gap:6px;margin-bottom:6px">
+      <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
+        <div style="font-size:9px;color:var(--muted)">Total Value</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(ci.total).toLocaleString()}</div>
+      </div>
+      <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
+        <div style="font-size:9px;color:var(--muted)">Tranche (÷15)</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${ci.tranche.toLocaleString()}</div>
+      </div>
+      <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
+        <div style="font-size:9px;color:var(--muted)">Cash %</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${ci.total>0?Math.round((portfolios.nl?.dryPowder||0)/ci.total*100):0}%</div>
+      </div>
+    </div>`;
+  }
+
   // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||a.localeCompare(b);}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
@@ -1803,8 +1857,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const statusCol=hasSell?"var(--red)":dc===vSlots?"var(--green)":dc?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
     const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
-  // Speculative stocks row(s) — shown in grid but not counted in totals
-  const SPEC=getSpeculative();
+  // Speculative stocks row(s) — shown in grid but not counted in totals (hidden for Caca)
+  const SPEC=currentPf==="nl"?[]:getSpeculative();
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
     h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">SPEC</span>${s.flag} ${t}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
@@ -1930,6 +1984,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const isOwned=_ownedSet.has(ticker);
     const pos=isOwned?pf.positions[ticker]:null;
     const isSpec=s.status==="speculative";
+    // Caca bans speculative positions — hide cards entirely
+    if(isSpec&&currentPf==="nl")return;
     const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.some(tr=>(tr.bought-tr.sold)>0));
     // Ghost card for grid stock not in this portfolio
     if(isGhost&&!isSpec&&(GRID.includes(ticker))){
@@ -1987,6 +2043,29 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
       <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above stk":"≈ sticker"}</div>`:""}</div></div>`;
 
+    // Caca allocation indicator (between stats and notes)
+    if(currentPf==="nl"){
+      const ca=cacaAllocStatus(ticker);
+      if(ca){
+        let abg="",acol="",atxt="";
+        if(ca.status==="sellAll"){abg="#3b111180";acol="var(--red)";atxt=`⚠ SELL — above Sticker`;}
+        else if(ca.status==="over"){
+          abg="#332d0d";acol="var(--amber)";
+          atxt=ca.aboveCost?`Over-allocated by €${Math.abs(Math.round(ca.diff)).toLocaleString()} · can trim`:`Over-allocated by €${Math.abs(Math.round(ca.diff)).toLocaleString()} · underwater — hold`;
+        }else if(ca.status==="under"){
+          abg="#0d332060";acol="var(--green)";
+          atxt=`Under-allocated by €${Math.abs(Math.round(ca.diff)).toLocaleString()} — room for €${Math.abs(Math.round(ca.diff)).toLocaleString()} more`;
+        }else if(ca.status==="balanced"){abg="#0d332040";acol="var(--green)";atxt=`✓ Balanced`;}
+        else if(ca.status==="noTarget"){abg="var(--bg)";acol="var(--muted)";atxt=`0/3 — no target allocation`;}
+        if(atxt){
+          h+=`<div style="margin:4px 0;padding:5px 8px;background:${abg};border-radius:6px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:10px;color:${acol};font-weight:600">${atxt}</span>
+            ${ca.target>0?`<span style="font-size:9px;font-family:var(--mono);color:var(--muted)">target €${Math.round(ca.target).toLocaleString()}</span>`:""}
+          </div>`;
+        }
+      }
+    }
+
     // Notes
     if(s.notes){
       h+=`<div style="padding:0 2px;margin-bottom:4px;cursor:pointer" onclick="editNotes('${ticker}')"><div style="font-size:10px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.notes)}</div></div>`;
@@ -1996,7 +2075,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
     // MOS reserve bar (only for stocks with unlit valid triggers in this portfolio)
     {const slots=validTriggerSlots(ticker);const dc=deployCount(ticker);const unlitRes=slots-dc;
-    if(unlitRes>0&&dc>0&&s.status!=="trophy"&&s.status!=="speculative"){
+    if(unlitRes>0&&dc>0&&s.status!=="trophy"&&s.status!=="speculative"&&currentPf!=="nl"){
       const resSym=s.currency==="USD"?"$":s.currency==="GBp"?"\u00a3":"\u20ac";
       const resMult=s.currency==="GBp"?100:1;
       const nTr=posTranchesOwned(pos);const avgTrCost=nTr>0&&avg>0&&shares>0?Math.round(avg*shares/nTr/resMult):0;
@@ -2052,7 +2131,23 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         </div>`;
 
       // Sell info row
-      if(isTrophy){
+      if(currentPf==="nl"&&!isTrophy&&!isHold){
+        // Caca: sell at sticker — no trailing stop, no activation
+        const stkP=s.cons?.mos?s.cons.mos*2:null;
+        if(stkP&&stkP>0){
+          const gapPctStk=cp?((stkP-cp)/cp*100):0;
+          const atOrAbove=cp>=stkP;
+          if(atOrAbove){
+            h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+              <span style="color:var(--red);font-weight:700">⚠ SELL — at/above sticker</span>
+              <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(stkP.toFixed(2),s.currency)}</span></div>`;
+          }else{
+            h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+              <span style="color:var(--muted)">sell at ${fmt(stkP.toFixed(2),s.currency)} (sticker)</span>
+              <span style="font-family:var(--mono);color:var(--muted)">+${gapPctStk.toFixed(0)}% away</span></div>`;
+          }
+        }
+      }else if(isTrophy){
         h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px;color:var(--muted)">
           <span>25% trail from ATH</span>`;
         if(ath){h+=`<span style="font-family:var(--mono);color:${ddCol};font-weight:600">${stateIcon} ATH ${fmt(ath.toFixed(2),s.currency)} · −${dd.toFixed(1)}%</span>`;}
@@ -2481,7 +2576,9 @@ function renderAllocator(c){
     if(stockCount<TARGET_STOCKS){h+=`<div style="font-size:11px;color:var(--amber);margin-top:4px">${TARGET_STOCKS-stockCount} slot${TARGET_STOCKS-stockCount>1?"s":""} open — watchlist triggers will deploy DP</div>`;}
     h+=`</div>`;
 
-    // === NL SPECULATIVE BUCKET ===
+    // === NL SPECULATIVE BUCKET === (hidden — Caca bans speculative positions)
+    // Kept as dead code for potential future use
+    if(false){
     const specNL=getSpeculative();
     const specInNL=specNL.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
     const nlSpecVal=specInNL.reduce((v,t)=>{const s=stocks[t];return v+toEUR(posShares(pf.positions[t])*s.currentPrice,s.currency);},0);
@@ -2501,6 +2598,7 @@ function renderAllocator(c){
       if(!specInNL.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only.</div>`;}
       h+=`</div>`;
     }
+    } // end if(false) — Caca speculative bucket suppressed
   }
   h+=`</div>`;c.innerHTML=h;
 }
