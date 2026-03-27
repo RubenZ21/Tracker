@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.60</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.70</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -175,16 +175,16 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 
 <script>
 const STOCK_DEFAULTS={
-PGR:{name:"Progressive",currency:"USD",moat:"Wide",sector:"Auto Insurance",flag:"🇺🇸",status:"grid",
+PGR:{name:"Progressive",currency:"USD",moat:"Wide",sector:"Auto Insurance",flag:"🇺🇸",status:"watchlist",
   finnhubSymbol:"PGR",priceMult:1,currentPrice:204.08,
   cons:{sticker:593.93,mos:296.97,tenCap:332.30,pbt:860.39,pbtYrs:2.86,gr:15.19,oe:33.23,fcf:54.04},phil:null,
   signals:{mos:true,tenCap:true,pbt:true}},
-SFM:{name:"Sprouts Farmers",currency:"USD",moat:"Narrow",sector:"Specialty Grocery",flag:"🇺🇸",status:"grid",
+SFM:{name:"Sprouts Farmers",currency:"USD",moat:"Narrow",sector:"Specialty Grocery",flag:"🇺🇸",status:"watchlist",
   finnhubSymbol:"SFM",priceMult:1,currentPrice:67.48,
   cons:{sticker:68.09,mos:34.05,tenCap:70.90,pbt:64.53,pbtYrs:8.3,gr:10,oe:7.09,fcf:5.13},
   phil:{sticker:65.79,mos:32.90,tenCap:70.90,pbt:62.23,gr:9.97,score:"89"},
   signals:{mos:false,tenCap:true,pbt:false}},
-WKL:{name:"Wolters Kluwer",currency:"EUR",moat:"Wide",sector:"Legal/Tax",flag:"🇪🇺",status:"grid",
+WKL:{name:"Wolters Kluwer",currency:"EUR",moat:"Wide",sector:"Legal/Tax",flag:"🇪🇺",status:"watchlist",
   tdSymbol:"WKL:AMS",finnhubSymbol:"WKL.AS",priceMult:1,currentPrice:62.14,
   cons:{sticker:63.73,mos:31.86,tenCap:62.60,pbt:78.75,pbtYrs:6.74,gr:10,oe:6.26,fcf:6.26},phil:null,
   signals:{mos:false,tenCap:true,pbt:true}},
@@ -237,12 +237,12 @@ SAP:{name:"SAP",currency:"EUR",moat:"Wide",sector:"Enterprise SW",flag:"🇪🇺
 };
 
 const PF_DEFAULTS={
-  nl:{name:"Caca",type:"closed",dryPowder:6850,positions:{
+  nl:{name:"Caca",type:"closed",dryPowder:6850,gridStocks:["PGR","SFM","WKL"],positions:{
     PGR:{tranches:[{signal:"MOS",bought:24.33,sold:0,buyPrice:201.16},{signal:"10Cap",bought:24.33,sold:0,buyPrice:201.16},{signal:"PBT",bought:24.34,sold:0,buyPrice:201.16}]},
     SFM:{tranches:[{signal:"10Cap",bought:145,sold:0,buyPrice:69.03}]},
     WKL:{tranches:[{signal:"10Cap",bought:67.5,sold:0,buyPrice:61.17},{signal:"PBT",bought:67.5,sold:0,buyPrice:61.17}]},
     ASML:{tranches:[{signal:"trophy",bought:1,sold:0,buyPrice:1233}]}}},
-  personal:{name:"Personal",type:"rolling",dryPowder:8000,positions:{
+  personal:{name:"Personal",type:"rolling",dryPowder:8000,gridStocks:["PGR","SFM","WKL"],positions:{
     PGR:{tranches:[{signal:"MOS",bought:23.67,sold:0,buyPrice:207},{signal:"10Cap",bought:23.67,sold:0,buyPrice:207},{signal:"PBT",bought:23.66,sold:0,buyPrice:207}]},
     SFM:{tranches:[{signal:"10Cap",bought:144,sold:0,buyPrice:68.65}]},
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
@@ -253,10 +253,25 @@ let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorag
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
-const DATA_VERSION=8;
+const DATA_VERSION=9;
 
-function getGrid(){return Object.keys(stocks).filter(t=>stocks[t].status==="grid");}
-function getWatchlist(){return Object.keys(stocks).filter(t=>stocks[t].status==="watchlist"||stocks[t].status==="trophy");}
+// getGrid(pfKey) returns grid stocks for a specific portfolio, or union of all portfolios if no key given
+function getGrid(pfKey){
+  if(pfKey){
+    const pf=portfolios[pfKey];if(!pf||!pf.gridStocks)return[];
+    return pf.gridStocks.filter(t=>stocks[t]);
+  }
+  // Union of all portfolios' grid stocks (for notifications, push sync, etc.)
+  const all=new Set();
+  Object.values(portfolios).forEach(pf=>{if(pf.gridStocks)pf.gridStocks.forEach(t=>{if(stocks[t])all.add(t);});});
+  return[...all];
+}
+// Check if stock is on ANY portfolio's grid
+function isOnAnyGrid(t){return Object.values(portfolios).some(pf=>pf.gridStocks&&pf.gridStocks.includes(t));}
+// Check if stock is on a specific portfolio's grid
+function isOnGrid(t,pfKey){return portfolios[pfKey]?.gridStocks?.includes(t)||false;}
+// Watchlist: stocks not on any portfolio's grid and not speculative
+function getWatchlist(){return Object.keys(stocks).filter(t=>!isOnAnyGrid(t)&&stocks[t].status!=="speculative");}
 function getSpeculative(){return Object.keys(stocks).filter(t=>stocks[t].status==="speculative");}
 function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s+(t.bought-t.sold),0);}
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
@@ -405,9 +420,9 @@ function ringState(ticker, pfKey) {
   }
   return result;
 }
-function totalSignals(){return getGrid().reduce((s,t)=>s+deployCount(t),0);}
-function gridSize(){return getGrid().reduce((n,t)=>n+validTriggerSlots(t),0);}
-function firingGridSize(){return getGrid().filter(t=>sigCount(t)>0).reduce((n,t)=>n+validTriggerSlots(t),0);}
+function totalSignals(pfKey){return getGrid(pfKey).reduce((s,t)=>s+deployCount(t),0);}
+function gridSize(pfKey){return getGrid(pfKey).reduce((n,t)=>n+validTriggerSlots(t),0);}
+function firingGridSize(pfKey){return getGrid(pfKey).filter(t=>sigCount(t)>0).reduce((n,t)=>n+validTriggerSlots(t),0);}
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
   // Store previous signals to detect signal-off events
   const prev=s.signals?{...s.signals}:{mos:false,tenCap:false,pbt:false};
@@ -422,7 +437,7 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
   if(!s._sigChanges)s._sigChanges=[];
   ["mos","tenCap","pbt"].forEach(sig=>{
     if(prev[sig]&&!s.signals[sig])s._sigChanges.push({sig,dir:"off"});
-    else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(!window._suppressBuyModal&&(s.status==="grid"||s.status==="watchlist"||s.status==="speculative"))queueBuyModal(t,sig);}
+    else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(!window._suppressBuyModal)queueBuyModal(t,sig);}
   });
   // Track per-tranche state machine + ATH
   ["personal","nl"].forEach(pk=>{
@@ -586,6 +601,18 @@ function load(){
   if(!settings.pushWorkerUrl)settings.pushWorkerUrl="";
   if(settings.pushSubscribed===undefined)settings.pushSubscribed=false;
   if(!settings.lastPushSync)settings.lastPushSync=null;
+  // Migration: seed gridStocks per portfolio from stocks with status==="grid"
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    if(!pf.gridStocks){
+      // Seed from stocks with global status==="grid"
+      pf.gridStocks=Object.keys(stocks).filter(t=>stocks[t].status==="grid");
+    }
+    // Clean up: remove gridStocks entries for deleted stocks
+    pf.gridStocks=pf.gridStocks.filter(t=>stocks[t]);
+  });
+  // Change status==="grid" to "watchlist" since grid membership is now per-portfolio
+  Object.values(stocks).forEach(s=>{if(s.status==="grid")s.status="watchlist";});
   // Migration: add state to tranches if missing
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -672,7 +699,7 @@ async function fetchPrices(){
   // Re-enable buy modals, then queue for signals that genuinely changed (off before refresh → on after)
   window._suppressBuyModal=false;
   Object.entries(stocks).forEach(([t,s])=>{
-    if(!s.signals||!(s.status==="grid"||s.status==="watchlist"||s.status==="speculative"))return;
+    if(!s.signals)return;
     const pre=preRefreshSignals[t]||{mos:false,tenCap:false,pbt:false};
     ["mos","tenCap","pbt"].forEach(sig=>{
       if(!pre[sig]&&s.signals[sig])queueBuyModal(t,sig);
@@ -1093,9 +1120,10 @@ function exportExcel(){
   if(typeof XLSX==="undefined"){alert("SheetJS loading... try again in a second.");return;}
   const wb=XLSX.utils.book_new();
 
-  // Sheet 1: Stocks
+  // Sheet 1: Stocks (derive status: grid if on any portfolio's grid)
   const sRows=Object.entries(stocks).map(([t,s])=>{return{
-    ticker:t,name:s.name,currency:s.currency,moat:s.moat,status:s.status,priority:s.priority||null,tdSymbol:s.tdSymbol,finnhubSymbol:s.finnhubSymbol||"",
+    ticker:t,name:s.name,currency:s.currency,moat:s.moat,status:isOnAnyGrid(t)?"grid":s.status,priority:s.priority||null,tdSymbol:s.tdSymbol,finnhubSymbol:s.finnhubSymbol||"",
+    gridPersonal:isOnGrid(t,"personal")?"Y":"",gridCaca:isOnGrid(t,"nl")?"Y":"",
     currentPrice:s.currentPrice,sticker:s.cons.sticker||null,mos:s.cons.mos,tenCap:s.cons.tenCap,
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
@@ -1126,7 +1154,9 @@ function exportExcel(){
     {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},
     {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
-    {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""}];
+    {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
+    {key:"gridStocks_personal",value:(portfolios.personal?.gridStocks||[]).join(",")},
+    {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")}];
   const ws3=XLSX.utils.json_to_sheet(stRows);ws3["!cols"]=[{wch:22},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws3,"Settings");
 
@@ -1270,6 +1300,8 @@ function handleExcelImport(e){
           if(k==="ibkrQueryPersonal"&&val!=null&&val!=="")settings.ibkrQueryPersonal=String(val);
           if(k==="ibkrTokenNl"&&val!=null&&val!=="")settings.ibkrTokenNl=String(val);
           if(k==="ibkrQueryNl"&&val!=null&&val!=="")settings.ibkrQueryNl=String(val);
+          if(k==="gridStocks_personal"&&val!=null&&val!=="")portfolios.personal.gridStocks=String(val).split(",").filter(Boolean);
+          if(k==="gridStocks_nl"&&val!=null&&val!=="")portfolios.nl.gridStocks=String(val).split(",").filter(Boolean);
           nSet++;
         });
       }
@@ -1307,6 +1339,23 @@ function handleExcelImport(e){
         }
       }
 
+      // Backward compat: if gridStocks not imported, derive from status==="grid" or gridPersonal/gridCaca columns
+      ["personal","nl"].forEach(pk=>{
+        if(!portfolios[pk].gridStocks||!portfolios[pk].gridStocks.length){
+          // Check if Stocks sheet had gridPersonal/gridCaca columns
+          const colKey=pk==="personal"?"gridPersonal":"gridCaca";
+          if(wb.SheetNames.includes("Stocks")){
+            const sRows2=XLSX.utils.sheet_to_json(wb.Sheets["Stocks"]);
+            const fromCol=sRows2.filter(r=>String(r[colKey]||"").toUpperCase()==="Y").map(r=>String(r.ticker||"").toUpperCase().trim()).filter(Boolean);
+            if(fromCol.length){portfolios[pk].gridStocks=fromCol;return;}
+          }
+          // Fallback: derive from status==="grid"
+          portfolios[pk].gridStocks=Object.keys(stocks).filter(t=>stocks[t].status==="grid");
+        }
+      });
+      // Normalize: change status==="grid" to "watchlist" since grid is now per-portfolio
+      Object.values(stocks).forEach(s=>{if(s.status==="grid")s.status="watchlist";});
+
       save();render();
       alert(`Imported: ${nStocks} stocks, ${nPos} tranches, ${nSet} settings${nLog?`, ${nLog} log entries`:""}. `);
     }catch(err){alert("Import error: "+err.message);}
@@ -1332,11 +1381,11 @@ function cleanDismissed(){const week=7*86400000;const now=Date.now();Object.keys
 function checkAlerts(){
   cleanDismissed();
   const alerts=[];
-  const GRID=getGrid(),WL=[...getWatchlist(),...getSpeculative()];
+  const GRID=getGrid(),WL=getWatchlist().filter(t=>!isOnAnyGrid(t));const SPEC=getSpeculative();
 
   // CRITICAL: 4M GATE FAIL — sell all (highest priority)
   Object.entries(stocks).forEach(([t,s])=>{
-    if(s.gate===false&&(s.status==="grid"||s.status==="trophy"||s.status==="speculative")){
+    if(s.gate===false&&(isOnAnyGrid(t)||s.status==="speculative")){
       const k=`gate-fail-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"critical",icon:"🚫",
         html:`<strong>${s.flag} ${t}</strong> 4M GATE FAILED — SELL ALL tranches immediately!`});}
   });
@@ -1411,7 +1460,7 @@ function checkAlerts(){
   });
 
   // WATCHLIST — within 10% of nearest trigger
-  WL.forEach(t=>{
+  [...WL,...SPEC].forEach(t=>{
     const s=stocks[t],nt=nearestTrigger(t);
     if(!s?.currentPrice||!nt)return;
     const gap=(s.currentPrice-nt)/s.currentPrice;
@@ -1455,7 +1504,7 @@ function showBuyModals(){
   if(!buyModalQueue.length){document.getElementById("buy-modal").innerHTML="";return;}
   const q=buyModalQueue[0]; // Show one at a time
   const s=stocks[q.ticker];if(!s)return;
-  const isWL=(s.status==="watchlist");
+  const isWL=!isOnAnyGrid(q.ticker);
   const sigNames={mos:"MOS — Margin of Safety",tenCap:"10Cap — Owner's Earnings",pbt:"PBT — Payback Time"};
   const sigColors={mos:"#34d399",tenCap:"#60a5fa",pbt:"#a78bfa"};
   const sigIcons={mos:"🟢",tenCap:"🔵",pbt:"🟣"};
@@ -1474,7 +1523,7 @@ function showBuyModals(){
         <div class="buy-modal-signal" style="background:${sigColors[q.signal]}20;color:${sigColors[q.signal]};border:1px solid ${sigColors[q.signal]}40">${sigNames[q.signal]||q.signal}</div>
         <div class="buy-modal-price">${fmt(s.currentPrice,s.currency)}</div>
         <div class="buy-modal-detail">Trigger: ${fmt(triggerPrice,s.currency)}${discount>0?` · ${discount}% below`:" · at trigger"}</div>
-        <div class="buy-modal-detail">${isWL?"Consider adding to grid!":"Grid now: "+totalSignals()+"/"+firingGridSize()+" signals"}</div>
+        <div class="buy-modal-detail">${isWL?"Consider adding to grid!":"Grid now: "+totalSignals(currentPf)+"/"+firingGridSize(currentPf)+" signals"}</div>
         <button class="buy-modal-dismiss" onclick="dismissBuyModal()">GOT IT</button>
         <button style="width:100%;padding:10px;margin-top:8px;background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:12px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)" onclick="snoozeBuyModal()">😴 Snooze until ${eom}</button>
       </div>
@@ -1599,7 +1648,7 @@ function renderEarningsBanner(){
   h+='</div>';return h;
 }
 function render(){
-  const ts=totalSignals(),gs=firingGridSize();
+  const ts=totalSignals(currentPf),gs=firingGridSize(currentPf);
   const b=document.getElementById("grid-badge");b.textContent=ts+"/"+gs;
   document.getElementById("grid-count").textContent=ts;
   document.getElementById("grid-total").textContent=gs;
@@ -1630,8 +1679,8 @@ function render(){
 function switchTab(t){currentTab=t;localStorage.setItem("r1-tab",t);render();window.scrollTo(0,0);}
 
 // ============ SIGNAL CELL STATUS (lifecycle: buy → hold → tracking → sell) ============
-function sigCellStatus(ticker, sigKey){
-  // sigKey: "mos", "tenCap", "pbt"
+function sigCellStatus(ticker, sigKey, pfKey){
+  // sigKey: "mos", "tenCap", "pbt"; pfKey: "personal" or "nl" (optional, defaults to checking both)
   const s=stocks[ticker];if(!s)return{cls:"none",label:"",sub:""};
   const p=s.currentPrice;
   const trigger=s.cons?.[sigKey];
@@ -1646,7 +1695,8 @@ function sigCellStatus(ticker, sigKey){
   // Above trigger: check if tranche has shares
   const sigName=sigKey==="mos"?"MOS":sigKey==="tenCap"?"10Cap":"PBT";
   let hasShares=false,worst="hold",maxDD=0;
-  ["personal","nl"].forEach(pk=>{
+  const pfsToCheck=pfKey?[pfKey]:["personal","nl"];
+  pfsToCheck.forEach(pk=>{
     const pos=portfolios[pk]?.positions?.[ticker];if(!pos)return;
     pos.tranches.forEach(tr=>{
       if(tr.signal!==sigName||(tr.bought-tr.sold)<=0)return;
@@ -1761,8 +1811,9 @@ function checkNewSignals(){
     if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap"});
     if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT"});
   });
-  // Also check watchlist for new fires
+  // Also check watchlist + speculative for new fires
   [...getWatchlist(),...getSpeculative()].forEach(t=>{
+    if(isOnAnyGrid(t))return; // already counted above
     const s=stocks[t];if(!s?.signals)return;
     const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
     const tag=s.status==="speculative"?"spec":"wl";
@@ -1794,7 +1845,7 @@ function showSignalCelebration(fires){
 // ============ PORTFOLIO (UNIFIED — B) ============
 function renderPortfolio(c){
   const pf=portfolios[currentPf];const val=pfValueEUR(currentPf);
-  const GRID=getGrid();const fgs=firingGridSize();const ts=totalSignals();
+  const GRID=getGrid(currentPf);const fgs=firingGridSize(currentPf);const ts=totalSignals(currentPf);
   const dpCcy=pfSym(currentPf);
   const _baseCcy=pfBaseCcy(currentPf);
   let h=`<div class="pf-toggle">
@@ -1834,7 +1885,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||a.localeCompare(b);}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
-      const st=sigCellStatus(t,key);
+      const st=sigCellStatus(t,key,currentPf);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
       // Override circle colors per signal: buy/hold/track use signal color, sell/warn stay as-is
       let indStyle="";
@@ -1850,9 +1901,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       h+=`<div class="sig-cell">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
     // Status column: overall stock status
-    const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="sell");
-    const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="warn");
-    const hasMuted=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k).cls==="muted");
+    const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="sell");
+    const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="warn");
+    const hasMuted=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="muted");
     const dc=deployCount(t);const vSlots=validTriggerSlots(t);
     const statusCol=hasSell?"var(--red)":dc===vSlots?"var(--green)":dc?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
     const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
@@ -1862,7 +1913,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
     h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">SPEC</span>${s.flag} ${t}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
-      const st=sigCellStatus(t,key);
+      const st=sigCellStatus(t,key,currentPf);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
       let indStyle="";
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
@@ -1876,7 +1927,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${deployCount(t)||"0"}/${validTriggerSlots(t)}</div></div>`;
   });
   // Totals row
-  const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k).cls==="buy").length;
+  const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k,currentPf).cls==="buy").length;
   h+=`<div class="sig-total-row"><div style="font-size:12px;font-weight:700;color:var(--muted)">TOTAL</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("pbt")}/${GRID.length}</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("tenCap")}/${GRID.length}</div>
@@ -2024,11 +2075,12 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const shares=posShares(pos);if(shares<=0&&!pos.tranches.length)return;
     const avg=posAvgPrice(pos);const sig=sigCount(ticker);const dc=deployCount(ticker);const nTr=posTranchesOwned(pos);
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
+    const _isGrid=isOnGrid(ticker,currentPf);
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
       s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
-      s.status==="grid"&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:
-      s.status==="grid"?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker)}</span>`:"";
+      _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:
+      _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker)}</span>`:"";
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
@@ -2232,7 +2284,7 @@ function renderMonthlyBanner(){
   h+=`</div></div>`;return h;
 }
 function renderAllocator(c){
-  const pf=portfolios[currentPf];const GRID=getGrid();const gs=gridSize();
+  const pf=portfolios[currentPf];const GRID=getGrid(currentPf);const gs=gridSize(currentPf);
   let h=`<div class="section-pad">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px">Allocator</div>
     <div class="pf-toggle" style="margin:0 0 12px"><button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';localStorage.setItem('r1-pf','personal');render()">🧑 Personal</button><button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';localStorage.setItem('r1-pf','nl');render()">🧓 Caca</button></div>`;
@@ -2359,7 +2411,7 @@ function renderAllocator(c){
       const dp=dpAvailable;const trSize=Math.max(Math.round(dp/settings.dpDivisor),settings.dpFloor);const maxDeploys=dp>=settings.dpFloor?Math.min(settings.dpDivisor,Math.floor(dp/trSize)):0;
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-      const wl=getWatchlist().filter(t=>stocks[t].status==="watchlist");
+      const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&stocks[t].status!=="speculative");
       // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
@@ -2512,7 +2564,7 @@ function renderAllocator(c){
 
     // === NEW ENTRY DEPLOYMENT (Caca ÷15 rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-    const wlNL=getWatchlist().filter(t=>stocks[t].status==="watchlist");
+    const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&stocks[t].status!=="speculative");
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
       const sticker=s.cons.mos?s.cons.mos*2:null;
@@ -2774,7 +2826,7 @@ function exportDeployLog(){
 
 // ============ SETTINGS ============
 function renderSettings(c){
-  const GRID=getGrid(),wl=getWatchlist(),SPEC=getSpeculative();
+  const GRID_P=getGrid("personal"),GRID_N=getGrid("nl"),wl=getWatchlist(),SPEC=getSpeculative();
   let h=`<div class="settings-section"><div style="font-size:16px;font-weight:700;margin-bottom:16px">Settings</div>
     <div class="settings-card"><div class="settings-title">🔔 Push Alerts</div>
       <div class="settings-desc">Cloudflare Worker checks prices every 15 min during market hours and sends push notifications even when the app is closed.</div>
@@ -2816,13 +2868,19 @@ function renderSettings(c){
       <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportExcel()">↓ Export .xlsx</button>
         <button class="settings-save" onclick="document.getElementById('xlsx-import').click()">↑ Import .xlsx</button></div></div>
 
-    <div class="settings-card"><div class="settings-title">🎯 Grid (${GRID.filter(t=>sigCount(t)>0).length} firing / ${GRID.length} stocks)</div>`;
-  GRID.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+    <div class="settings-card"><div class="settings-title">🎯 Grid — 🧑 Personal (${GRID_P.filter(t=>sigCount(t)>0).length} firing / ${GRID_P.length} stocks)</div>`;
+  GRID_P.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:13px">${stocks[t].flag} ${t}</span>
-      <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 8px" onclick="demoteFromGrid('${t}')">✕ Remove</span></div>`;});
-  if(wl.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="grid-add"><option value="">Add to grid...</option>${wl.map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
-    <button class="settings-save" onclick="const v=document.getElementById('grid-add').value;if(v)promoteToGrid(v);">Add</button></div>`;
-  h+=`</div>
+      <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 8px" onclick="currentPf='personal';demoteFromGrid('${t}')">✕ Remove</span></div>`;});
+  if(wl.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="grid-add-p"><option value="">Add to Personal grid...</option>${wl.filter(t=>!GRID_P.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
+    <button class="settings-save" onclick="const v=document.getElementById('grid-add-p').value;if(v){currentPf='personal';promoteToGrid(v);}">Add</button></div>`;
+  h+=`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div class="settings-title">🎯 Grid — 🧓 Caca (${GRID_N.filter(t=>sigCount(t)>0).length} firing / ${GRID_N.length} stocks)</div>`;
+  GRID_N.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:13px">${stocks[t].flag} ${t}</span>
+      <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 8px" onclick="currentPf='nl';demoteFromGrid('${t}')">✕ Remove</span></div>`;});
+  if(wl.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="grid-add-n"><option value="">Add to Caca grid...</option>${wl.filter(t=>!GRID_N.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
+    <button class="settings-save" onclick="const v=document.getElementById('grid-add-n').value;if(v){currentPf='nl';promoteToGrid(v);}">Add</button></div>`;
+  h+=`</div></div>
 
     <div class="settings-card"><div class="settings-title" style="color:#d97706">⚠ Speculative (${SPEC.length}/1 slot)</div>`;
   if(SPEC.length){SPEC.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
@@ -2887,7 +2945,9 @@ function renderSettings(c){
 
 // ============ STOCK MANAGEMENT ============
 function promoteToGrid(t){
-  const s=stocks[t];s.status="grid";
+  const pf=portfolios[currentPf];
+  if(!pf.gridStocks)pf.gridStocks=[];
+  if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
   updateSignals(t);save();
   currentTab="portfolio";render();
   window.scrollTo(0,0);
@@ -2910,8 +2970,12 @@ function promoteToSpec(t){
 }
 function graduateToGrid(t){
   if(!confirm(`Graduate ${t} to grid? The failing M must now pass.\nThis frees the speculative slot.`))return;
-  const s=stocks[t];s.status="grid";
+  const s=stocks[t];s.status="watchlist";
   delete s.specReason;delete s.specDate;
+  // Add to current portfolio's grid
+  const pf=portfolios[currentPf];
+  if(!pf.gridStocks)pf.gridStocks=[];
+  if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
   updateSignals(t);save();render();
 }
 function demoteSpec(t){
@@ -2923,13 +2987,15 @@ function demoteSpec(t){
 function demoteFromGrid(t){
   const hasShares=["personal","nl"].some(pk=>{const pos=portfolios[pk]?.positions?.[t];return pos&&pos.tranches.some(tr=>(tr.bought-tr.sold)>0);});
   if(hasShares){
-    if(!confirm(`${t} has shares held. Move to watchlist anyway? (Position keeps tracking.)`))return;
+    if(!confirm(`${t} has shares held. Remove from ${portfolios[currentPf].name} grid? (Position keeps tracking.)`))return;
   }else{
-    if(!confirm(`Move ${t} to watchlist?`))return;
+    if(!confirm(`Remove ${t} from ${portfolios[currentPf].name} grid?`))return;
     // Clean up empty position entries only when no shares
-    ["personal","nl"].forEach(pk=>{if(portfolios[pk]?.positions?.[t])delete portfolios[pk].positions[t];});
+    if(portfolios[currentPf]?.positions?.[t])delete portfolios[currentPf].positions[t];
   }
-  stocks[t].status="watchlist";
+  // Remove from current portfolio's grid only
+  const pf=portfolios[currentPf];
+  if(pf.gridStocks)pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
   save();render();
 }
 function removeStock(t){if(!confirm(`Delete ${t} everywhere?`))return;delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]&&portfolios[p].positions)delete portfolios[p].positions[t];});
