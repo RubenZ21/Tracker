@@ -255,7 +255,6 @@ let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.ge
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
 const DATA_VERSION=9;
 
-// getGrid(pfKey) returns grid stocks for a specific portfolio, or union of all portfolios if no key given
 function getGrid(pfKey){
   if(pfKey){
     const pf=portfolios[pfKey];if(!pf||!pf.gridStocks)return[];
@@ -529,7 +528,8 @@ function cacaAllocStatus(ticker){
 
 function load(){
   try{
-    if(localStorage.getItem("r1-version")!==String(DATA_VERSION)){localStorage.clear();localStorage.setItem("r1-version",String(DATA_VERSION));}
+    // Version tracking (migrations handle upgrades — never wipe on version change)
+    localStorage.setItem("r1-version",String(DATA_VERSION));
     const ss=localStorage.getItem("r1-stocks"),ps=localStorage.getItem("r1-portfolios"),st=localStorage.getItem("r1-settings");
     stocks=ss?JSON.parse(ss):JSON.parse(JSON.stringify(STOCK_DEFAULTS));
     portfolios=ps?JSON.parse(ps):JSON.parse(JSON.stringify(PF_DEFAULTS));
