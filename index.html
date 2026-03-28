@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.73</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.75</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:15};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
@@ -499,7 +499,7 @@ function cacaInfo(){
     const isTrophy=pos.tranches.every(tr=>tr.signal==="trophy");
     if(!isTrophy){const sh=posShares(pos);if(sh>0)mv+=toEUR(sh*s.currentPrice,s.currency);}});
   const total=mv+(pf.dryPowder||0);
-  return{total,tranche:Math.round(total/15),mv};
+  return{total,tranche:Math.round(total/(settings.nlTranches||15)),mv};
 }
 // Per-stock cost allocation status for Caca: target cost vs actual cost
 function cacaAllocStatus(ticker){
@@ -587,6 +587,7 @@ function load(){
   // Migration: add dpDivisor and dpFloor if missing
   if(!settings.dpDivisor)settings.dpDivisor=6;
   if(!settings.dpFloor)settings.dpFloor=2000;
+  if(!settings.nlTranches)settings.nlTranches=15;
   // Migration: add dpUSD/dpEUR split if missing (seed from existing dryPowder)
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -1210,6 +1211,7 @@ function exportExcel(){
     {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},
     {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
+    {key:"nlTranches",value:settings.nlTranches||15},
     {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
     {key:"gridStocks_personal",value:(portfolios.personal?.gridStocks||[]).join(",")},
     {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")}];
@@ -1350,6 +1352,7 @@ function handleExcelImport(e){
           if(k==="dpEUR_nl"&&val!=null)portfolios.nl.dpEUR=Number(val);
           if(k==="expansionSlots"&&val!=null)settings.expansionSlots=Number(val);
           if(k==="nlCapAtPersonal"&&val!=null)settings.nlCapAtPersonal=Number(val)===1;
+          if(k==="nlTranches"&&val!=null)settings.nlTranches=Math.max(1,Number(val));
           if(k==="pushWorkerUrl"&&val!=null&&val!=="")settings.pushWorkerUrl=String(val);
           if(k==="ibkrWorker"&&val!=null&&val!=="")settings.ibkrWorker=String(val);
           if(k==="ibkrTokenPersonal"&&val!=null&&val!=="")settings.ibkrTokenPersonal=String(val);
@@ -1926,7 +1929,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(ci.total).toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
-        <div style="font-size:9px;color:var(--muted)">Tranche (÷15)</div>
+        <div style="font-size:9px;color:var(--muted)">Tranche (÷${settings.nlTranches||15})</div>
         <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${ci.tranche.toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
@@ -2155,20 +2158,26 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(currentPf==="nl"){
       const ca=cacaAllocStatus(ticker);
       if(ca){
+        // Display allocation values in the stock's native currency
+        const ccy=s.currency||"EUR";
+        const sym=ccy==="EUR"?"€":ccy==="GBp"?"":ccy==="CAD"?"C$":ccy==="JPY"?"¥":"$";
+        const suf=ccy==="GBp"?"p":"";
+        const dispDiff=Math.abs(Math.round(fromEUR(Math.abs(ca.diff),ccy)));
+        const dispTarget=Math.round(fromEUR(ca.target,ccy));
         let abg="",acol="",atxt="";
         if(ca.status==="sellAll"){abg="#3b111180";acol="var(--red)";atxt=`⚠ SELL — above Sticker`;}
         else if(ca.status==="over"){
           abg="#332d0d";acol="var(--amber)";
-          atxt=ca.aboveCost?`Over-allocated by €${Math.abs(Math.round(ca.diff)).toLocaleString()} · can trim`:`Over-allocated by €${Math.abs(Math.round(ca.diff)).toLocaleString()} · underwater — hold`;
+          atxt=ca.aboveCost?`Over-allocated by ${sym}${dispDiff.toLocaleString()}${suf} · can trim`:`Over-allocated by ${sym}${dispDiff.toLocaleString()}${suf} · underwater — hold`;
         }else if(ca.status==="under"){
           abg="#0d332060";acol="var(--green)";
-          atxt=`Under-allocated by €${Math.abs(Math.round(ca.diff)).toLocaleString()} — room for €${Math.abs(Math.round(ca.diff)).toLocaleString()} more`;
+          atxt=`Under-allocated by ${sym}${dispDiff.toLocaleString()}${suf} — room for ${sym}${dispDiff.toLocaleString()}${suf} more`;
         }else if(ca.status==="balanced"){abg="#0d332040";acol="var(--green)";atxt=`✓ Balanced`;}
         else if(ca.status==="noTarget"){abg="var(--bg)";acol="var(--muted)";atxt=`0/3 — no target allocation`;}
         if(atxt){
           h+=`<div style="margin:4px 0;padding:5px 8px;background:${abg};border-radius:6px;display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:10px;color:${acol};font-weight:600">${atxt}</span>
-            ${ca.target>0?`<span style="font-size:9px;font-family:var(--mono);color:var(--muted)">target €${Math.round(ca.target).toLocaleString()}</span>`:""}
+            ${ca.target>0?`<span style="font-size:9px;font-family:var(--mono);color:var(--muted)">target ${sym}${dispTarget.toLocaleString()}${suf}</span>`:""}
           </div>`;
         }
       }
@@ -2538,7 +2547,7 @@ function renderAllocator(c){
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");
       if(!isTrophy){pvTotal+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
-    const TARGET_STOCKS=5;const TARGET_SLOTS=TARGET_STOCKS*3;
+    const TARGET_SLOTS=settings.nlTranches||15;const TARGET_STOCKS=Math.round(TARGET_SLOTS/3);
     const targetTrRaw=Math.round(pvTotal/TARGET_SLOTS);
     // Cap at Personal portfolio's tranche size so Caca never over-deploys relative to Personal
     const personalDP=portfolios.personal?.dryPowder||0;
@@ -2587,7 +2596,7 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value <span style="opacity:.6">(excl. trophy)</span></div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal).toLocaleString()}</div></div>
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.nlTranches||15}" onchange="settings.nlTranches=Math.max(1,+this.value);save();render()"></div><div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">$${Math.round(pf.dpUSD||0).toLocaleString()} + €${Math.round(pf.dpEUR||0).toLocaleString()}</div>
