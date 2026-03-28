@@ -610,6 +610,16 @@ function load(){
     }
     // Clean up: remove gridStocks entries for deleted stocks
     pf.gridStocks=pf.gridStocks.filter(t=>stocks[t]);
+    // Clean up: remove gridStocks entries for fully-sold positions (0 shares held)
+    pf.gridStocks=pf.gridStocks.filter(t=>{
+      const pos=pf.positions[t];
+      if(!pos)return true; // ghost card (never bought) — keep on grid
+      const shares=posShares(pos);
+      if(shares>0)return true; // still holding — keep
+      // Fully sold: remove from grid and clean up position
+      delete pf.positions[t];
+      return false;
+    });
   });
   // Change status==="grid" to "watchlist" since grid membership is now per-portfolio
   Object.values(stocks).forEach(s=>{if(s.status==="grid")s.status="watchlist";});
@@ -939,6 +949,16 @@ function applyIBKR(pfKey){
   const totalCash=pfBaseCcy(pfKey)==="USD"?cashUSD+(cashEUR*settings.fxRate):cashEUR+(cashUSD/settings.fxRate);
   if(totalCash>0){pf.dpUSD=Math.round(cashUSD);pf.dpEUR=Math.round(cashEUR);pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
 
+  // Auto-demote grid stocks not in IBKR data (fully sold)
+  const ibkrTickers=new Set(Object.values(data.posData).map(p=>p.t).filter(Boolean));
+  if(pf.gridStocks&&ibkrTickers.size>0){
+    const toRemove=pf.gridStocks.filter(t=>!ibkrTickers.has(t)&&pf.positions[t]);
+    toRemove.forEach(t=>{
+      delete pf.positions[t];
+      pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
+    });
+  }
+
   save();render();showBuyModals();
   ibkrStatus(`✓ Applied to ${pf.name}`,false,pfKey);
   document.getElementById("ibkr-preview-"+pfKey).innerHTML="";
@@ -982,6 +1002,7 @@ async function autoSyncIBKR(pfKey){
 
     // Parse positions
     const pf=portfolios[pfKey];
+    const ibkrSeen=new Set();
     doc.querySelectorAll("OpenPosition").forEach(p=>{
       const sym=p.getAttribute("symbol");
       const qty=parseFloat(p.getAttribute("position")||p.getAttribute("quantity")||0);
@@ -989,6 +1010,7 @@ async function autoSyncIBKR(pfKey){
       const rawMkt=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
       if(qty===0)return;
       const t=resolveT(sym);if(!t)return;
+      ibkrSeen.add(t);
       // IBKR reports GBP prices in pounds; app uses pence for GBp stocks
       const isGBp=stocks[t]?.currency==="GBp";
       const cost=isGBp?rawCost*100:rawCost;
@@ -1009,6 +1031,21 @@ async function autoSyncIBKR(pfKey){
       }
       if(mktVal&&stocks[t]){stocks[t].currentPrice=mktVal;stocks[t].lastUpdate=Date.now();stocks[t].priceSource="ibkr";updateSignals(t);}
     });
+
+    // Auto-demote grid stocks that IBKR no longer reports (fully sold)
+    if(pf.gridStocks&&ibkrSeen.size>0){
+      const sold=pf.gridStocks.filter(t=>!ibkrSeen.has(t)&&pf.positions[t]&&posShares(pf.positions[t])>0);
+      sold.forEach(t=>{
+        // Mark all tranches as fully sold
+        pf.positions[t].tranches.forEach(tr=>{tr.sold=tr.bought;});
+      });
+      // Remove fully-sold stocks from grid → back to watchlist
+      const toRemove=pf.gridStocks.filter(t=>!ibkrSeen.has(t)&&pf.positions[t]);
+      toRemove.forEach(t=>{
+        delete pf.positions[t];
+        pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
+      });
+    }
 
     // Parse cash
     let cashEUR=0,cashUSD=0;
