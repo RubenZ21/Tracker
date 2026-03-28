@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.72</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.73</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -620,6 +620,13 @@ function load(){
       delete pf.positions[t];
       return false;
     });
+    // Clean up orphaned positions: stock not on grid & no special status → stale data
+    Object.keys(pf.positions).forEach(t=>{
+      if(pf.gridStocks.includes(t))return;
+      const s=stocks[t];
+      if(s&&(s.status==='speculative'||s.status==='trophy'||s.status==='hold'))return;
+      delete pf.positions[t];
+    });
   });
   // Change status==="grid" to "watchlist" since grid membership is now per-portfolio
   Object.values(stocks).forEach(s=>{if(s.status==="grid")s.status="watchlist";});
@@ -958,6 +965,12 @@ function applyIBKR(pfKey){
       pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
     });
   }
+  // Also clean up non-grid positions that IBKR no longer reports
+  if(ibkrTickers.size>0){
+    Object.keys(pf.positions).forEach(t=>{
+      if(!ibkrTickers.has(t))delete pf.positions[t];
+    });
+  }
 
   save();render();showBuyModals();
   ibkrStatus(`✓ Applied to ${pf.name}`,false,pfKey);
@@ -1044,6 +1057,12 @@ async function autoSyncIBKR(pfKey){
       toRemove.forEach(t=>{
         delete pf.positions[t];
         pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
+      });
+    }
+    // Also clean up non-grid positions that IBKR no longer reports
+    if(ibkrSeen.size>0){
+      Object.keys(pf.positions).forEach(t=>{
+        if(!ibkrSeen.has(t))delete pf.positions[t];
       });
     }
 
