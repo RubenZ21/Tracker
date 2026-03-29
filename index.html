@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.75</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.77</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:15};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:15};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
@@ -325,9 +325,17 @@ function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;const
 function isPiggyback(s,sigKey){if(!isTriggerMuted(s,sigKey))return false;const p=s.currentPrice;const tp=s.cons?.[sigKey];return tp!=null&&p!=null&&p<=tp&&sigCount_raw(s)>0;}
 function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 // Deploy count: valid firing signals + piggybacking muted signals
-function deployCount(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;const valid=sigCount(t);if(valid===0)return 0;let n=valid;["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k))n++;});return n;}
+// pfKey='nl' → MOS fires 2 tranches (Caca double-MOS rule)
+function deployCount(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;const valid=sigCount(t);if(valid===0)return 0;let n=valid;["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k))n++;});
+  // Caca: MOS counts as 2 deploy slots when firing
+  if(pfKey==="nl"&&s.signals?.mos)n++;
+  return n;}
 // Count ALL populated trigger slots (muted or not) — every populated trigger is a slot
-function validTriggerSlots(t){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
+// pfKey='nl' → MOS counts as 2 slots (Caca 4-slot rule: PBT + 10Cap + MOS×2)
+function validTriggerSlots(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});
+  // Caca: MOS is a double slot
+  if(pfKey==="nl"&&s.cons?.mos!=null)n++;
+  return n;}
 
 // Snooze: suppress a stock's signals until end of month
 function endOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,999).getTime();}
@@ -336,12 +344,14 @@ function snoozeSignal(t,sig){if(!stocks[t].snoozed)stocks[t].snoozed={};stocks[t
 function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
 function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?"10Cap":"PBT");return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
 // Returns {sticker, mos} or null if any input is missing
+// Uses settings.marr (default 15%) as discount rate: divisor = (1 + marr/100)^10
 function recalcSticker(eps,gr,pe){
   if(eps==null||gr==null||pe==null)return null;
   const g=gr/100;
   const futureEPS=eps*Math.pow(1+g,10);
   const futurePE=Math.min(2*gr,pe);
-  const sticker=+(futureEPS*futurePE/4.0456).toFixed(2);
+  const divisor=Math.pow(1+(settings.marr||15)/100,10);
+  const sticker=+(futureEPS*futurePE/divisor).toFixed(2);
   const mos=+(sticker/2).toFixed(2);
   return{sticker,mos};
 }
@@ -419,9 +429,9 @@ function ringState(ticker, pfKey) {
   }
   return result;
 }
-function totalSignals(pfKey){return getGrid(pfKey).reduce((s,t)=>s+deployCount(t),0);}
-function gridSize(pfKey){return getGrid(pfKey).reduce((n,t)=>n+validTriggerSlots(t),0);}
-function firingGridSize(pfKey){return getGrid(pfKey).filter(t=>sigCount(t)>0).reduce((n,t)=>n+validTriggerSlots(t),0);}
+function totalSignals(pfKey){return getGrid(pfKey).reduce((s,t)=>s+deployCount(t,pfKey),0);}
+function gridSize(pfKey){return getGrid(pfKey).reduce((n,t)=>n+validTriggerSlots(t,pfKey),0);}
+function firingGridSize(pfKey){return getGrid(pfKey).filter(t=>sigCount(t)>0).reduce((n,t)=>n+validTriggerSlots(t,pfKey),0);}
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
   // Store previous signals to detect signal-off events
   const prev=s.signals?{...s.signals}:{mos:false,tenCap:false,pbt:false};
@@ -470,7 +480,7 @@ function nearestTrigger(t){const s=stocks[t];if(!s)return null;const tr=[s.cons.
 function gapPct(t){const s=stocks[t],nt=nearestTrigger(t);if(!s||!nt||!s.currentPrice)return null;return Math.round((s.currentPrice-nt)/s.currentPrice*100);}
 
 // Implied annual return: what you'd earn per year if buying at entryPrice and stock reaches projected future value in 10 years
-function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker<=0||entryPrice<=0)return null;const fv=sticker*4.0456;return Math.pow(fv/entryPrice,1/10)-1;}
+function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker<=0||entryPrice<=0)return null;const fv=sticker*Math.pow(1+(settings.marr||15)/100,10);return Math.pow(fv/entryPrice,1/10)-1;}
 
 // Find the closest trigger (highest price = fires first on decline) and its implied return
 function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(!mos)return null;const sticker=mos*2;
@@ -510,8 +520,8 @@ function cacaAllocStatus(ticker){
   const avg=posAvgPrice(pos);
   const costEUR=toEUR(avg*sh,s.currency);
   const ci=cacaInfo();
-  const dc=deployCount(ticker);const sig=sigCount(ticker);
-  // Target = lit signals × tranche; 0/3 stocks get 0 target
+  const dc=deployCount(ticker,'nl');const sig=sigCount(ticker);
+  // Target = lit signals × tranche; 0/4 stocks get 0 target (Caca: MOS counts as 2 deploy slots)
   const target=dc*ci.tranche;
   const sticker=s.cons?.mos?s.cons.mos*2:null;
   const aboveSticker=sticker&&s.currentPrice>sticker;
@@ -587,7 +597,7 @@ function load(){
   // Migration: add dpDivisor and dpFloor if missing
   if(!settings.dpDivisor)settings.dpDivisor=6;
   if(!settings.dpFloor)settings.dpFloor=2000;
-  if(!settings.nlTranches)settings.nlTranches=15;
+  if(!settings.nlTranches)settings.nlTranches=16;
   // Migration: add dpUSD/dpEUR split if missing (seed from existing dryPowder)
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -1211,7 +1221,8 @@ function exportExcel(){
     {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},
     {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
-    {key:"nlTranches",value:settings.nlTranches||15},
+    {key:"nlTranches",value:settings.nlTranches||16},
+    {key:"marr",value:settings.marr||15},
     {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
     {key:"gridStocks_personal",value:(portfolios.personal?.gridStocks||[]).join(",")},
     {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")}];
@@ -1353,6 +1364,7 @@ function handleExcelImport(e){
           if(k==="expansionSlots"&&val!=null)settings.expansionSlots=Number(val);
           if(k==="nlCapAtPersonal"&&val!=null)settings.nlCapAtPersonal=Number(val)===1;
           if(k==="nlTranches"&&val!=null)settings.nlTranches=Math.max(1,Number(val));
+          if(k==="marr"&&val!=null)settings.marr=Math.max(1,Math.min(30,Number(val)));
           if(k==="pushWorkerUrl"&&val!=null&&val!=="")settings.pushWorkerUrl=String(val);
           if(k==="ibkrWorker"&&val!=null&&val!=="")settings.ibkrWorker=String(val);
           if(k==="ibkrTokenPersonal"&&val!=null&&val!=="")settings.ibkrTokenPersonal=String(val);
@@ -1963,7 +1975,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="sell");
     const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="warn");
     const hasMuted=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="muted");
-    const dc=deployCount(t);const vSlots=validTriggerSlots(t);
+    const dc=deployCount(t,currentPf);const vSlots=validTriggerSlots(t,currentPf);
     const statusCol=hasSell?"var(--red)":dc===vSlots?"var(--green)":dc?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
     const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
@@ -1983,7 +1995,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":"";
       h+=`<div class="sig-cell"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
-    h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${deployCount(t)||"0"}/${validTriggerSlots(t)}</div></div>`;
+    h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${deployCount(t,currentPf)||"0"}/${validTriggerSlots(t,currentPf)}</div></div>`;
   });
   // Totals row
   const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k,currentPf).cls==="buy").length;
@@ -2099,8 +2111,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.some(tr=>(tr.bought-tr.sold)>0));
     // Ghost card for grid stock not in this portfolio
     if(isGhost&&!isSpec&&(GRID.includes(ticker))){
-      const sig=sigCount(ticker);const dc=deployCount(ticker);
-      const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker)}</span>`;
+      const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
+      const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -2114,8 +2126,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     }
     // Ghost card for speculative stock not in this portfolio
     if(isGhost&&isSpec){
-      const sig=sigCount(ticker);const dc=deployCount(ticker);
-      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker)}</span>`;
+      const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
+      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -2132,14 +2144,14 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     // Owned position card (original logic continues below)
     if(!pos)return;
     const shares=posShares(pos);if(shares<=0&&!pos.tranches.length)return;
-    const avg=posAvgPrice(pos);const sig=sigCount(ticker);const dc=deployCount(ticker);const nTr=posTranchesOwned(pos);
+    const avg=posAvgPrice(pos);const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);const nTr=posTranchesOwned(pos);
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const _isGrid=isOnGrid(ticker,currentPf);
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
-      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker)}</span>`:
+      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
-      _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker)}</span>`:
-      _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker)}</span>`:"";
+      _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:"";
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
@@ -2191,7 +2203,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     }
 
     // MOS reserve bar (only for stocks with unlit valid triggers in this portfolio)
-    {const slots=validTriggerSlots(ticker);const dc=deployCount(ticker);const unlitRes=slots-dc;
+    {const slots=validTriggerSlots(ticker,currentPf);const dc=deployCount(ticker,currentPf);const unlitRes=slots-dc;
     if(unlitRes>0&&dc>0&&s.status!=="trophy"&&s.status!=="speculative"&&currentPf!=="nl"){
       const resSym=s.currency==="USD"?"$":s.currency==="GBp"?"\u00a3":"\u20ac";
       const resMult=s.currency==="GBp"?100:1;
@@ -2362,14 +2374,14 @@ function renderAllocator(c){
     // Only new income is divided. Existing DP stays earmarked.
     const firingStocks=GRID.filter(t=>sigCount(t)>0);
     const nFiring=firingStocks.length;
-    const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t),0);
+    const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,'personal'),0);
     const expSlots=settings.expansionSlots??3;
     const denom=validSlots+expSlots;
     const income=pfIncome("personal");
     const _bs=pfSym("personal");const _bc=pfBaseCcy("personal");
     const perTr=denom>0?Math.round(income/denom):0;
     // Count lit (deploy) vs unlit signals across firing stocks — deployCount includes piggyback
-    const litTotal=firingStocks.reduce((n,t)=>n+deployCount(t),0);
+    const litTotal=firingStocks.reduce((n,t)=>n+deployCount(t,'personal'),0);
     const unlitTotal=validSlots-litTotal;
     const deployTotal=litTotal*perTr;
     const mosReserveTotal=unlitTotal*perTr;
@@ -2379,7 +2391,7 @@ function renderAllocator(c){
     // Calculate MOS reserves: ideal (cost-matched) vs actual (override or ideal)
     const mosInfo={}; // per-stock: {ideal, actual, unlit}
     let dpMosReserved=0;
-    firingStocks.forEach(t=>{const s=stocks[t];const slots=validTriggerSlots(t);const dc=deployCount(t);const unlit=slots-dc;
+    firingStocks.forEach(t=>{const s=stocks[t];const slots=validTriggerSlots(t,'personal');const dc=deployCount(t,'personal');const unlit=slots-dc;
       if(unlit<=0){mosInfo[t]={ideal:0,actual:0,unlit:0};return;}
       const pos=pf.positions?.[t];if(!pos){mosInfo[t]={ideal:0,actual:0,unlit};return;}
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
@@ -2411,7 +2423,7 @@ function renderAllocator(c){
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${Math.round(toDP/income*100)}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + MOS reserve
-    firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t);const slots=validTriggerSlots(t);const unlit=slots-dc;
+    firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
       const deployBase=dc*perTr;const mosBase=unlit*perTr;
       const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
       const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0,resCcy:_bc};
@@ -2435,7 +2447,7 @@ function renderAllocator(c){
     // Show 0/3 grid stocks (not firing — no allocation)
     const notFiring=GRID.filter(t=>sigCount(t)===0);
     if(notFiring.length){notFiring.forEach(t=>{const s=stocks[t];
-      h+=`<div class="alloc-stock" style="opacity:0.4"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">0/${validTriggerSlots(t)} — no allocation</div></div>
+      h+=`<div class="alloc-stock" style="opacity:0.4"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">0/${validTriggerSlots(t,currentPf)} — no allocation</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--muted)">${_bs}0</div></div></div>`;});}
     // Expansion row
     h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">🔮 Expansion</div><div style="font-size:11px;color:var(--muted)">${expSlots} slots for new entries</div></div>
@@ -2462,7 +2474,7 @@ function renderAllocator(c){
         specInPf.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
           h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t)} signals</span></div>
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t,currentPf)} signals</span></div>
               <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(costVal),s.currency)} · ${fmtSh(sh)} sh</span></div>
             ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
         if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only — not from monthly income.</div>`;}
@@ -2547,7 +2559,7 @@ function renderAllocator(c){
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");
       if(!isTrophy){pvTotal+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
-    const TARGET_SLOTS=settings.nlTranches||15;const TARGET_STOCKS=Math.round(TARGET_SLOTS/3);
+    const TARGET_SLOTS=settings.nlTranches||16;const TARGET_STOCKS=Math.round(TARGET_SLOTS/4);
     const targetTrRaw=Math.round(pvTotal/TARGET_SLOTS);
     // Cap at Personal portfolio's tranche size so Caca never over-deploys relative to Personal
     const personalDP=portfolios.personal?.dryPowder||0;
@@ -2560,8 +2572,8 @@ function renderAllocator(c){
 
     // MOS reserves for NL: firing stocks with unlit valid triggers
     let nlMosReserved=0;
-    nlTickers.forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const dc=deployCount(t);if(dc<=0)return;
-      const slots=validTriggerSlots(t);const unlit=slots-dc;if(unlit<=0)return;
+    nlTickers.forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const dc=deployCount(t,'nl');if(dc<=0)return;
+      const slots=validTriggerSlots(t,'nl');const unlit=slots-dc;if(unlit<=0)return;
       const pos=nlPos[t];if(!pos)return;
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
       if(nTr>0&&avg>0&&sh>0){
@@ -2689,7 +2701,7 @@ function renderAllocator(c){
       const val=toEUR(sh*s.currentPrice,s.currency);const stk=s.cons?.sticker||(s.cons?.mos?s.cons.mos*2:null);
       const aboveStk=stk&&s.currentPrice>stk;
       h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
-        <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:${sig?"var(--green)":"var(--muted)"};margin-left:6px">${sig}/${validTriggerSlots(t)} · ${nTr} tranche${nTr!==1?"s":""}</span></div>
+        <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:${sig?"var(--green)":"var(--muted)"};margin-left:6px">${sig}/${validTriggerSlots(t,'nl')} · ${nTr} tranche${nTr!==1?"s":""}</span></div>
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">€${Math.round(val).toLocaleString()}</span></div>`;});
     if(stockCount<TARGET_STOCKS){h+=`<div style="font-size:11px;color:var(--amber);margin-top:4px">${TARGET_STOCKS-stockCount} slot${TARGET_STOCKS-stockCount>1?"s":""} open — watchlist triggers will deploy DP</div>`;}
     h+=`</div>`;
@@ -2962,6 +2974,14 @@ function renderSettings(c){
         <button class="settings-save" style="padding:8px 16px;${(settings.personalBaseCcy||"USD")==="USD"?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.personalBaseCcy='USD';save();render()">$ USD</button>
         <button class="settings-save" style="padding:8px 16px;${(settings.personalBaseCcy||"USD")==="EUR"?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.personalBaseCcy='EUR';save();render()">€ EUR</button>
       </div></div>
+
+    <div class="settings-card"><div class="settings-title">📊 MARR (Discount Rate)</div>
+      <div class="settings-desc">Minimum Acceptable Rate of Return used to discount future value in Sticker Price calculation. Rule #1 default is 15%. Changing this recalculates ALL Sticker and MOS prices.</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="settings-save" style="padding:8px 16px;${(settings.marr||15)===15?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.marr=15;save();Object.keys(stocks).forEach(t=>{if(stocks[t].cons)applyRecalcSticker(stocks[t]);});Object.keys(stocks).forEach(updateSignals);save();render()">15% (Rule #1)</button>
+        <button class="settings-save" style="padding:8px 16px;${(settings.marr||15)===10?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.marr=10;save();Object.keys(stocks).forEach(t=>{if(stocks[t].cons)applyRecalcSticker(stocks[t]);});Object.keys(stocks).forEach(updateSignals);save();render()">10%</button>
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:6px;font-family:var(--mono)">Divisor: (1+${(settings.marr||15)/100})^10 = ${Math.pow(1+(settings.marr||15)/100,10).toFixed(4)}</div></div>
 
     <div class="settings-card"><div class="settings-title">💱 FX Rates</div>
       <div style="display:flex;gap:8px">
