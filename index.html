@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.78</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.79</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1545,7 +1545,7 @@ function checkAlerts(){
       if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
       const isSpec=s.status==="speculative";
       if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
-        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"SPEC":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals${isSpec?"":` — add to grid!`}</strong>`});}
+        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals${isSpec?"":` — add to grid!`}</strong>`});}
     }
   });
 
@@ -1905,7 +1905,7 @@ function showSignalCelebration(fires){
   fires.forEach(f=>{
     const sigCol=f.signal==="MOS"?"#34d399":f.signal==="Ten Cap"?"#60a5fa":"#a78bfa";
     h+=`<div style="margin:8px 0"><span style="font-size:16px;font-weight:700">${stocks[f.ticker]?.flag} ${f.ticker}</span>
-      <div style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:6px;background:${sigCol}20;color:${sigCol};border:1px solid ${sigCol}55">${f.signal}${f.tag==="spec"?" (speculative)":f.wl?" (watchlist)":""}</div></div>`;
+      <div style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:6px;background:${sigCol}20;color:${sigCol};border:1px solid ${sigCol}55">${f.signal}${f.tag==="spec"?" (risk)":f.wl?" (watchlist)":""}</div></div>`;
   });
   h+=`<div style="font-size:13px;color:var(--green);margin-top:12px;font-weight:600">Price dropped into buy territory.<br>The system is working.</div>
     <button class="modal-done" style="margin-top:16px" onclick="this.closest('.buy-modal-overlay').remove()">Deploy capital →</button>
@@ -1982,7 +1982,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Speculative stocks row(s) — shown in grid but not counted in totals (hidden for Caca)
   const SPEC=currentPf==="nl"?[]:getSpeculative();
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
-    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">SPEC</span>${s.flag} ${t}</div></div>`;
+    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key,currentPf);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
@@ -2127,7 +2127,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     // Ghost card for speculative stock not in this portfolio
     if(isGhost&&isSpec){
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
-      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
+      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
@@ -2148,7 +2148,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const _isGrid=isOnGrid(ticker,currentPf);
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
-      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">SPEC ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
+      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
       _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:"";
@@ -2310,11 +2310,12 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(s.status==="speculative"){
       const specAge=s.specDate?Math.round((Date.now()-s.specDate)/86400000):null;
       const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
+      const costBasis=shares*avg;const costEUR=toEUR(costBasis,s.currency);const maxBudget=pfVal*0.10;const pctCost=maxBudget>0?(costEUR/maxBudget*100):0;
       h+=`<div style="margin-top:6px;padding:8px;background:#332d0d40;border:1px solid #d9770644;border-radius:6px">
-        <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚠ Speculative — Management failing</div>
+        <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚡ Risk Position</div>
         ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(s.specReason)}</div>`:""}
         <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
-          <span>${pctOfPf.toFixed(1)}% of portfolio${pctOfPf>10?" ⚠ >10% cap":""}${specAge!=null?" · "+specAge+"d held":""}</span>
+          <span>Cost: ${fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 10% budget${specAge!=null?" · "+specAge+"d held":""}</span>
         </div>
         <div style="display:flex;gap:6px;margin-top:6px">
           <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate to Grid</button>
@@ -2465,8 +2466,8 @@ function renderAllocator(c){
       if(specStocks.length||specInPf.length){
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:14px;font-weight:700;color:#d97706">⚠ Speculative Bucket</span>
-            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">max 10% · 1 slot</span></div>
+            <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Bucket</span>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">max 10% cost</span></div>
           <div style="display:flex;gap:8px;margin-bottom:8px">
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">10% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(fromEUR(maxSpec,_bc)).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${specVal>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(fromEUR(specVal,_bc)).toLocaleString()}</div></div>
@@ -2477,7 +2478,7 @@ function renderAllocator(c){
               <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t,currentPf)} signals</span></div>
               <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(costVal),s.currency)} · ${fmtSh(sh)} sh</span></div>
             ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
-        if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only — not from monthly income.</div>`;}
+        if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions. Use → Risk on a watchlist stock to add one.</div>`;}
         h+=`</div>`;
       }
     }
@@ -2779,7 +2780,7 @@ function renderWatchlist(c){
         ${snoozed?`<span style="font-size:10px;color:var(--amber);cursor:pointer;padding:2px 6px;background:#92400e33;border-radius:4px" onclick="unsnoozeStock('${t}');render()">⏰ Wake</span>`:`<span style="font-size:10px;color:var(--muted);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="['mos','tenCap','pbt'].forEach(sig=>{if(stocks['${t}']?.signals?.[sig])snoozeSignal('${t}',sig)});render()">😴</span>`}
         <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
         <span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px;background:#0d332033;border-radius:4px" onclick="promoteToGrid('${t}')">→ Grid</span>
-        <span style="font-size:10px;color:#d97706;cursor:pointer;padding:2px 6px;background:#332d0d33;border-radius:4px" onclick="promoteToSpec('${t}')">→ Spec</span>
+        <span style="font-size:10px;color:#d97706;cursor:pointer;padding:2px 6px;background:#332d0d33;border-radius:4px" onclick="promoteToSpec('${t}')">→ Risk</span>
         <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px;background:#3b111133;border-radius:4px" onclick="removeStock('${t}')">✕</span>
       </div></div>`;
     if(s.phil?.score)h+=`<div style="font-size:10px;color:var(--muted);margin-top:2px">Phil: ${s.phil.score} · GR ${s.phil.gr}% vs ${s.cons.gr}%</div>`;
@@ -2961,11 +2962,11 @@ function renderSettings(c){
     <button class="settings-save" onclick="const v=document.getElementById('grid-add-n').value;if(v){currentPf='nl';promoteToGrid(v);}">Add</button></div>`;
   h+=`</div></div>
 
-    <div class="settings-card"><div class="settings-title" style="color:#d97706">⚠ Speculative (${SPEC.length}/1 slot)</div>`;
+    <div class="settings-card"><div class="settings-title" style="color:#d97706">⚡ Risk Bucket (${SPEC.length} position${SPEC.length!==1?"s":""})</div>`;
   if(SPEC.length){SPEC.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <div><span style="font-size:13px">${stocks[t].flag} ${t}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${esc(stocks[t].specReason)||""}</span></div>
       <div style="display:flex;gap:4px"><span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px" onclick="graduateToGrid('${t}')">✓ Graduate</span><span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px" onclick="demoteSpec('${t}')">✕ Remove</span></div></div>`;});}
-  else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No speculative position. Use → Spec on a watchlist stock to add one.</div>`;}
+  else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions. Use → Risk on a watchlist stock to add one.</div>`;}
   h+=`</div>
 
     <div class="settings-card"><div class="settings-title">💱 Personal Base Currency</div>
@@ -3044,13 +3045,8 @@ function promoteToGrid(t){
   window.scrollTo(0,0);
 }
 function promoteToSpec(t){
-  // Enforce single slot per portfolio — check if any speculative stock already exists
-  const existing=getSpeculative();
-  if(existing.length){
-    alert(`Speculative slot occupied by ${existing[0]}. Graduate or exit it first.`);return;
-  }
   const s=stocks[t];
-  const reason=prompt("Catalyst + timeline for the failing M (Management):\ne.g. 'CEO search, expected Q2 2026'","");
+  const reason=prompt("Conviction thesis (optional):\ne.g. 'AI leader, IPO play, potential wide moat'","");
   if(reason===null)return;
   s.status="speculative";
   s.specReason=reason||"";
@@ -3060,7 +3056,7 @@ function promoteToSpec(t){
   window.scrollTo(0,0);
 }
 function graduateToGrid(t){
-  if(!confirm(`Graduate ${t} to grid? The failing M must now pass.\nThis frees the speculative slot.`))return;
+  if(!confirm(`Graduate ${t} to grid? This stock must now pass all 4Ms.`))return;
   const s=stocks[t];s.status="watchlist";
   delete s.specReason;delete s.specDate;
   // Add to current portfolio's grid
@@ -3377,7 +3373,7 @@ async function checkFromCloud(){
 // off→on transition, sending a push notification for each one.
 async function resetWorkerSignals(){
   if(!settings.pushWorkerUrl)return;
-  if(!confirm("This resets all Worker signal states to OFF, then checks prices.\n\nYou'll get a notification for EVERY currently-firing trigger (grid + watchlist + speculative).\n\nContinue?"))return;
+  if(!confirm("This resets all Worker signal states to OFF, then checks prices.\n\nYou'll get a notification for EVERY currently-firing trigger (grid + watchlist + risk).\n\nContinue?"))return;
   const el=document.getElementById("push-sync-status");
   if(el)el.textContent="Resetting signals...";
   try{
