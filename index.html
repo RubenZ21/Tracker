@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.79</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.80</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -318,21 +318,25 @@ function earningsChip(t){
   const lbl=ei.status==="stale"?"EC → update":ei.status==="upcoming"?(ei.soon?"EC "+dStr+" ⏰":"EC "+dStr):ei.status==="fresh"?"EC ✓":"EC "+ei.label.replace("📅 ","");
   return` <span style="font-size:8px;font-family:var(--mono);color:${ei.color};padding:0 3px;background:${ei.soon||ei.status==='stale'?ei.color+'15':'transparent'};border-radius:2px">${lbl}</span>`;
 }
-function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
-// Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2)
-function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
+// Buffett Category: wide-moat low-growth stocks evaluated by Ten Cap + PBT only (no MOS/Sticker)
+function isBuffett(t){return stocks[t]?.category==="buffett";}
+function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;const buf=isBuffett(t);return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+// Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2). Buffett stocks: no ceiling.
+function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;if(s.category==="buffett")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
 // Piggyback: a muted trigger deploys when price is below it AND at least one valid signal is firing
 function isPiggyback(s,sigKey){if(!isTriggerMuted(s,sigKey))return false;const p=s.currentPrice;const tp=s.cons?.[sigKey];return tp!=null&&p!=null&&p<=tp&&sigCount_raw(s)>0;}
-function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;return(s.signals.mos?1:0)+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;const buf=s.category==="buffett";return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 // Deploy count: valid firing signals + piggybacking muted signals
 // pfKey='nl' → MOS fires 2 tranches (Caca double-MOS rule)
 function deployCount(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;const valid=sigCount(t);if(valid===0)return 0;let n=valid;["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k))n++;});
-  // Caca: MOS counts as 2 deploy slots when firing
-  if(pfKey==="nl"&&s.signals?.mos)n++;
+  // Caca: MOS counts as 2 deploy slots when firing (not for Buffett — no MOS)
+  if(pfKey==="nl"&&s.signals?.mos&&!isBuffett(t))n++;
   return n;}
 // Count ALL populated trigger slots (muted or not) — every populated trigger is a slot
-// pfKey='nl' → MOS counts as 2 slots (Caca 4-slot rule: PBT + 10Cap + MOS×2)
-function validTriggerSlots(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});
+// pfKey='nl' → MOS counts as 2 slots (Caca 4-slot rule: PBT + 10Cap + MOS×2). Buffett: only 2 slots (PBT + 10Cap).
+function validTriggerSlots(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
+  if(isBuffett(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
+  let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});
   // Caca: MOS is a double slot
   if(pfKey==="nl"&&s.cons?.mos!=null)n++;
   return n;}
@@ -435,10 +439,11 @@ function firingGridSize(pfKey){return getGrid(pfKey).filter(t=>sigCount(t)>0).re
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
   // Store previous signals to detect signal-off events
   const prev=s.signals?{...s.signals}:{mos:false,tenCap:false,pbt:false};
-  // Sticker Ceiling: tenCap/pbt only valid if trigger price < sticker (mos×2). MOS always valid.
-  const sticker=s.cons.mos?s.cons.mos*2:null;
+  const buf=s.category==="buffett";
+  // Buffett: no MOS, no Sticker Ceiling. Phil Town: tenCap/pbt gated by sticker (mos×2).
+  const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
   s.signals={
-    mos:s.cons.mos?p<=s.cons.mos:false,
+    mos:buf?false:(s.cons.mos?p<=s.cons.mos:false),
     tenCap:s.cons.tenCap?p<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker):false,
     pbt:s.cons.pbt?p<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker):false
   };
@@ -523,17 +528,19 @@ function cacaAllocStatus(ticker){
   const dc=deployCount(ticker,'nl');const sig=sigCount(ticker);
   // Target = lit signals × tranche; 0/4 stocks get 0 target (Caca: MOS counts as 2 deploy slots)
   const target=dc*ci.tranche;
-  const sticker=s.cons?.mos?s.cons.mos*2:null;
-  const aboveSticker=sticker&&s.currentPrice>sticker;
+  // Buffett: sell threshold is activation price (tenCap × 1.333). Phil Town: sell at sticker.
+  const buf=isBuffett(ticker);
+  const sellRef=buf?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
+  const aboveSellRef=sellRef&&s.currentPrice>sellRef;
   const diff=costEUR-target;
   const aboveCost=s.currentPrice>=avg;
-  // Status: sellAll (above sticker, 0/3), overAllocated, underAllocated, balanced
+  // Status: sellAll (above sell reference, 0/N), overAllocated, underAllocated, balanced
   let status="balanced";
-  if(sig===0&&aboveSticker)status="sellAll";
+  if(sig===0&&aboveSellRef)status="sellAll";
   else if(target===0&&sig===0)status="noTarget";
   else if(diff>ci.tranche*0.15)status="over";
   else if(diff<-ci.tranche*0.15)status="under";
-  return{costEUR,target,diff,status,aboveCost,aboveSticker,tranche:ci.tranche,dc};
+  return{costEUR,target,diff,status,aboveCost,aboveSticker:aboveSellRef,tranche:ci.tranche,dc};
 }
 
 function load(){
@@ -1098,12 +1105,13 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name\n";
+  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category\n";
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${s.name||t}\n`;});
+    const cat=s.category==="buffett"?"buffett":"";
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${s.name||t},${cat}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
 }
 function handleCSVImport(e){
@@ -1164,6 +1172,8 @@ function handleCSVImport(e){
       else{s.lastCalcDate=Date.now();}
       // Import earnings date from CSV
       if(hdr.includes("earningsdate")&&row.earningsdate){const d=new Date(row.earningsdate);s.earningsDate=isNaN(d)?null:d.getTime();}
+      // Import category (buffett or philtown/empty)
+      if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=cat==="buffett"?"buffett":undefined;}
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calculate tenCap from OE
@@ -1433,10 +1443,13 @@ function handleExcelImport(e){
   };r.readAsArrayBuffer(f);e.target.value="";
 }
 
-// Sell target base per signal type: "sticker" for that method
 // Unified activation price: sticker / 0.75 (= sticker × 1.3333...)
-// Guarantees worst-case sell (ATH = activation+ε, then -25%) lands at sticker = intrinsic value
-function activationPrice(s){const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+(stk/0.75).toFixed(2):null;}
+// Buffett category: tenCap × 1.3333 (anchored to Ten Cap instead of Sticker)
+// Guarantees worst-case sell (ATH = activation+ε, then -25%) lands at sticker/tenCap = intrinsic value
+function activationPrice(s){
+  if(s.category==="buffett"){const tc=s.cons?.tenCap;return tc?+(tc/0.75).toFixed(2):null;}
+  const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+(stk/0.75).toFixed(2):null;
+}
 function sellBase(s,signal){
   if(signal==="trophy")return -1; // special: always tracking, no sticker gate
   if(signal==="hold")return null; // hold — no sell tracking
@@ -1539,13 +1552,13 @@ function checkAlerts(){
       html:`<strong>${s.flag} ${t}</strong> approaching buy zone — ${fmt(s.currentPrice,s.currency)} is ${Math.round(gap*100)}% above trigger ${fmt(nt,s.currency)}`});}
     else if(gap<=0){
       // Build list of ALL firing signals for this watchlist stock (respecting Sticker Ceiling + per-signal snooze)
-      const p=s.currentPrice,c=s.cons,fires=[];
-      if(c.mos&&p<=c.mos&&!isSnoozed(t,"mos"))fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
+      const p=s.currentPrice,c=s.cons,fires=[],buf=s.category==="buffett";
+      if(!buf&&c.mos&&p<=c.mos&&!isSnoozed(t,"mos"))fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
       if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
       if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
-      const isSpec=s.status==="speculative";
+      const isSpec=s.status==="speculative";const maxSigs=buf?2:3;
       if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
-        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/3 signals${isSpec?"":` — add to grid!`}</strong>`});}
+        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});}
     }
   });
 
@@ -1794,11 +1807,12 @@ function sigCellStatus(ticker, sigKey, pfKey){
 // ============ CONVICTION CARD (panic antidote) ============
 function openConviction(t){
   const s=stocks[t];if(!s)return;
-  const p=s.currentPrice;const c=s.cons;
-  const sticker=c.mos?c.mos*2:(c.sticker||null);
-  const mosFromSticker=sticker&&p?Math.round((1-p/sticker)*100):null;
-  const sigs=[];
-  if(c.mos&&p<=c.mos)sigs.push("MOS");
+  const p=s.currentPrice;const c=s.cons;const buf=isBuffett(t);
+  const refPrice=buf?c.tenCap:(c.mos?c.mos*2:(c.sticker||null));
+  const refLabel=buf?"ten cap":"sticker";
+  const mosFromRef=refPrice&&p?Math.round((1-p/refPrice)*100):null;
+  const sigs=[];const maxSigs=buf?2:3;
+  if(!buf&&c.mos&&p<=c.mos)sigs.push("MOS");
   if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))sigs.push("Ten Cap");
   else if(c.tenCap&&p<=c.tenCap&&isPiggyback(s,"tenCap"))sigs.push("Ten Cap ↗");
   if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))sigs.push("PBT");
@@ -1808,7 +1822,7 @@ function openConviction(t){
     <div class="modal-sheet" style="padding:24px;text-align:center">
     <div style="font-size:40px;margin-bottom:8px">🛡️</div>
     <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:2px">${s.flag} ${t}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}${buf?` · <span style="color:#38bdf8">Buffett Category</span>`:""}</div>
 
     <div style="text-align:left;margin-bottom:16px">
       <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:6px;border-left:3px solid var(--green)">
@@ -1835,15 +1849,17 @@ function openConviction(t){
       <div style="background:var(--bg);border-radius:10px;padding:14px;border-left:3px solid var(--accent)">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:16px">✅</span>
-          <div><div style="font-size:13px;font-weight:700;color:var(--accent)">Money — ${sigs.length?sigs.length+"/3 signals firing":"Below intrinsic value"}</div>
-          <div style="font-size:11px;color:var(--text);margin-top:2px">${mosFromSticker>0?mosFromSticker+"% margin of safety below sticker.":""}${c.pbtYrs?" Payback in "+c.pbtYrs+" years.":""}</div></div>
+          <div><div style="font-size:13px;font-weight:700;color:var(--accent)">Money — ${sigs.length?sigs.length+"/"+maxSigs+" signals firing":"Below intrinsic value"}</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px">${mosFromRef>0?mosFromRef+"% margin of safety below "+refLabel+".":""}${c.pbtYrs?" Payback in "+c.pbtYrs+" years.":""}</div></div>
         </div>
       </div>
     </div>`;
 
   // Signals
   h+=`<div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px">`;
-  [{l:"MOS",v:c.mos,col:"#34d399",k:"mos"},{l:"Ten Cap",v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:"PBT",v:c.pbt,col:"#a78bfa",k:"pbt"}].forEach(({l,v,col,k})=>{
+  const _sigItems=buf?[{l:"Ten Cap",v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:"PBT",v:c.pbt,col:"#a78bfa",k:"pbt"}]:
+    [{l:"MOS",v:c.mos,col:"#34d399",k:"mos"},{l:"Ten Cap",v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:"PBT",v:c.pbt,col:"#a78bfa",k:"pbt"}];
+  _sigItems.forEach(({l,v,col,k})=>{
     const on=v&&p<=v&&!isTriggerMuted(s,k);
     const muted=v&&p<=v&&isTriggerMuted(s,k);
     h+=`<div style="padding:6px 14px;border-radius:16px;font-size:11px;font-weight:700;font-family:var(--mono);
@@ -1956,6 +1972,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||a.localeCompare(b);}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
+      // Buffett category: MOS column shows "—" (not applicable)
+      if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
       const st=sigCellStatus(t,key,currentPf);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
       // Override circle colors per signal: buy/hold/track use signal color, sell/warn stay as-is
@@ -1972,9 +1990,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       h+=`<div class="sig-cell">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
     });
     // Status column: overall stock status
-    const hasSell=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="sell");
-    const hasWarn=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="warn");
-    const hasMuted=["mos","tenCap","pbt"].some(k=>sigCellStatus(t,k,currentPf).cls==="muted");
+    const _sigKeys=isBuffett(t)?["tenCap","pbt"]:["mos","tenCap","pbt"];
+    const hasSell=_sigKeys.some(k=>sigCellStatus(t,k,currentPf).cls==="sell");
+    const hasWarn=_sigKeys.some(k=>sigCellStatus(t,k,currentPf).cls==="warn");
+    const hasMuted=_sigKeys.some(k=>sigCellStatus(t,k,currentPf).cls==="muted");
     const dc=deployCount(t,currentPf);const vSlots=validTriggerSlots(t,currentPf);
     const statusCol=hasSell?"var(--red)":dc===vSlots?"var(--green)":dc?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
     const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
@@ -2150,21 +2169,24 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
       s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
+      _isGrid&&isBuffett(ticker)&&sig>0?`<span class="pos-badge" style="background:#1a2332;color:#38bdf8">BUFFETT ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid&&isBuffett(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">BUFFETT 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:"";
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)}</div></div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const stk=s.cons?.mos?s.cons.mos*2:null;if(!stk)return"";const pv=s.currentPrice?((s.currentPrice/stk-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">sticker ${fmt(stk,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
+        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
-    // Stats row
-    const sticker=s.cons?.mos?s.cons.mos*2:null;
-    const avgIR=avg&&sticker?calcImpliedReturn(sticker,avg):null;
-    const avgMOS=avg&&sticker?((1-avg/sticker)*100):null;
+    // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
+    const _refPrice=isBuffett(ticker)?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);
+    const _refLabel=isBuffett(ticker)?"ten cap":"stk";
+    const avgIR=avg&&_refPrice?calcImpliedReturn(_refPrice,avg):null;
+    const avgMOS=avg&&_refPrice?((1-avg/_refPrice)*100):null;
     const avgCol=avgMOS==null?"var(--muted)":avgMOS>=50?"var(--green)":avgMOS>0?"#34d399":"var(--amber)";
     h+=`<div class="stat-row" style="margin:8px 0">
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
-      <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above stk":"≈ sticker"}</div>`:""}</div></div>`;
+      <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above ${_refLabel}":"≈ ${_refLabel}"}</div>`:""}</div></div>`;
 
     // Caca allocation indicator (between stats and notes)
     if(currentPf==="nl"){
@@ -2177,7 +2199,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const dispDiff=Math.abs(Math.round(fromEUR(Math.abs(ca.diff),ccy)));
         const dispTarget=Math.round(fromEUR(ca.target,ccy));
         let abg="",acol="",atxt="";
-        if(ca.status==="sellAll"){abg="#3b111180";acol="var(--red)";atxt=`⚠ SELL — above Sticker`;}
+        if(ca.status==="sellAll"){abg="#3b111180";acol="var(--red)";atxt=isBuffett(ticker)?`⚠ SELL — above activation`:`⚠ SELL — above Sticker`;}
         else if(ca.status==="over"){
           abg="#332d0d";acol="var(--amber)";
           atxt=ca.aboveCost?`Over-allocated by ${sym}${dispDiff.toLocaleString()}${suf} · can trim`:`Over-allocated by ${sym}${dispDiff.toLocaleString()}${suf} · underwater — hold`;
@@ -2185,7 +2207,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           abg="#0d332060";acol="var(--green)";
           atxt=`Under-allocated by ${sym}${dispDiff.toLocaleString()}${suf} — room for ${sym}${dispDiff.toLocaleString()}${suf} more`;
         }else if(ca.status==="balanced"){abg="#0d332040";acol="var(--green)";atxt=`✓ Balanced`;}
-        else if(ca.status==="noTarget"){abg="var(--bg)";acol="var(--muted)";atxt=`0/3 — no target allocation`;}
+        else if(ca.status==="noTarget"){abg="var(--bg)";acol="var(--muted)";atxt=`0/${validTriggerSlots(ticker,currentPf)||3} — no target allocation`;}
         if(atxt){
           h+=`<div style="margin:4px 0;padding:5px 8px;background:${abg};border-radius:6px;display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:10px;color:${acol};font-weight:600">${atxt}</span>
@@ -2494,15 +2516,16 @@ function renderAllocator(c){
       // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
-        const sticker=s.cons.mos?s.cons.mos*2:null;
+        const buf=s.category==="buffett";
+        const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
         const triggers=[];
         if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker))triggers.push("PBT");
         if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker))triggers.push("10Cap");
-        if(s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
+        if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
         const pending=[];
         if(s.cons.pbt&&!triggers.includes("PBT")&&!isTriggerMuted(s,"pbt"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
         if(s.cons.tenCap&&!triggers.includes("10Cap")&&!isTriggerMuted(s,"tenCap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
-        if(s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
+        if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
         if(!triggers.length&&!pending.length)return;
         const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
         ready.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length});});
@@ -2588,16 +2611,17 @@ function renderAllocator(c){
     const nlDpAvail=Math.max(0,pf.dryPowder-nlMosReserved);
     const dpCovers=targetTr>0?Math.floor(nlDpAvail/targetTr):0;
 
-    // Tier 2 candidates: 0/3 signals AND price > sticker
+    // Tier 2 candidates: 0/N signals AND price > sell reference (sticker for PT, activation for Buffett)
     const tier2=[];
     nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");if(isTrophy)return;
-      const sig=sigCount(t);const stk=s.cons?.mos?s.cons.mos*2:s.cons?.sticker||null;
-      if(sig===0&&stk&&s.currentPrice>stk){
-        const gap=((s.currentPrice-stk)/stk*100).toFixed(0);
+      const sig=sigCount(t);const buf=isBuffett(t);
+      const sellRef=buf?activationPrice(s):(s.cons?.mos?s.cons.mos*2:s.cons?.sticker||null);
+      if(sig===0&&sellRef&&s.currentPrice>sellRef){
+        const gap=((s.currentPrice-sellRef)/sellRef*100).toFixed(0);
         const available=toEUR(sh*s.currentPrice,s.currency);
-        tier2.push({ticker:t,gap,available,price:s.currentPrice,sticker:stk,currency:s.currency});}});
-    tier2.sort((a,b)=>b.gap-a.gap); // highest gap above sticker first
+        tier2.push({ticker:t,gap,available,price:s.currentPrice,sticker:sellRef,currency:s.currency});}});
+    tier2.sort((a,b)=>b.gap-a.gap); // highest gap above sell reference first
 
     // Current grid stocks (non-trophy)
     const gridStocks=nlTickers.filter(t=>{const sh=posShares(nlPos[t]);return sh>0&&!nlPos[t].tranches.every(tr=>tr.signal==="trophy");});
@@ -2646,15 +2670,16 @@ function renderAllocator(c){
     const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&stocks[t].status!=="speculative");
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
-      const sticker=s.cons.mos?s.cons.mos*2:null;
+      const buf=s.category==="buffett";
+      const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
       const triggers=[];
       if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker))triggers.push("PBT");
       if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker))triggers.push("10Cap");
-      if(s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
+      if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
       const pending=[];
       if(s.cons.pbt&&!triggers.includes("PBT")&&!isTriggerMuted(s,"pbt"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
       if(s.cons.tenCap&&!triggers.includes("10Cap")&&!isTriggerMuted(s,"tenCap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
-      if(s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
+      if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
       if(!triggers.length&&!pending.length)return;
       const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
       readyNL.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length});});
@@ -2752,7 +2777,7 @@ function renderWatchlist(c){
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   h+=`<div class="wl-grid">`;
   wl.forEach(t=>{const s=stocks[t];const g=gapPct(t);const sc=sigCount(t);
-    const gStr=sc>0?sc+"/3 signals":g!=null?g+"%":"—";
+    const gStr=sc>0?sc+"/"+(isBuffett(t)?2:3)+" signals":g!=null?g+"%":"—";
     const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
     const pri=s.priority;
     const snoozed=isSnoozed(t);
@@ -2760,9 +2785,11 @@ function renderWatchlist(c){
     h+=`<div class="wl-card" ${snoozed?'style="opacity:0.5"':''}><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
       <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
       <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
-      <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
+      <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${isBuffett(t)&&s.cons.tenCap?` · <span style="color:#38bdf8;font-weight:400">TC ${fmt(s.cons.tenCap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
-    [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}].forEach(({l,v,p,k})=>{
+    const _wlTrigs=isBuffett(t)?[{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"}]:
+      [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}];
+    _wlTrigs.forEach(({l,v,p,k})=>{
       if(!v&&!p)return; // skip empty triggers entirely
       const muted=v&&isTriggerMuted(s,k);const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk&&!muted?calcImpliedReturn(stk,v):null;
       const col=on?"var(--green)":muted?"#d97706":"var(--muted)";
@@ -3114,6 +3141,8 @@ function openEditStock(t){
     {id:"es-earn",label:"Next Earnings Date (YYYY-MM-DD)",val:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"",placeholder:"2026-04-23"},
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
+    "— Category —",
+    {id:"es-cat",label:"Framework",val:s.category==="buffett"?"Buffett":"Phil Town",select:["Phil Town","Buffett"]},
   ],()=>{
     s.name=gv("es-name")||s.name;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;
@@ -3141,6 +3170,8 @@ function openEditStock(t){
     }
     const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed))s.earningsDate=ed.getTime();}else{s.earningsDate=null;}
     s.gate=(gateVal==="FAIL")?false:true;
+    // Category
+    const catVal=gv("es-cat");s.category=catVal==="Buffett"?"buffett":undefined;
     // Mark triggers as freshly calculated
     s.lastCalcDate=Date.now();
     updateSignals(t);save();
@@ -3325,8 +3356,9 @@ async function syncTriggersToCloud(){
       alertStocks.push({
         ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
-        sticker:s.cons.mos?s.cons.mos*2:null,
-        triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
+        category:s.category||"philtown",
+        sticker:s.category==="buffett"?null:(s.cons.mos?s.cons.mos*2:null),
+        triggers:{mos:s.category==="buffett"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
         signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}
       });
     });
