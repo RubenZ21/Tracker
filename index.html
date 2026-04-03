@@ -2188,7 +2188,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   h+=`<div class="pos-grid">`;
 
   // INDEX POSITION CARD (Personal or Caca — when index position exists or allocation active)
-  const _showIdx=(currentPf==="personal"&&(settings.indexAllocation>0||getIndexPos("personal").shares>0))||(currentPf==="nl"&&getIndexPos("nl").shares>0);
+  const _showIdx=(currentPf==="personal"&&(settings.indexAllocation>0||getIndexPos("personal").shares>0))||(currentPf==="nl");
   if(_showIdx){
     const ip=getIndexPos(currentPf);const ixSh=ip.shares||0;const ixAvg=ip.avgCost||0;const ixPrice=ip.currentPrice||0;
     const ixCcy=currentPf==="nl"?"EUR":"USD";const ixSym=currentPf==="nl"?"€":"$";
