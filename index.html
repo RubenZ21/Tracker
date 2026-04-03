@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.80</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.82</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:15};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:15,indexAllocation:0,indexTicker:"XZW0.L"};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
@@ -501,9 +501,24 @@ function pfBaseCcy(pfKey){return pfKey==="personal"?(settings.personalBaseCcy||"
 function pfSym(pfKey){const c=pfBaseCcy(pfKey);return c==="EUR"?"€":c==="GBp"?"p":c==="CAD"?"C$":c==="JPY"?"¥":"$";}
 function toBase(amount,ccy,pfKey){const base=pfBaseCcy(pfKey);if(ccy===base)return amount;return fromEUR(toEUR(amount,ccy),base);}
 function pfIncome(pfKey){if(pfKey!=="personal")return 0;return pfBaseCcy("personal")==="EUR"?(settings.monthlyIncome||0):(settings.monthlyIncomeUSD||0);}
+// Phil Town income: total income minus index allocation (only for personal)
+function ptIncome(pfKey){if(pfKey!=="personal")return pfIncome(pfKey);return pfIncome(pfKey)-(settings.indexAllocation||0);}
+// Index position helpers
+function getIndexPos(){return portfolios.personal?.indexPosition||{shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};}
+function indexValue(){const ip=getIndexPos();return(ip.shares||0)*(ip.currentPrice||0);}
+function indexCostBasis(){const ip=getIndexPos();return(ip.shares||0)*(ip.avgCost||0);}
+function indexReturn(){const v=indexValue(),c=indexCostBasis();if(!c)return null;return((v-c)/c*100);}
+// Stock-picking half: total value of all PT positions + DP (excl index)
+function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
+function stockPickingCostBasis(){const pf=portfolios.personal;if(!pf)return 0;let c=0;Object.entries(pf.positions).forEach(([t,pos])=>{pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)c+=sh*tr.buyPrice;});});return c+(pf.dryPowder||0);}
+// Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
+function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
+function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;pf.dryPowder=base==="USD"?Math.round(pf.dpUSD+(pf.dpEUR*settings.fxRate)):Math.round(pf.dpEUR+(pf.dpUSD/settings.fxRate));}
 function pfValueEUR(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;
   Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=toEUR(posShares(pos)*s.currentPrice,s.currency);});
+  // Include index position for personal portfolio
+  if(pfKey==="personal")v+=toEUR(indexValue(),"USD");
   return v+toEUR(pf.dryPowder,pfBaseCcy(pfKey));}
 
 // Caca portfolio: total market value (excl trophy) + DP, and tranche size (÷15)
@@ -619,6 +634,11 @@ function load(){
   if(!settings.pushWorkerUrl)settings.pushWorkerUrl="";
   if(settings.pushSubscribed===undefined)settings.pushSubscribed=false;
   if(!settings.lastPushSync)settings.lastPushSync=null;
+  // Migration: add index allocation defaults if missing
+  if(settings.indexAllocation===undefined)settings.indexAllocation=0;
+  if(!settings.indexTicker)settings.indexTicker="XZW0.L";
+  // Migration: init index position for personal portfolio
+  if(!portfolios.personal.indexPosition)portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
   // Migration: seed gridStocks per portfolio from stocks with status==="grid"
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
@@ -731,6 +751,19 @@ async function fetchPrices(){
     }
   }
 
+  // 3b. Fetch index ETF price (XZW0) separately — not in stocks object
+  if(settings.ibkrWorker&&settings.indexTicker){
+    try{
+      const ir=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(settings.indexTicker)}`);
+      const id=await ir.json();
+      const iq=id[settings.indexTicker];
+      if(iq&&iq.price>0){
+        const ip=portfolios.personal.indexPosition||(portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
+        ip.currentPrice=iq.price;ip.lastUpdate=Date.now();ip.priceSource="yahoo";
+      }
+    }catch(e){}
+  }
+
   // Re-enable buy modals, then queue for signals that genuinely changed (off before refresh → on after)
   window._suppressBuyModal=false;
   Object.entries(stocks).forEach(([t,s])=>{
@@ -749,6 +782,8 @@ async function fetchPrices(){
   });
 
   settings.lastFetch=Date.now();save();render();
+  // Record daily performance snapshot for index vs stock-picking comparison
+  if(settings.indexAllocation>0&&getIndexPos().shares>0)recordSnapshot();
   // Check for new signals and celebrate
   const newFires=checkNewSignals();
   if(newFires.length){
@@ -1040,6 +1075,15 @@ async function autoSyncIBKR(pfKey){
       const rawCost=parseFloat(p.getAttribute("costBasisPrice")||p.getAttribute("costPrice")||0);
       const rawMkt=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
       if(qty===0)return;
+      // Route XZW0 (index ETF) to index position, not regular positions
+      const indexSym=(settings.indexTicker||"XZW0.L").replace(".L","");
+      if(sym===indexSym||sym==="XZW0"||sym===settings.indexTicker){
+        if(pfKey==="personal"){
+          const ip=pf.indexPosition||(pf.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
+          ip.shares=qty;ip.avgCost=rawCost;ip.currentPrice=rawMkt||ip.currentPrice;ip.lastUpdate=Date.now();ip.priceSource="ibkr";
+        }
+        return;
+      }
       const t=resolveT(sym);if(!t)return;
       ibkrSeen.add(t);
       // IBKR reports GBP prices in pounds; app uses pence for GBp stocks
@@ -1234,6 +1278,10 @@ function exportExcel(){
     {key:"nlTranches",value:settings.nlTranches||16},
     {key:"marr",value:settings.marr||15},
     {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
+    {key:"indexAllocation",value:settings.indexAllocation||0},
+    {key:"indexTicker",value:settings.indexTicker||"XZW0.L"},
+    {key:"indexShares",value:getIndexPos().shares||0},
+    {key:"indexAvgCost",value:getIndexPos().avgCost||0},
     {key:"gridStocks_personal",value:(portfolios.personal?.gridStocks||[]).join(",")},
     {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")}];
   const ws3=XLSX.utils.json_to_sheet(stRows);ws3["!cols"]=[{wch:22},{wch:20}];
@@ -1376,6 +1424,10 @@ function handleExcelImport(e){
           if(k==="nlTranches"&&val!=null)settings.nlTranches=Math.max(1,Number(val));
           if(k==="marr"&&val!=null)settings.marr=Math.max(1,Math.min(30,Number(val)));
           if(k==="pushWorkerUrl"&&val!=null&&val!=="")settings.pushWorkerUrl=String(val);
+          if(k==="indexAllocation"&&val!=null)settings.indexAllocation=Math.max(0,Number(val));
+          if(k==="indexTicker"&&val!=null&&val!=="")settings.indexTicker=String(val);
+          if(k==="indexShares"&&val!=null){const ip=portfolios.personal.indexPosition||(portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});ip.shares=Number(val);}
+          if(k==="indexAvgCost"&&val!=null){const ip=portfolios.personal.indexPosition||(portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});ip.avgCost=Number(val);}
           if(k==="ibkrWorker"&&val!=null&&val!=="")settings.ibkrWorker=String(val);
           if(k==="ibkrTokenPersonal"&&val!=null&&val!=="")settings.ibkrTokenPersonal=String(val);
           if(k==="ibkrQueryPersonal"&&val!=null&&val!=="")settings.ibkrQueryPersonal=String(val);
@@ -2111,6 +2163,30 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
   // Per-stock unified cards
   h+=`<div class="pos-grid">`;
+
+  // INDEX POSITION CARD (Personal only, when index allocation is active)
+  if(currentPf==="personal"&&(settings.indexAllocation>0||getIndexPos().shares>0)){
+    const ip=getIndexPos();const ixSh=ip.shares||0;const ixAvg=ip.avgCost||0;const ixPrice=ip.currentPrice||0;
+    const ixVal=ixSh*ixPrice;const ixPnl=ixAvg&&ixPrice?((ixPrice-ixAvg)/ixAvg*100):0;
+    const ixName=(settings.indexTicker||"XZW0.L").replace(".L","");
+    h+=`<div class="pos-card" style="border-color:#0e7490">
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">
+        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0e7490,#164e63);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#67e8f9;flex-shrink:0">IDX</div>
+        <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 ${ixName}</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
+          <div class="pos-sub">MSCI World ESG · Accumulating</div></div></div>
+        <div style="text-align:right"><div class="pos-price-val">${fmt(ixPrice,"USD")}</div>
+          ${(function(){if(!ixPnl)return "";var _c=ixPnl>=0?"var(--accent)":"var(--green)";var _s=ixPnl>=0?"+":"";return "<div class=\"pos-pnl\" style=\"color:"+_c+"\">"+_s+ixPnl.toFixed(1)+"%</div>"})()}
+          <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${ip.priceSource==="ibkr"?"⚡":ip.priceSource==="yahoo"?"YF ":""}${timeAgo(ip.lastUpdate)}</div></div></div>
+      <div class="stat-row" style="margin:8px 0">
+        <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${ixSh>0?ixSh.toFixed(2):"0"}</div></div>
+        <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${ixAvg>0?fmt(ixAvg,"USD"):"—"}</div></div>
+        <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(ixVal,"USD")}</div></div></div>
+      <div style="font-size:10px;color:var(--muted);padding:4px 0;text-align:center">${pfSym("personal")}${(settings.indexAllocation||0).toLocaleString()}/mo · Never sold · DCA on salary day</div>
+      <div class="btn-row">
+        <button class="btn-sm btn-accent" style="flex:1" onclick="logIndexBuy()">+ Log Buy</button>
+        <button class="btn-sm" style="flex:0 0 auto" onclick="editIndexPosition()">✏ Edit</button></div></div>`;
+  }
+
   // Build unified ticker list: owned + grid ghosts + speculative ghosts (deduped)
   const _ownedSet=new Set(Object.keys(pf.positions));
   const _allCardTickers=[..._ownedSet];
@@ -2359,7 +2435,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 }
 
 // ============ ALLOCATOR ============
-const MONTHLY_STEPS=["Salary","Transfer","Execute"];
+function MONTHLY_STEPS(){const s=["Salary","Transfer"];if(settings.indexAllocation>0)s.push("Buy "+(settings.indexTicker||"XZW0.L").replace(".L",""));s.push("Execute");return s;}
 function getMonthKey(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
 function lastDayOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0).getDate();}
 function monthLabel(){const d=new Date();return d.toLocaleString("en",{month:"short"})+" "+d.getFullYear();}
@@ -2371,13 +2447,13 @@ function toggleStep(i){
 }
 function renderMonthlyBanner(){
   const mk=getMonthKey();if(settings.monthlyStepMonth!==mk){settings.monthlyStep=0;settings.monthlyStepMonth=mk;}
-  const step=settings.monthlyStep;const allDone=step>=MONTHLY_STEPS.length;
+  const steps=MONTHLY_STEPS();const step=settings.monthlyStep;const allDone=step>=steps.length;
   const ld=lastDayOfMonth();const ml=monthLabel();
   let h=`<div class="monthly-banner${allDone?" all-done":""}"><div class="top-row"><div class="mo-label">${ml}</div>`;
   h+=allDone?`<span style="font-size:11px;color:var(--green);font-family:var(--mono)">✓ Done</span>`
     :`<div class="mo-deadline">⏰ Transfer by ${ml.split(" ")[0]} ${ld}</div>`;
   h+=`</div><div class="monthly-pills">`;
-  MONTHLY_STEPS.forEach((s,i)=>{
+  MONTHLY_STEPS().forEach((s,i)=>{
     const cls=i<step?"done":i===step?"active":"";
     const label=i<step?"✓ "+s:s;
     h+=`<div class="mo-pill ${cls}" onclick="toggleStep(${i})">${label}</div>`;
@@ -2391,16 +2467,17 @@ function renderAllocator(c){
     <div class="pf-toggle" style="margin:0 0 12px"><button class="${currentPf==="personal"?"active":"inactive"}" onclick="currentPf='personal';localStorage.setItem('r1-pf','personal');render()">🧑 Personal</button><button class="${currentPf==="nl"?"active":"inactive"}" onclick="currentPf='nl';localStorage.setItem('r1-pf','nl');render()">🧓 Caca</button></div>`;
   if(currentPf==="personal"){
     h+=renderMonthlyBanner();
-    const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS.length;
+    const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS().length;
     // v2 formula with Sticker Ceiling: Tranche = income ÷ (sum of valid trigger slots across firing stocks + 3)
-    // A trigger slot is valid if: MOS (always valid), or TenCap/PBT with trigger price < sticker (mos×2)
     // Only new income is divided. Existing DP stays earmarked.
     const firingStocks=GRID.filter(t=>sigCount(t)>0);
     const nFiring=firingStocks.length;
     const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,'personal'),0);
     const expSlots=settings.expansionSlots??3;
     const denom=validSlots+expSlots;
-    const income=pfIncome("personal");
+    const totalIncome=pfIncome("personal");
+    const idxAlloc=settings.indexAllocation||0;
+    const income=totalIncome-idxAlloc; // Phil Town portion
     const _bs=pfSym("personal");const _bc=pfBaseCcy("personal");
     const perTr=denom>0?Math.round(income/denom):0;
     // Count lit (deploy) vs unlit signals across firing stocks — deployCount includes piggyback
@@ -2428,22 +2505,60 @@ function renderAllocator(c){
     });
     const dpExpansion=Math.max(0,pf.dryPowder-dpMosReserved);
     const _incKey=_bc==="USD"?"monthlyIncomeUSD":"monthlyIncome";
-    const _altSym=_bc==="USD"?"€":"$";const _altIncome=_bc==="USD"?Math.round(income/settings.fxRate):Math.round(income*settings.fxRate);
-    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>${_bs}</span><input type="number" value="${income}" onchange="settings.${_incKey}=+this.value;save();render()"></div>
+    const _altSym=_bc==="USD"?"€":"$";const _altIncome=_bc==="USD"?Math.round(totalIncome/settings.fxRate):Math.round(totalIncome*settings.fxRate);
+    const idxPct=totalIncome>0?Math.round(idxAlloc/totalIncome*100):0;
+    const ptPct=100-idxPct;
+    h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>${_bs}</span><input type="number" value="${totalIncome}" onchange="settings.${_incKey}=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= ${_altSym}${_altIncome.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
       <div class="input-box" style="flex:0 0 70px"><div class="input-label">Exp.</div><div class="input-field"><input type="number" value="${expSlots}" min="0" max="9" style="width:36px;text-align:center" onchange="settings.expansionSlots=Math.max(0,+this.value||0);save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">slots</div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div>
         <div style="display:flex;gap:4px;align-items:center"><span style="font-size:11px;color:var(--muted)">$</span><input type="number" value="${pf.dpUSD||0}" style="width:60px" onchange="portfolios.personal.dpUSD=+this.value||0;portfolios.personal.dpManual=true;save();render()"><span style="font-size:11px;color:var(--muted)">€</span><input type="number" value="${pf.dpEUR||0}" style="width:60px" onchange="portfolios.personal.dpEUR=+this.value||0;portfolios.personal.dpManual=true;save();render()"></div>
         <div style="font-size:11px;color:var(--accent);margin-top:4px;font-family:var(--mono);font-weight:600">= ${_bs}${Math.round(pf.dryPowder).toLocaleString()}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${dpMosReserved>0?`<span style="color:var(--amber)">${_bs}${Math.round(dpMosReserved).toLocaleString()} MOS</span> · <span style="color:var(--green)">${_bs}${Math.round(dpExpansion).toLocaleString()} avail</span>`:"not re-divided"}</div></div></div>
-    <div class="alloc-card">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">Monthly Allocation</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+${expSlots} = ${denom} slots</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${dpMosReserved>0?`<span style="color:var(--amber)">${_bs}${Math.round(dpMosReserved).toLocaleString()} MOS</span> · <span style="color:var(--green)">${_bs}${Math.round(dpExpansion).toLocaleString()} avail</span>`:"not re-divided"}</div></div></div>`;
+
+    // === INDEX / STOCK-PICKING SPLIT ===
+    if(idxAlloc>0){
+      const ip=getIndexPos();const ir=indexReturn();const spV=stockPickingValue();const spC=stockPickingCostBasis();const spR=spC>0?((spV-spC)/spC*100):null;
+      h+=`<div class="alloc-card" style="border-color:#0e7490;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:700">Income Split</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${idxPct}% index · ${ptPct}% stocks</span></div>
+        <div style="display:flex;gap:3px;height:8px;border-radius:4px;overflow:hidden;margin-bottom:10px">
+          <div style="flex:${idxPct};background:#0e7490;border-radius:4px 0 0 4px"></div>
+          <div style="flex:${ptPct};background:var(--accent);border-radius:0 4px 4px 0"></div></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:11px;color:#67e8f9">📈 Index (${settings.indexTicker?.replace('.L','')||'XZW0'})</span>
+          <span style="font-size:13px;font-family:var(--mono);color:#67e8f9;font-weight:600">${_bs}${idxAlloc.toLocaleString()}/mo</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:11px;color:var(--accent)">📊 Phil Town Stocks</span>
+          <span style="font-size:13px;font-family:var(--mono);color:var(--accent);font-weight:600">${_bs}${income.toLocaleString()}/mo</span></div>
+        <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between">
+          <span style="font-size:11px;color:var(--muted)">Total</span>
+          <span style="font-size:13px;font-family:var(--mono)">${_bs}${totalIncome.toLocaleString()}/mo</span></div>
+        ${ip.shares>0||spC>0?`<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Performance Comparison</div>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px;border-left:3px solid #0e7490">
+              <div style="font-size:10px;color:#67e8f9">Index</div>
+              <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${ir!=null&&ir>=0?'var(--green)':'var(--red)'}">${ir!=null?(ir>=0?'+':'')+ir.toFixed(1)+'%':'—'}</div>
+              <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_bs}${Math.round(indexValue()).toLocaleString()} val</div>
+              <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_bs}${Math.round(indexCostBasis()).toLocaleString()} cost</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px;border-left:3px solid var(--accent)">
+              <div style="font-size:10px;color:var(--accent)">Stocks + DP</div>
+              <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${spR!=null&&spR>=0?'var(--green)':'var(--red)'}">${spR!=null?(spR>=0?'+':'')+spR.toFixed(1)+'%':'—'}</div>
+              <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_bs}${Math.round(spV).toLocaleString()} val</div>
+              <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_bs}${Math.round(spC).toLocaleString()} cost</div></div>
+          </div>
+          ${ir!=null&&spR!=null?`<div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--mono);text-align:center">${Math.abs(ir-spR)<1?'≈ Even':(ir>spR?'Index leads +'+Math.abs(ir-spR).toFixed(1)+'pp':'Stocks lead +'+Math.abs(spR-ir).toFixed(1)+'pp')}</div>`:''}</div>`:''}
+      </div>`;
+    }
+
+    h+=`<div class="alloc-card">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">${idxAlloc>0?"Stock-Picking Allocation":"Monthly Allocation"}</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+${expSlots} = ${denom} slots</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche (${_bs}${income.toLocaleString()} ÷ ${denom})</span><span style="font-size:13px;font-family:var(--mono);color:var(--accent)">${_bs}${perTr.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litTotal} lit signals)</span><span style="font-size:13px;font-family:var(--mono);color:var(--green)">${_bs}${deployTotal.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">MOS reserves (${unlitTotal} unlit)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">${_bs}${mosReserveTotal.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Expansion (${expSlots} slots)</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">${_bs}${expansionTotal.toLocaleString()}</span></div>
-      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${Math.round(toDP/income*100)}%)</span></span></div></div>
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--amber)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + MOS reserve
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
@@ -2996,6 +3111,20 @@ function renderSettings(c){
   else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions. Use → Risk on a watchlist stock to add one.</div>`;}
   h+=`</div>
 
+    <div class="settings-card"><div class="settings-title">📈 Index Allocation (50/50 Split)</div>
+      <div class="settings-desc">Monthly amount automatically allocated to index ETF (${settings.indexTicker||'XZW0.L'}). Set to 0 to disable. Remainder goes through Phil Town formula.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <span style="font-size:12px;color:var(--muted)">$</span>
+        <input class="settings-input" type="number" style="width:100px;margin-bottom:0" value="${settings.indexAllocation||0}" onchange="settings.indexAllocation=Math.max(0,+this.value||0);save();render()">
+        <span style="font-size:11px;color:var(--muted)">/month</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="settings-save" style="padding:6px 12px;${(settings.indexAllocation||0)===0?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.indexAllocation=0;save();render()">Off</button>
+        <button class="settings-save" style="padding:6px 12px;${(settings.indexAllocation||0)===6000?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.indexAllocation=6000;save();render()">$6,000</button>
+        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition()">✏ Position</button>
+      </div>
+      ${getIndexPos().shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--mono)">${getIndexPos().shares.toFixed(2)} shares @ $${getIndexPos().avgCost.toFixed(2)} avg · ${(getIndexPos().deployLog||[]).length} buys logged</div>`:''}</div>
+
     <div class="settings-card"><div class="settings-title">💱 Personal Base Currency</div>
       <div class="settings-desc">Controls how income, tranches, DP totals and allocations are displayed for the Personal portfolio.</div>
       <div style="display:flex;gap:8px;margin-top:8px">
@@ -3112,6 +3241,38 @@ function demoteFromGrid(t){
   if(pf.gridStocks)pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
   save();render();
 }
+// === INDEX POSITION MANAGEMENT ===
+function logIndexBuy(){
+  const ip=portfolios.personal.indexPosition||(portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
+  const amt=prompt("Amount invested ($):",String(settings.indexAllocation||6000));if(!amt)return;
+  const price=prompt("Price per share ($):",ip.currentPrice?ip.currentPrice.toFixed(2):"");if(!price)return;
+  const a=parseFloat(amt),p=parseFloat(price);if(isNaN(a)||isNaN(p)||p<=0)return alert("Invalid input");
+  const sh=a/p;
+  // Update weighted average cost
+  const oldCost=ip.shares*ip.avgCost;const newCost=oldCost+a;const newShares=ip.shares+sh;
+  ip.avgCost=newShares>0?newCost/newShares:0;ip.shares=newShares;
+  if(!ip.deployLog)ip.deployLog=[];
+  ip.deployLog.push({date:new Date().toISOString(),shares:+sh.toFixed(4),price:p,amount:a});
+  // Also add to main deploy log for CSV export
+  const ixTicker=(settings.indexTicker||"XZW0.L").replace(".L","");
+  deployLog.push({id:Date.now()+Math.random()*1000|0,date:new Date().toISOString(),ticker:ixTicker,flag:"🌍",action:"buy",signal:"INDEX",shares:+sh.toFixed(4),price:p,currency:"USD",portfolio:"personal",triggerPrice:null,note:"Index DCA $"+a.toLocaleString()});
+  localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));
+  save();render();
+}
+function editIndexPosition(){
+  showModal("Edit Index Position",[
+    {id:"ix-shares",label:"Shares",val:getIndexPos().shares,type:"number"},
+    {id:"ix-avg",label:"Avg Cost ($)",val:getIndexPos().avgCost,type:"number"},
+    {id:"ix-price",label:"Current Price ($)",val:getIndexPos().currentPrice,type:"number"},
+    {id:"ix-ticker",label:"Yahoo Symbol",val:settings.indexTicker||"XZW0.L"},
+  ],()=>{
+    const ip=portfolios.personal.indexPosition||(portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
+    ip.shares=nv("ix-shares")??ip.shares;ip.avgCost=nv("ix-avg")??ip.avgCost;ip.currentPrice=nv("ix-price")??ip.currentPrice;
+    settings.indexTicker=gv("ix-ticker")||settings.indexTicker;
+    save();render();
+  });
+}
+
 function removeStock(t){if(!confirm(`Delete ${t} everywhere?`))return;delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]&&portfolios[p].positions)delete portfolios[p].positions[t];});
   const deleted=JSON.parse(localStorage.getItem("r1-deleted")||"[]");if(!deleted.includes(t))deleted.push(t);localStorage.setItem("r1-deleted",JSON.stringify(deleted));
   save();render();}
