@@ -2567,7 +2567,7 @@ function renderAllocator(c){
           <span style="font-size:11px;color:#67e8f9">📈 Index (${settings.indexTicker?.replace('.L','')||'XZW0'})</span>
           <span style="font-size:13px;font-family:var(--mono);color:#67e8f9;font-weight:600">${_bs}${idxAlloc.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:11px;color:var(--accent)">📊 Phil Town Stocks</span>
+          <span style="font-size:11px;color:var(--accent)">📊 Stocks</span>
           <span style="font-size:13px;font-family:var(--mono);color:var(--accent);font-weight:600">${_bs}${income.toLocaleString()}/mo</span></div>
         <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between">
           <span style="font-size:11px;color:var(--muted)">Total</span>
@@ -3136,7 +3136,7 @@ function renderSettings(c){
   h+=`</div>
 
     <div class="settings-card"><div class="settings-title">📈 Index Allocation (50/50 Split)</div>
-      <div class="settings-desc">Monthly amount automatically allocated to index ETF (${settings.indexTicker||'XZW0.L'}). Set to 0 to disable. Remainder goes through Phil Town formula.</div>
+      <div class="settings-desc">Monthly amount automatically allocated to index ETF (${settings.indexTicker||'XZW0.L'}). Set to 0 to disable. Remainder goes through stock-picking formula.</div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <span style="font-size:12px;color:var(--muted)">$</span>
         <input class="settings-input" type="number" style="width:100px;margin-bottom:0" value="${settings.indexAllocation||0}" onchange="settings.indexAllocation=Math.max(0,+this.value||0);save();render()">
