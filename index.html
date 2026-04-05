@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.87</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.88</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2125,10 +2125,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <span style="font-size:10px;font-family:var(--mono);color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="document.getElementById('dp-slider-ctrl').style.display=document.getElementById('dp-slider-ctrl').style.display==='none'?'block':'none'">${dps.sliderPct}%</span>
       </div>
       <div id="dp-slider-ctrl" style="display:none" class="dp-slider-wrap">
-        <input type="range" class="dp-slider" min="0" max="100" step="5" value="${dps.sliderPct}" style="--pct:${dps.sliderPct}%" oninput="this.style.setProperty('--pct',this.value+'%');dpSliderUpdate('${currentPf}',+this.value)">
+        <input type="range" class="dp-slider" min="0" max="100" step="5" value="${dps.sliderPct}" style="--pct:${dps.sliderPct}%" oninput="dpSliderPreview(this,'${currentPf}')" onchange="dpSliderCommit('${currentPf}',+this.value)">
         <div class="dp-slider-labels"><span>← more for MOS</span><span>more for new →</span></div>
       </div>
-      ${dps.overflowing?`<div style="font-size:9px;color:var(--amber);margin-top:4px">⚠ MOS reserve at cap — unlit tranches overflow to Expansion</div>`:""}
     </div>`;
   }
 
@@ -3137,9 +3136,31 @@ function dpPreviewTotal(pfKey){
   const sym=base==="USD"?"$":"€";
   document.getElementById("dp-total").textContent=sym+total.toLocaleString();
 }
-function dpSliderUpdate(pfKey,val){
+function dpSliderPreview(el,pfKey){
+  const val=+el.value;
+  el.style.setProperty('--pct',val+'%');
+  // Update MOS/EXP text inline without re-render
+  const pf=portfolios[pfKey];if(!pf)return;
+  const totalDP=pfKey==='nl'?(pf.dpEUR||0):(pf.dpUSD||0);
+  if(totalDP<=0)return;
+  const mosAmt=Math.round(totalDP*(val/100));
+  const expAmt=Math.round(totalDP-mosAmt);
+  const sec=document.getElementById('dp-slider-section');
+  if(!sec)return;
+  const spans=sec.querySelectorAll('div:first-child > div:first-child > span');
+  const ccy=pfKey==='nl'?'€':'$';
+  if(spans[0])spans[0].textContent='MOS '+ccy+mosAmt.toLocaleString();
+  if(spans[2])spans[2].textContent='EXP '+ccy+expAmt.toLocaleString();
+  // Update percentage badge
+  const badge=sec.querySelector('div:first-child > span:last-child');
+  if(badge)badge.textContent=val+'%';
+}
+function dpSliderCommit(pfKey,val){
   if(pfKey==="nl")settings.dpSliderCaca=val;else settings.dpSlider=val;
   save();render();
+  // Reopen slider after render
+  const ctrl=document.getElementById('dp-slider-ctrl');
+  if(ctrl)ctrl.style.display='block';
 }
 
 // ============ DEPLOYMENT LOG ============
