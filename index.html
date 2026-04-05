@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.88</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.93</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -586,6 +586,9 @@ function pfValueEUR(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;
   // Include index positions for personal portfolio (indexValue returns USD base)
   if(pfKey==="personal")v+=toEUR(indexValue("personal"),"USD");
   return v+toEUR(pf.dryPowder,pfBaseCcy(pfKey));}
+function pfCostExIndex(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;const base=pfBaseCcy(pfKey);
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;const sh=posShares(pos);const avg=posAvgPrice(pos);v+=fromEUR(toEUR(sh*avg,s.currency),base);});
+  return v+(pf.dryPowder||0);}
 
 // Caca portfolio: total market value (excl trophy) + DP, and tranche size (÷15)
 function cacaInfo(){
@@ -2113,7 +2116,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     </div>
   </div>`;
   // DP Slider: MOS Reserve / Expansion split
-  if(!hideValues&&pf.dryPowder>0){
+  if(!hideValues&&pf.dryPowder>0&&currentPf!=='nl'){
     const dps=getDPSplit(currentPf);
     h+=`<div id="dp-slider-section" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px">
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -2126,7 +2129,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       </div>
       <div id="dp-slider-ctrl" style="display:none" class="dp-slider-wrap">
         <input type="range" class="dp-slider" min="0" max="100" step="5" value="${dps.sliderPct}" style="--pct:${dps.sliderPct}%" oninput="dpSliderPreview(this,'${currentPf}')" onchange="dpSliderCommit('${currentPf}',+this.value)">
-        <div class="dp-slider-labels"><span>← more for MOS</span><span>more for new →</span></div>
+        <div class="dp-slider-labels"><span id="dp-slider-pct-label">${(()=>{const pfc=pfCostExIndex(currentPf);if(pfc<=0)return'';const dpPct=(pf.dryPowder/pfc*100).toFixed(1);const mosPct=(dps.mosReserveMax/pfc*100).toFixed(1);return 'DP '+dpPct+'% · MOS reserve '+mosPct+'%'})()}</span></div>
       </div>
     </div>`;
   }
@@ -2229,7 +2232,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _wTickers=Object.keys(pf.positions);
     const _wSegs=[];let _wTotal=0;
     _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
-      const val=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),_wBase);if(val<=0)return;
+      const avg=posAvgPrice(pf.positions[t]);const val=fromEUR(toEUR(sh*avg,s.currency),_wBase);if(val<=0)return;
       const col=_cMap[t]||_wPal[0];
       _wSegs.push({t,val,col});_wTotal+=val;
     });
@@ -2241,51 +2244,61 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _wSegs.forEach(sg=>{const pct=sg.val/_wTotal*100;
         h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=8?sg.t+"\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;
       });
-      if(dpBase>0){const dpPct=dpBase/_wTotal*100;
+      if(dpBase>0&&currentPf!=='nl'){const _dps=getDPSplit(currentPf);const dpMos=Math.round(dpBase*(_dps.sliderPct/100));const dpExp=dpBase-dpMos;
+        if(dpMos>0){const pct=dpMos/_wTotal*100;
+          h+=`<div style="width:${pct}%;background:#0d3b2e;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#34d399;white-space:nowrap;overflow:hidden">${pct>=8?"MOS\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
+        if(dpExp>0){const pct=dpExp/_wTotal*100;
+          h+=`<div style="width:${pct}%;background:#172554;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#60a5fa;white-space:nowrap;overflow:hidden">${pct>=8?"EXP\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
+      }else if(dpBase>0){const dpPct=dpBase/_wTotal*100;
         h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=8?"DP\u2009"+Math.round(dpPct)+"%":dpPct>=5?Math.round(dpPct)+"%":""}</div>`;
       }
       h+=`</div>`;
-      // Cost basis bar (same colors & order, cost instead of market value)
-      const _cSegs=[];let _cTotal=0;
-      _wSegs.forEach(sg=>{
-        const pos=pf.positions[sg.t];if(!pos)return;
-        const s=stocks[sg.t];if(!s)return;
-        const avg=posAvgPrice(pos);const sh=posShares(pos);
-        const cost=fromEUR(toEUR(avg*sh,s.currency),_wBase);
-        if(cost>0){_cSegs.push({t:sg.t,cost,col:sg.col});_cTotal+=cost;}
+      // Market value bar (faded, below cost bar)
+      const _mvSegs=[];let _mvTotal=0;
+      _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
+        const val=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),_wBase);if(val<=0)return;
+        _mvSegs.push({t,val,col:_cMap[t]||_wPal[0]});_mvTotal+=val;
       });
-      _cTotal+=dpBase;
-      if(_cTotal>0){
+      _mvTotal+=dpBase;
+      if(_mvTotal>0){
+        _mvSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
         h+=`<div style="display:flex;height:10px;margin:2px 0 1px;border-radius:3px;overflow:hidden;gap:1px;opacity:0.55">`;
-        _cSegs.forEach(sg=>{const pct=sg.cost/_cTotal*100;
+        _mvSegs.forEach(sg=>{const pct=sg.val/_mvTotal*100;
           h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
         });
-        if(dpBase>0){const dpPct=dpBase/_cTotal*100;
+        if(dpBase>0&&currentPf!=='nl'){const _dps2=getDPSplit(currentPf);const dpMos2=Math.round(dpBase*(_dps2.sliderPct/100));const dpExp2=dpBase-dpMos2;
+          if(dpMos2>0){const pct=dpMos2/_mvTotal*100;h+=`<div style="width:${pct}%;background:#0d3b2e;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#34d399;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+          if(dpExp2>0){const pct=dpExp2/_mvTotal*100;h+=`<div style="width:${pct}%;background:#172554;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#60a5fa;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+        }else if(dpBase>0){const dpPct=dpBase/_mvTotal*100;
           h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=10?Math.round(dpPct)+"%":""}</div>`;
         }
         h+=`</div>`;
       }
-      // Single combined label row for tickers that didn't fit in either bar
-      const _cMap2={};_cSegs.forEach(sg=>{_cMap2[sg.t]=sg;});
+      // Label row for tickers that didn't fit in bar
       const _labelTickers=new Set();
       _wSegs.forEach(sg=>{if(sg.val/_wTotal*100<8)_labelTickers.add(sg.t);});
-      if(_cTotal>0)_cSegs.forEach(sg=>{if(sg.cost/_cTotal*100<10)_labelTickers.add(sg.t);});
-      const dpNeedMkt=dpBase>0&&dpBase/_wTotal*100<8;
-      const dpNeedCost=_cTotal>0&&dpBase>0&&dpBase/_cTotal*100<10;
-      if(_labelTickers.size||dpNeedMkt||dpNeedCost){
+      const dpNeedLabel=dpBase>0&&currentPf==='nl'&&dpBase/_wTotal*100<8;
+      let _dpMosLabel=false,_dpExpLabel=false;
+      if(dpBase>0&&currentPf!=='nl'){const _dpsL=getDPSplit(currentPf);const _dpMosV=Math.round(dpBase*(_dpsL.sliderPct/100));const _dpExpV=dpBase-_dpMosV;
+        if(_dpMosV>0&&_dpMosV/_wTotal*100<8)_dpMosLabel=_dpMosV;
+        if(_dpExpV>0&&_dpExpV/_wTotal*100<8)_dpExpLabel=_dpExpV;
+      }
+      if(_labelTickers.size||dpNeedLabel||_dpMosLabel||_dpExpLabel){
         h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
         _labelTickers.forEach(t=>{
-          const mSg=_wSegs.find(s=>s.t===t);const cSg=_cMap2[t];
-          const mPct=mSg?Math.round(mSg.val/_wTotal*100):0;
-          const cPct=cSg&&_cTotal>0?Math.round(cSg.cost/_cTotal*100):0;
-          const col=mSg?mSg.col:(cSg?cSg.col:_wPal[0]);
-          const parts=[];if(mPct)parts.push(mPct+"%");if(cPct&&cPct!==mPct)parts.push(cPct+"% cost");
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${col};margin-right:2px;vertical-align:middle"></span>${t}\u2009${parts.join(" · ")}</span>`;
+          const mSg=_wSegs.find(s=>s.t===t);
+          const pct=mSg?Math.round(mSg.val/_wTotal*100):0;
+          const col=mSg?mSg.col:_wPal[0];
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${col};margin-right:2px;vertical-align:middle"></span>${t}\u2009${pct}%</span>`;
         });
-        if(dpNeedMkt||dpNeedCost){
-          const mPct=Math.round(dpBase/_wTotal*100);const cPct=_cTotal>0?Math.round(dpBase/_cTotal*100):0;
-          const parts=[];if(mPct)parts.push(mPct+"%");if(cPct&&cPct!==mPct)parts.push(cPct+"% cost");
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${parts.join(" · ")}</span>`;
+        if(_dpMosLabel){const pct=Math.round(_dpMosLabel/_wTotal*100);
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:#34d399"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#0d3b2e;margin-right:2px;vertical-align:middle"></span>MOS\u2009${pct}%</span>`;
+        }
+        if(_dpExpLabel){const pct=Math.round(_dpExpLabel/_wTotal*100);
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:#60a5fa"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#172554;margin-right:2px;vertical-align:middle"></span>EXP\u2009${pct}%</span>`;
+        }
+        if(dpNeedLabel){const pct=Math.round(dpBase/_wTotal*100);
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${pct}%</span>`;
         }
         h+=`</div>`;
       }
@@ -2411,7 +2424,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const avgCol=avgMOS==null?"var(--muted)":avgMOS>=50?"var(--green)":avgMOS>0?"#34d399":"var(--amber)";
     h+=`<div class="stat-row" style="margin:8px 0">
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
-      <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above ${_refLabel}":"≈ ${_refLabel}"}</div>`:""}</div></div>`;
+      <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above ${_refLabel}":"≈ ${_refLabel}"}</div>`:""}</div>
+      <div class="stat-box"><div class="stat-label">Invested</div><div class="stat-val">${hideValues?"•••":fmt(Math.round(shares*avg),s.currency)}</div></div></div>`;
 
     // Caca allocation indicator (between stats and notes)
     if(currentPf==="nl"){
@@ -3154,6 +3168,9 @@ function dpSliderPreview(el,pfKey){
   // Update percentage badge
   const badge=sec.querySelector('div:first-child > span:last-child');
   if(badge)badge.textContent=val+'%';
+  // Update MOS % of portfolio label
+  const lbl=document.getElementById('dp-slider-pct-label');
+  if(lbl){const pfc=pfCostExIndex(pfKey);if(pfc>0){const dpPct=(totalDP/pfc*100).toFixed(1);const mosPct=(mosAmt/pfc*100).toFixed(1);lbl.textContent='DP '+dpPct+'% · MOS reserve '+mosPct+'%';}}
 }
 function dpSliderCommit(pfKey,val){
   if(pfKey==="nl")settings.dpSliderCaca=val;else settings.dpSlider=val;
