@@ -150,7 +150,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.85</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.86</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -248,7 +248,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:15,indexAllocation:0,indexTicker:"XZW0.L",nlIndexTicker:"XZW0.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:15,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.DE",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
@@ -503,15 +503,19 @@ function toBase(amount,ccy,pfKey){const base=pfBaseCcy(pfKey);if(ccy===base)retu
 function pfIncome(pfKey){if(pfKey!=="personal")return 0;return pfBaseCcy("personal")==="EUR"?(settings.monthlyIncome||0):(settings.monthlyIncomeUSD||0);}
 // Phil Town income: total income minus index allocation (only for personal)
 function ptIncome(pfKey){if(pfKey!=="personal")return pfIncome(pfKey);return pfIncome(pfKey)-(settings.indexAllocation||0);}
-// Index position helpers
-function getIndexPos(pfKey){if(pfKey==="nl")return portfolios.nl?.indexPosition||{shares:0,avgCost:0,currency:"EUR",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};return portfolios.personal?.indexPosition||{shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};}
-function indexValue(pfKey){const ip=getIndexPos(pfKey);return(ip.shares||0)*(ip.currentPrice||0);}
-function indexCostBasis(pfKey){const ip=getIndexPos(pfKey);return(ip.shares||0)*(ip.avgCost||0);}
+// Index position helpers — dual tracker (XZMU=US, XZEU=EU)
+const _emptyIx=(ccy)=>({shares:0,avgCost:0,currency:ccy||"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
+function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR")};const ccyUS=pfKey==="nl"?"EUR":"USD";if(!pf.indexPositions)pf.indexPositions={us:_emptyIx(ccyUS),eu:_emptyIx("EUR")};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx(ccyUS);if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");return pf.indexPositions;}
+function getIndexPos(pfKey,region){return getIndexPositions(pfKey)[region||"us"];}
+function indexValueSingle(pfKey,region){const ip=getIndexPos(pfKey,region);return(ip.shares||0)*(ip.currentPrice||0);}
+function indexValue(pfKey){const base=pfBaseCcy(pfKey||"personal");let v=0;["us","eu"].forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.currentPrice||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
+function indexCostSingle(pfKey,region){const ip=getIndexPos(pfKey,region);return(ip.shares||0)*(ip.avgCost||0);}
+function indexCostBasis(pfKey){let v=0;["us","eu"].forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.avgCost||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
 function indexReturn(pfKey){const v=indexValue(pfKey),c=indexCostBasis(pfKey);if(!c)return null;return((v-c)/c*100);}
-// Caca index: how many tranches deployed, % of portfolio, cap check
-function cacaIndexInfo(){const ip=getIndexPos("nl");const deployed=(ip.deployLog||[]).length;const cap=settings.nlIndexCap||10;const maxT=settings.nlIndexMaxTranches||4;const ci=cacaInfo();const ixVal=indexValue("nl");const totalWithIndex=ci.total+ixVal;const pctOfPortfolio=totalWithIndex>0?(ixVal/totalWithIndex*100):0;const capRoom=totalWithIndex>0?Math.max(0,(cap/100)*totalWithIndex-ixVal):0;const atCap=deployed>=maxT||pctOfPortfolio>=cap;return{deployed,maxT,cap,pctOfPortfolio,capRoom,atCap,ixVal};}
-function indexTickerForPf(pfKey){return pfKey==="nl"?(settings.nlIndexTicker||"XZW0.DE"):(settings.indexTicker||"XZW0.L");}
-function indexTickerShort(pfKey){return indexTickerForPf(pfKey).replace(/\.(L|DE|AS)$/,"");}
+// Caca index: how many tranches deployed (across both ETFs), % of portfolio, cap check
+function cacaIndexInfo(){const ips=getIndexPositions("nl");const deployed=(ips.us.deployLog||[]).length+(ips.eu.deployLog||[]).length;const cap=settings.nlIndexCap||10;const maxT=(settings.nlIndexMaxTranches||4)*2;const ci=cacaInfo();const ixVal=indexValue("nl");const totalWithIndex=ci.total+ixVal;const pctOfPortfolio=totalWithIndex>0?(ixVal/totalWithIndex*100):0;const capRoom=totalWithIndex>0?Math.max(0,(cap/100)*totalWithIndex-ixVal):0;const atCap=deployed>=maxT||pctOfPortfolio>=cap;return{deployed,maxT,cap,pctOfPortfolio,capRoom,atCap,ixVal};}
+function indexTickerForPf(pfKey,region){const r=region||"us";if(pfKey==="nl")return r==="us"?(settings.nlIndexTickerUS||"XZMU.DE"):(settings.nlIndexTickerEU||"XZEU.DE");return r==="us"?(settings.indexTickerUS||"XZMU.L"):(settings.indexTickerEU||"XZEU.L");}
+function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).replace(/\.(L|DE|AS)$/,"");}
 // Stock-picking half: total value of all PT positions + DP (excl index)
 function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
 function stockPickingCostBasis(){const pf=portfolios.personal;if(!pf)return 0;let c=0;Object.entries(pf.positions).forEach(([t,pos])=>{pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)c+=sh*tr.buyPrice;});});return c+(pf.dryPowder||0);}
@@ -521,8 +525,8 @@ function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;pf.dryPowder=base==="USD"?Math.round(pf.dpUSD+(pf.dpEUR*settings.fxRate)):Math.round(pf.dpEUR+(pf.dpUSD/settings.fxRate));}
 function pfValueEUR(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;
   Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=toEUR(posShares(pos)*s.currentPrice,s.currency);});
-  // Include index position for personal portfolio
-  if(pfKey==="personal")v+=toEUR(indexValue(),"USD");
+  // Include index positions for personal portfolio (indexValue returns USD base)
+  if(pfKey==="personal")v+=toEUR(indexValue("personal"),"USD");
   return v+toEUR(pf.dryPowder,pfBaseCcy(pfKey));}
 
 // Caca portfolio: total market value (excl trophy) + DP, and tranche size (÷15)
@@ -643,12 +647,23 @@ function load(){
   if(!settings.lastPushSync)settings.lastPushSync=null;
   // Migration: add index allocation defaults if missing
   if(settings.indexAllocation===undefined)settings.indexAllocation=0;
-  if(!settings.indexTicker)settings.indexTicker="XZW0.L";
-  // Migration: init index position for personal portfolio
-  if(!portfolios.personal.indexPosition)portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
-  // Migration: init index position for Caca portfolio
-  if(!portfolios.nl.indexPosition)portfolios.nl.indexPosition={shares:0,avgCost:0,currency:"EUR",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
-  if(!settings.nlIndexTicker)settings.nlIndexTicker="XZW0.DE";
+  if(!settings.indexTickerUS)settings.indexTickerUS="XZMU.L";
+  if(!settings.indexTickerEU)settings.indexTickerEU="XZEU.L";
+  // Migration: single indexPosition → dual indexPositions (XZMU+XZEU)
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];const ccyUS=pk==="nl"?"EUR":"USD";const ccyEU="EUR";
+    if(!pf.indexPositions)pf.indexPositions={us:{shares:0,avgCost:0,currency:ccyUS,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]},eu:{shares:0,avgCost:0,currency:ccyEU,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]}};
+    if(!pf.indexPositions.us)pf.indexPositions.us={shares:0,avgCost:0,currency:ccyUS,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
+    if(!pf.indexPositions.eu)pf.indexPositions.eu={shares:0,avgCost:0,currency:ccyEU,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
+    // Migrate old single indexPosition into US slot if it had shares and dual hasn't been set up yet
+    if(pf.indexPosition&&pf.indexPosition.shares>0&&pf.indexPositions.us.shares===0&&pf.indexPositions.eu.shares===0){pf.indexPositions.us=pf.indexPosition;delete pf.indexPosition;}
+    else if(pf.indexPosition){delete pf.indexPosition;}
+  });
+  // Migrate old single ticker settings
+  if(settings.indexTicker&&settings.indexTicker!=="XZW0.L"){settings.indexTickerUS=settings.indexTicker;}delete settings.indexTicker;
+  if(settings.nlIndexTicker&&settings.nlIndexTicker!=="XZW0.DE"){settings.nlIndexTickerUS=settings.nlIndexTicker;}delete settings.nlIndexTicker;
+  if(!settings.nlIndexTickerUS)settings.nlIndexTickerUS="XZMU.DE";
+  if(!settings.nlIndexTickerEU)settings.nlIndexTickerEU="XZEU.DE";
   if(settings.nlIndexCap===undefined)settings.nlIndexCap=10;
   if(settings.nlIndexTranche===undefined)settings.nlIndexTranche=1000;
   if(settings.nlIndexMaxTranches===undefined)settings.nlIndexMaxTranches=4;
@@ -764,22 +779,17 @@ async function fetchPrices(){
     }
   }
 
-  // 3b. Fetch index ETF prices (XZW0.L for Personal, XZW0.DE for Caca) — not in stocks object
+  // 3b. Fetch index ETF prices (XZMU+XZEU for Personal and Caca) — not in stocks object
   if(settings.ibkrWorker){
-    const indexSymbols=[];
-    if(settings.indexTicker)indexSymbols.push({ticker:settings.indexTicker,pf:"personal"});
-    const nlTicker=settings.nlIndexTicker||"XZW0.DE";
-    if(nlTicker&&nlTicker!==settings.indexTicker)indexSymbols.push({ticker:nlTicker,pf:"nl"});
-    for(const ix of indexSymbols){
+    const indexEntries=[];
+    ["personal","nl"].forEach(pk=>{["us","eu"].forEach(r=>{indexEntries.push({ticker:indexTickerForPf(pk,r),pf:pk,region:r});});});
+    // Deduplicate fetches by ticker, but track all targets
+    const tickerMap={};indexEntries.forEach(e=>{if(!tickerMap[e.ticker])tickerMap[e.ticker]=[];tickerMap[e.ticker].push(e);});
+    for(const [ticker,targets] of Object.entries(tickerMap)){
       try{
-        const ir=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(ix.ticker)}`);
-        const id=await ir.json();
-        const iq=id[ix.ticker];
-        if(iq&&iq.price>0){
-          const defCcy=ix.pf==="nl"?"EUR":"USD";
-          const ip=portfolios[ix.pf].indexPosition||(portfolios[ix.pf].indexPosition={shares:0,avgCost:0,currency:defCcy,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
-          ip.currentPrice=iq.price;ip.lastUpdate=Date.now();ip.priceSource="yahoo";
-        }
+        const ir=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(ticker)}`);
+        const id=await ir.json();const iq=id[ticker];
+        if(iq&&iq.price>0){targets.forEach(t=>{const ip=getIndexPos(t.pf,t.region);ip.currentPrice=iq.price;ip.lastUpdate=Date.now();ip.priceSource="yahoo";});}
       }catch(e){}
     }
   }
@@ -803,7 +813,7 @@ async function fetchPrices(){
 
   settings.lastFetch=Date.now();save();render();
   // Record daily performance snapshot for index vs stock-picking comparison
-  if(settings.indexAllocation>0&&getIndexPos().shares>0)recordSnapshot();
+  if(settings.indexAllocation>0&&(getIndexPos("personal","us").shares>0||getIndexPos("personal","eu").shares>0))recordSnapshot();
   // Check for new signals and celebrate
   const newFires=checkNewSignals();
   if(newFires.length){
@@ -1095,12 +1105,11 @@ async function autoSyncIBKR(pfKey){
       const rawCost=parseFloat(p.getAttribute("costBasisPrice")||p.getAttribute("costPrice")||0);
       const rawMkt=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
       if(qty===0)return;
-      // Route XZW0 (index ETF) to index position, not regular positions
-      const indexSym=(settings.indexTicker||"XZW0.L").replace(".L","").replace(".DE","");
-      const nlIndexSym=(settings.nlIndexTicker||"XZW0.DE").replace(".DE","").replace(".L","");
-      if(sym===indexSym||sym===nlIndexSym||sym==="XZW0"||sym===settings.indexTicker||sym===settings.nlIndexTicker){
-        const defCcy=pfKey==="nl"?"EUR":"USD";
-        const ip=pf.indexPosition||(pf.indexPosition={shares:0,avgCost:0,currency:defCcy,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
+      // Route index ETFs (XZMU, XZEU) to index positions, not regular positions
+      const ixSymClean=sym.replace(/\.(L|DE|AS)$/,"");
+      const ixRegion=ixSymClean==="XZMU"?"us":ixSymClean==="XZEU"?"eu":ixSymClean==="XZW0"?"us":null;
+      if(ixRegion){
+        const ip=getIndexPos(pfKey,ixRegion);
         ip.shares=qty;ip.avgCost=rawCost;ip.currentPrice=rawMkt||ip.currentPrice;ip.lastUpdate=Date.now();ip.priceSource="ibkr";
         return;
       }
@@ -1300,11 +1309,14 @@ function exportExcel(){
     {key:"marr",value:settings.marr||15},
     {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
     {key:"indexAllocation",value:settings.indexAllocation||0},
-    {key:"indexTicker",value:settings.indexTicker||"XZW0.L"},
-    {key:"indexShares",value:getIndexPos().shares||0},
-    {key:"indexAvgCost",value:getIndexPos().avgCost||0},
-    {key:"nlIndexShares",value:getIndexPos("nl").shares||0},
-    {key:"nlIndexAvgCost",value:getIndexPos("nl").avgCost||0},
+    {key:"indexUSShares",value:getIndexPos("personal","us").shares||0},
+    {key:"indexUSAvgCost",value:getIndexPos("personal","us").avgCost||0},
+    {key:"indexEUShares",value:getIndexPos("personal","eu").shares||0},
+    {key:"indexEUAvgCost",value:getIndexPos("personal","eu").avgCost||0},
+    {key:"nlIndexUSShares",value:getIndexPos("nl","us").shares||0},
+    {key:"nlIndexUSAvgCost",value:getIndexPos("nl","us").avgCost||0},
+    {key:"nlIndexEUShares",value:getIndexPos("nl","eu").shares||0},
+    {key:"nlIndexEUAvgCost",value:getIndexPos("nl","eu").avgCost||0},
     {key:"gridStocks_personal",value:(portfolios.personal?.gridStocks||[]).join(",")},
     {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")}];
   const ws3=XLSX.utils.json_to_sheet(stRows);ws3["!cols"]=[{wch:22},{wch:20}];
@@ -1449,11 +1461,19 @@ function handleExcelImport(e){
           if(k==="marr"&&val!=null)settings.marr=Math.max(1,Math.min(30,Number(val)));
           if(k==="pushWorkerUrl"&&val!=null&&val!=="")settings.pushWorkerUrl=String(val);
           if(k==="indexAllocation"&&val!=null)settings.indexAllocation=Math.max(0,Number(val));
-          if(k==="indexTicker"&&val!=null&&val!=="")settings.indexTicker=String(val);
-          if(k==="indexShares"&&val!=null){const ip=portfolios.personal.indexPosition||(portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});ip.shares=Number(val);}
-          if(k==="indexAvgCost"&&val!=null){const ip=portfolios.personal.indexPosition||(portfolios.personal.indexPosition={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});ip.avgCost=Number(val);}
-          if(k==="nlIndexShares"&&val!=null){const ip=portfolios.nl.indexPosition||(portfolios.nl.indexPosition={shares:0,avgCost:0,currency:"EUR",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});ip.shares=Number(val);}
-          if(k==="nlIndexAvgCost"&&val!=null){const ip=portfolios.nl.indexPosition||(portfolios.nl.indexPosition={shares:0,avgCost:0,currency:"EUR",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});ip.avgCost=Number(val);}
+          if(k==="indexUSShares"&&val!=null){getIndexPos("personal","us").shares=Number(val);}
+          if(k==="indexUSAvgCost"&&val!=null){getIndexPos("personal","us").avgCost=Number(val);}
+          if(k==="indexEUShares"&&val!=null){getIndexPos("personal","eu").shares=Number(val);}
+          if(k==="indexEUAvgCost"&&val!=null){getIndexPos("personal","eu").avgCost=Number(val);}
+          if(k==="nlIndexUSShares"&&val!=null){getIndexPos("nl","us").shares=Number(val);}
+          if(k==="nlIndexUSAvgCost"&&val!=null){getIndexPos("nl","us").avgCost=Number(val);}
+          if(k==="nlIndexEUShares"&&val!=null){getIndexPos("nl","eu").shares=Number(val);}
+          if(k==="nlIndexEUAvgCost"&&val!=null){getIndexPos("nl","eu").avgCost=Number(val);}
+          // Legacy single-position import (backward compat)
+          if(k==="indexShares"&&val!=null){getIndexPos("personal","us").shares=Number(val);}
+          if(k==="indexAvgCost"&&val!=null){getIndexPos("personal","us").avgCost=Number(val);}
+          if(k==="nlIndexShares"&&val!=null){getIndexPos("nl","us").shares=Number(val);}
+          if(k==="nlIndexAvgCost"&&val!=null){getIndexPos("nl","us").avgCost=Number(val);}
           if(k==="ibkrWorker"&&val!=null&&val!=="")settings.ibkrWorker=String(val);
           if(k==="ibkrTokenPersonal"&&val!=null&&val!=="")settings.ibkrTokenPersonal=String(val);
           if(k==="ibkrQueryPersonal"&&val!=null&&val!=="")settings.ibkrQueryPersonal=String(val);
@@ -2197,32 +2217,45 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Per-stock unified cards
   h+=`<div class="pos-grid">`;
 
-  // INDEX POSITION CARD (Personal or Caca — when index position exists or allocation active)
-  const _showIdx=(currentPf==="personal"&&(settings.indexAllocation>0||getIndexPos("personal").shares>0))||(currentPf==="nl");
+  // INDEX POSITION CARD (Personal or Caca — dual tracker XZMU+XZEU)
+  const _hasIdxShares=getIndexPos(currentPf,"us").shares>0||getIndexPos(currentPf,"eu").shares>0;
+  const _showIdx=(currentPf==="personal"&&(settings.indexAllocation>0||_hasIdxShares))||(currentPf==="nl");
   if(_showIdx){
-    const ip=getIndexPos(currentPf);const ixSh=ip.shares||0;const ixAvg=ip.avgCost||0;const ixPrice=ip.currentPrice||0;
-    const ixCcy=currentPf==="nl"?"EUR":"USD";const ixSym=currentPf==="nl"?"€":"$";
-    const ixVal=ixSh*ixPrice;const ixPnl=ixAvg&&ixPrice?((ixPrice-ixAvg)/ixAvg*100):0;
-    const ixName=indexTickerShort(currentPf);
+    const totalIxVal=indexValue(currentPf);const totalIxCost=indexCostBasis(currentPf);
+    const totalIxPnl=totalIxCost>0?((totalIxVal-totalIxCost)/totalIxCost*100):0;
+    const baseSym=currentPf==="nl"?"€":"$";const baseCcy=pfBaseCcy(currentPf);
     let ixSubtext="";
-    if(currentPf==="personal"){ixSubtext=`${pfSym("personal")}${(settings.indexAllocation||0).toLocaleString()}/mo · Never sold · DCA on salary day`;}
+    if(currentPf==="personal"){const half=(settings.indexAllocation||0)/2;ixSubtext=`$${half.toLocaleString()} US + $${half.toLocaleString()}→€ EU · Never sold · DCA on salary day`;}
     else{const cii=cacaIndexInfo();ixSubtext=`${cii.deployed}/${cii.maxT} tranches · ${cii.pctOfPortfolio.toFixed(1)}% of portfolio · cap ${cii.cap}%${cii.atCap?" ✓ filled":""}`;}
     h+=`<div class="pos-card" style="border-color:#0e7490">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">
         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0e7490,#164e63);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#67e8f9;flex-shrink:0">IDX</div>
-        <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 ${ixName}</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
-          <div class="pos-sub">MSCI World ESG · ${currentPf==="nl"?"Xetra EUR":"LSE USD"}</div></div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(ixPrice,ixCcy)}</div>
-          ${(function(){if(!ixPnl)return "";var _c=ixPnl>=0?"var(--accent)":"var(--green)";var _s=ixPnl>=0?"+":"";return "<div class=\"pos-pnl\" style=\"color:"+_c+"\">"+_s+ixPnl.toFixed(1)+"%</div>"})()}
-          <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${ip.priceSource==="ibkr"?"⚡":ip.priceSource==="yahoo"?"YF ":""}${timeAgo(ip.lastUpdate)}</div></div></div>
-      <div class="stat-row" style="margin:8px 0">
-        <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${ixSh>0?ixSh.toFixed(2):"0"}</div></div>
-        <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${ixAvg>0?fmt(ixAvg,ixCcy):"—"}</div></div>
-        <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(ixVal,ixCcy)}</div></div></div>
-      <div style="font-size:10px;color:var(--muted);padding:4px 0;text-align:center">${ixSubtext}</div>
-      <div class="btn-row">
-        <button class="btn-sm btn-accent" style="flex:1" onclick="logIndexBuy('${currentPf}')">+ Log Buy</button>
-        <button class="btn-sm" style="flex:0 0 auto" onclick="editIndexPosition('${currentPf}')">✏ Edit</button></div></div>`;
+        <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 XZMU + XZEU</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
+          <div class="pos-sub">MSCI ESG · 50/50 US + EU</div></div></div>
+        <div style="text-align:right"><div class="pos-price-val">${hideValues?"•••":baseSym+Math.round(totalIxVal).toLocaleString()}</div>
+          ${totalIxPnl?`<div class="pos-pnl" style="color:${totalIxPnl>=0?"var(--accent)":"var(--green)"}">${totalIxPnl>=0?"+":""}${totalIxPnl.toFixed(1)}%</div>`:""}</div></div>`;
+    // Sub-rows for each ETF
+    ["us","eu"].forEach(region=>{
+      const ip=getIndexPos(currentPf,region);const sh=ip.shares||0;const avg=ip.avgCost||0;const px=ip.currentPrice||0;
+      const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
+      const val=sh*px;const pnl=avg&&px?((px-avg)/avg*100):0;
+      const label=region==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";
+      const exch=region==="us"?(currentPf==="nl"?"Xetra EUR":"LSE USD"):"Xetra EUR";
+      h+=`<div style="border-top:1px solid var(--border);padding:8px 0 4px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div><span style="font-size:12px;font-weight:600">${label}</span><span style="font-size:9px;color:var(--muted);margin-left:6px">${exch}</span></div>
+          <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono)">${fmt(px,ccy)}</span>
+            ${pnl?`<span style="font-size:10px;margin-left:4px;color:${pnl>=0?"var(--accent)":"var(--green)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</span>`:""}
+            <div style="font-size:8px;color:var(--muted);font-family:var(--mono)">${ip.priceSource==="ibkr"?"⚡":ip.priceSource==="yahoo"?"YF ":""}${timeAgo(ip.lastUpdate)}</div></div></div>
+        <div class="stat-row" style="margin:2px 0 4px">
+          <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${sh>0?sh.toFixed(2):"0"}</div></div>
+          <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${avg>0?fmt(avg,ccy):"—"}</div></div>
+          <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(val,ccy)}</div></div></div>
+        <div class="btn-row" style="gap:4px">
+          <button class="btn-sm btn-accent" style="flex:1;font-size:10px;padding:4px 8px" onclick="logIndexBuy('${currentPf}','${region}')">+ Buy</button>
+          <button class="btn-sm" style="flex:0 0 auto;font-size:10px;padding:4px 8px" onclick="editIndexPosition('${currentPf}','${region}')">✏</button></div></div>`;
+    });
+    h+=`<div style="font-size:10px;color:var(--muted);padding:6px 0 2px;text-align:center">${ixSubtext}</div></div>`;
   }
 
   // Build unified ticker list: owned + grid ghosts + speculative ghosts (deduped)
@@ -2473,7 +2506,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 }
 
 // ============ ALLOCATOR ============
-function MONTHLY_STEPS(){const s=["Salary","Transfer"];if(settings.indexAllocation>0)s.push("Buy "+(settings.indexTicker||"XZW0.L").replace(".L",""));s.push("Execute");return s;}
+function MONTHLY_STEPS(){const s=["Salary","Transfer"];if(settings.indexAllocation>0)s.push("Buy XZMU+XZEU");s.push("Execute");return s;}
 function getMonthKey(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
 function lastDayOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0).getDate();}
 function monthLabel(){const d=new Date();return d.toLocaleString("en",{month:"short"})+" "+d.getFullYear();}
@@ -2557,14 +2590,13 @@ function renderAllocator(c){
 
     // === INDEX / STOCK-PICKING SPLIT ===
     if(idxAlloc>0){
-      const ip=getIndexPos();
       h+=`<div class="alloc-card" style="border-color:#0e7490;margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:700">Income Split</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${idxPct}% index · ${ptPct}% stocks</span></div>
         <div style="display:flex;gap:3px;height:8px;border-radius:4px;overflow:hidden;margin-bottom:10px">
           <div style="flex:${idxPct};background:#0e7490;border-radius:4px 0 0 4px"></div>
           <div style="flex:${ptPct};background:var(--accent);border-radius:0 4px 4px 0"></div></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:11px;color:#67e8f9">📈 Index (${settings.indexTicker?.replace('.L','')||'XZW0'})</span>
+          <span style="font-size:11px;color:#67e8f9">📈 Index (XZMU+XZEU)</span>
           <span style="font-size:13px;font-family:var(--mono);color:#67e8f9;font-weight:600">${_bs}${idxAlloc.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
           <span style="font-size:11px;color:var(--accent)">📊 Stocks</span>
@@ -3135,23 +3167,22 @@ function renderSettings(c){
   else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions. Use → Risk on a watchlist stock to add one.</div>`;}
   h+=`</div>
 
-    <div class="settings-card"><div class="settings-title">📈 Index Allocation (50/50 Split)</div>
-      <div class="settings-desc">Monthly amount automatically allocated to index ETF (${settings.indexTicker||'XZW0.L'}). Set to 0 to disable. Remainder goes through stock-picking formula.</div>
+    <div class="settings-card"><div class="settings-title">📈 Index Allocation (XZMU + XZEU)</div>
+      <div class="settings-desc">Monthly total split 50/50: XZMU (US ESG, LSE USD) + XZEU (EU ESG, Xetra EUR). $3K USD stays USD, $3K converted to EUR. Set to 0 to disable.</div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <span style="font-size:12px;color:var(--muted)">$</span>
         <input class="settings-input" type="number" style="width:100px;margin-bottom:0" value="${settings.indexAllocation||0}" onchange="settings.indexAllocation=Math.max(0,+this.value||0);save();render()">
-        <span style="font-size:11px;color:var(--muted)">/month</span>
+        <span style="font-size:11px;color:var(--muted)">/month total</span>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="settings-save" style="padding:6px 12px;${(settings.indexAllocation||0)===0?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.indexAllocation=0;save();render()">Off</button>
         <button class="settings-save" style="padding:6px 12px;${(settings.indexAllocation||0)===6000?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.indexAllocation=6000;save();render()">$6,000</button>
-        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition()">✏ Position</button>
       </div>
-      ${getIndexPos().shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--mono)">${getIndexPos().shares.toFixed(2)} shares @ $${getIndexPos().avgCost.toFixed(2)} avg · ${(getIndexPos().deployLog||[]).length} buys logged</div>`:''}</div>
+      ${(function(){const ips=getIndexPositions("personal");let out="";["us","eu"].forEach(r=>{const ip=ips[r];const sym=ip.currency==="EUR"?"€":"$";const label=r==="us"?"🇺🇸 XZMU (USD)":"🇪🇺 XZEU (EUR)";if(ip.shares>0)out+=`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label}: ${ip.shares.toFixed(2)} sh @ ${sym}${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`;});if(out)out=`<div style="margin-top:6px">${out}</div>`;out+=`<div style="display:flex;gap:8px;margin-top:8px"><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','us')">✏ XZMU</button><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','eu')">✏ XZEU</button></div>`;return out;})()}</div>
 
-    <div class="settings-card"><div class="settings-title">🧓 Caca Index (XZW0 — Xetra EUR)</div>
-      <div class="settings-desc">Permanent XZW0 position capped at ${settings.nlIndexCap||10}% of Caca portfolio. Deployed from existing EUR cash DP in €${(settings.nlIndexTranche||1000).toLocaleString()} tranches (max ${settings.nlIndexMaxTranches||4}). Never sold.</div>
-      ${(function(){const cii=cacaIndexInfo();const ip=getIndexPos("nl");return `
+    <div class="settings-card"><div class="settings-title">🧓 Caca Index (XZMU + XZEU — Xetra EUR)</div>
+      <div class="settings-desc">Permanent index positions capped at ${settings.nlIndexCap||10}% of Caca portfolio. €${((settings.nlIndexTranche||1000)/2).toLocaleString()} each per tranche (max ${settings.nlIndexMaxTranches||4}×2). Never sold.</div>
+      ${(function(){const cii=cacaIndexInfo();return `
       <div style="display:flex;gap:8px;margin-top:8px">
         <div style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
           <div style="font-size:9px;color:var(--muted)">Deployed</div>
@@ -3161,10 +3192,11 @@ function renderSettings(c){
           <div style="font-size:9px;color:var(--muted)">% of Portfolio</div>
           <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${cii.pctOfPortfolio>=cii.cap?"var(--amber)":"var(--accent)"}">${cii.pctOfPortfolio.toFixed(1)}% / ${cii.cap}%</div>
         </div>
-      </div>
-      ${ip.shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--mono)">${ip.shares.toFixed(2)} shares @ €${ip.avgCost.toFixed(2)} avg · ${(ip.deployLog||[]).length} buys logged</div>`:""}
+      </div>` +
+      ["us","eu"].map(r=>{const ip=getIndexPos("nl",r);const label=r==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";return ip.shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label}: ${ip.shares.toFixed(2)} sh @ €${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`:"";}).join("") + `
       <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl')">✏ Position</button>
+        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','us')">✏ XZMU</button>
+        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','eu')">✏ XZEU</button>
       </div>`;})()}</div>
 
     <div class="settings-card"><div class="settings-title">💱 Personal Base Currency</div>
@@ -3284,15 +3316,16 @@ function demoteFromGrid(t){
   save();render();
 }
 // === INDEX POSITION MANAGEMENT ===
-function logIndexBuy(pfKey){
-  pfKey=pfKey||"personal";
-  const defCcy=pfKey==="nl"?"EUR":"USD";const sym=pfKey==="nl"?"€":"$";
-  const defAmt=pfKey==="nl"?(settings.nlIndexTranche||1000):(settings.indexAllocation||6000);
-  const ip=portfolios[pfKey].indexPosition||(portfolios[pfKey].indexPosition={shares:0,avgCost:0,currency:defCcy,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
+function logIndexBuy(pfKey,region){
+  pfKey=pfKey||"personal";region=region||"us";
+  const ip=getIndexPos(pfKey,region);
+  const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
+  const label=region==="us"?"XZMU":"XZEU";
+  const defAmt=pfKey==="nl"?((settings.nlIndexTranche||1000)/2):(pfKey==="personal"&&region==="eu"?Math.round((settings.indexAllocation||6000)/2/settings.fxRate):((settings.indexAllocation||6000)/2));
   // Caca cap check
   if(pfKey==="nl"){const cii=cacaIndexInfo();if(cii.atCap){alert(`Cap reached: ${cii.deployed}/${cii.maxT} tranches, ${cii.pctOfPortfolio.toFixed(1)}% of portfolio (cap ${cii.cap}%)`);return;}}
-  const amt=prompt(`Amount invested (${sym}):`,String(defAmt));if(!amt)return;
-  const price=prompt(`Price per share (${sym}):`,ip.currentPrice?ip.currentPrice.toFixed(2):"");if(!price)return;
+  const amt=prompt(`${label} — Amount invested (${sym}):`,String(Math.round(defAmt)));if(!amt)return;
+  const price=prompt(`${label} — Price per share (${sym}):`,ip.currentPrice?ip.currentPrice.toFixed(2):"");if(!price)return;
   const a=parseFloat(amt),p=parseFloat(price);if(isNaN(a)||isNaN(p)||p<=0)return alert("Invalid input");
   const sh=a/p;
   const oldCost=ip.shares*ip.avgCost;const newCost=oldCost+a;const newShares=ip.shares+sh;
@@ -3300,27 +3333,27 @@ function logIndexBuy(pfKey){
   if(!ip.deployLog)ip.deployLog=[];
   ip.deployLog.push({date:new Date().toISOString(),shares:+sh.toFixed(4),price:p,amount:a});
   // Caca: reduce DP by amount
-  if(pfKey==="nl"){const pf=portfolios.nl;if(defCcy==="EUR"){pf.dpEUR=Math.max(0,(pf.dpEUR||0)-a);}else{pf.dpUSD=Math.max(0,(pf.dpUSD||0)-a);}recalcDP("nl");}
-  const ixTicker=indexTickerShort(pfKey);
-  deployLog.push({id:Date.now()+Math.random()*1000|0,date:new Date().toISOString(),ticker:ixTicker,flag:"🌍",action:"buy",signal:"INDEX",shares:+sh.toFixed(4),price:p,currency:defCcy,portfolio:pfKey,triggerPrice:null,note:`Index DCA ${sym}${a.toLocaleString()}`});
+  if(pfKey==="nl"){const pf=portfolios.nl;pf.dpEUR=Math.max(0,(pf.dpEUR||0)-a);recalcDP("nl");}
+  deployLog.push({id:Date.now()+Math.random()*1000|0,date:new Date().toISOString(),ticker:label,flag:"🌍",action:"buy",signal:"INDEX",shares:+sh.toFixed(4),price:p,currency:ccy,portfolio:pfKey,triggerPrice:null,note:`Index DCA ${sym}${a.toLocaleString()}`});
   localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));
   save();render();
 }
-function editIndexPosition(pfKey){
-  pfKey=pfKey||"personal";
-  const defCcy=pfKey==="nl"?"EUR":"USD";const sym=pfKey==="nl"?"€":"$";
-  const ip=getIndexPos(pfKey);
-  const ticker=indexTickerForPf(pfKey);
-  showModal("Edit Index Position"+(pfKey==="nl"?" (Caca)":""),[
+function editIndexPosition(pfKey,region){
+  pfKey=pfKey||"personal";region=region||"us";
+  const ip=getIndexPos(pfKey,region);
+  const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
+  const label=region==="us"?"XZMU":"XZEU";
+  const ticker=indexTickerForPf(pfKey,region);
+  showModal(`Edit ${label} Position`+(pfKey==="nl"?" (Caca)":""),[
     {id:"ix-shares",label:"Shares",val:ip.shares,type:"number"},
     {id:"ix-avg",label:`Avg Cost (${sym})`,val:ip.avgCost,type:"number"},
     {id:"ix-price",label:`Current Price (${sym})`,val:ip.currentPrice,type:"number"},
     {id:"ix-ticker",label:"Yahoo Symbol",val:ticker},
   ],()=>{
-    const ipW=portfolios[pfKey].indexPosition||(portfolios[pfKey].indexPosition={shares:0,avgCost:0,currency:defCcy,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
-    ipW.shares=nv("ix-shares")??ipW.shares;ipW.avgCost=nv("ix-avg")??ipW.avgCost;ipW.currentPrice=nv("ix-price")??ipW.currentPrice;
+    ip.shares=nv("ix-shares")??ip.shares;ip.avgCost=nv("ix-avg")??ip.avgCost;ip.currentPrice=nv("ix-price")??ip.currentPrice;
     const newTicker=gv("ix-ticker");
-    if(pfKey==="nl"){settings.nlIndexTicker=newTicker||settings.nlIndexTicker;}else{settings.indexTicker=newTicker||settings.indexTicker;}
+    if(pfKey==="nl"){if(region==="us")settings.nlIndexTickerUS=newTicker||settings.nlIndexTickerUS;else settings.nlIndexTickerEU=newTicker||settings.nlIndexTickerEU;}
+    else{if(region==="us")settings.indexTickerUS=newTicker||settings.indexTickerUS;else settings.indexTickerEU=newTicker||settings.indexTickerEU;}
     save();render();
   });
 }
