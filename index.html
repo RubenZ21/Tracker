@@ -2125,7 +2125,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <span id="dp-exp-label" style="font-size:11px;color:#60a5fa;font-family:var(--mono);font-weight:600;cursor:pointer" onclick="dpManualEdit('exp','${currentPf}')">EXP ${dpCcy}${Math.round(dps.expansionMin).toLocaleString()}</span>
       </div>
       <div id="dp-slider-ctrl" style="display:none" class="dp-slider-wrap">
-        <input type="range" class="dp-slider" min="0" max="100" step="5" value="${dps.sliderPct}" style="--pct:${dps.sliderPct}%" oninput="dpSliderPreview(this,'${currentPf}')" onchange="dpSliderCommit('${currentPf}',+this.value)">
+        <input type="range" class="dp-slider" min="0" max="100" step="1" value="${dps.sliderPct}" style="--pct:${dps.sliderPct}%" oninput="dpSliderPreview(this,'${currentPf}')" onchange="dpSliderCommit('${currentPf}',+this.value)">
         <div class="dp-slider-labels"><span id="dp-slider-pct-label" style="font-size:10px;color:var(--text);opacity:0.6">${(()=>{const pfc=pfCostExIndex(currentPf);if(pfc<=0)return'';const dpPct=(pf.dryPowder/pfc*100).toFixed(1);const mosPct=(dps.mosReserveMax/pfc*100).toFixed(1);return 'DP '+dpPct+'% · MOS reserve '+mosPct+'%'})()}</span></div>
       </div>
     </div>`;
@@ -3140,7 +3140,7 @@ function dpManualEdit(which,pfKey){
   if(input==null)return;
   const amt=Math.max(0,Math.min(totalDP,+input||0));
   const newPct=which==='mos'?Math.round(amt/totalDP*100):Math.round((totalDP-amt)/totalDP*100);
-  const clamped=Math.max(0,Math.min(100,Math.round(newPct/5)*5));
+  const clamped=Math.max(0,Math.min(100,Math.round(newPct)));
   dpSliderCommit(pfKey,clamped);
 }
 function dpSliderCommit(pfKey,val){
