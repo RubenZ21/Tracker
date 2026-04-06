@@ -146,7 +146,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 @keyframes buyBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 /* DP Slider */
 .dp-slider-wrap{margin-top:6px;padding:8px 0 4px}
-.dp-slider{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;background:linear-gradient(to right,#92400e 0%,#92400e var(--pct),#065f46 var(--pct),#065f46 100%);outline:none;cursor:pointer}
+.dp-slider{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;background:linear-gradient(to right,#0d3b2e 0%,#0d3b2e var(--pct),#172554 var(--pct),#172554 100%);outline:none;cursor:pointer}
 .dp-slider::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--text);border:2px solid var(--accent);cursor:pointer;box-shadow:0 0 6px rgba(0,0,0,.4)}
 .dp-slider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--text);border:2px solid var(--accent);cursor:pointer}
 .dp-slider-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px;padding:0 2px}
@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.93</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.94</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2121,15 +2121,14 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     h+=`<div id="dp-slider-section" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;gap:8px;align-items:baseline">
-          <span style="font-size:11px;color:#fbbf24;font-family:var(--mono);font-weight:600">MOS ${dpCcy}${Math.round(dps.mosReserveMax).toLocaleString()}</span>
-          <span style="font-size:9px;color:var(--muted)">·</span>
-          <span style="font-size:11px;color:#34d399;font-family:var(--mono);font-weight:600">EXP ${dpCcy}${Math.round(dps.expansionMin).toLocaleString()}</span>
+          <span style="font-size:11px;color:#34d399;font-family:var(--mono);font-weight:600">MOS ${dpCcy}${Math.round(dps.mosReserveMax).toLocaleString()}</span>
         </div>
-        <span style="font-size:10px;font-family:var(--mono);color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="document.getElementById('dp-slider-ctrl').style.display=document.getElementById('dp-slider-ctrl').style.display==='none'?'block':'none'">${dps.sliderPct}%</span>
+        <span style="font-size:10px;font-family:var(--mono);color:var(--text);opacity:0.5">${dps.sliderPct}%</span>
+        <span style="font-size:10px;font-family:var(--mono);color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="document.getElementById('dp-slider-ctrl').style.display=document.getElementById('dp-slider-ctrl').style.display==='none'?'block':'none'">EXP ${dpCcy}${Math.round(dps.expansionMin).toLocaleString()}</span>
       </div>
       <div id="dp-slider-ctrl" style="display:none" class="dp-slider-wrap">
         <input type="range" class="dp-slider" min="0" max="100" step="5" value="${dps.sliderPct}" style="--pct:${dps.sliderPct}%" oninput="dpSliderPreview(this,'${currentPf}')" onchange="dpSliderCommit('${currentPf}',+this.value)">
-        <div class="dp-slider-labels"><span id="dp-slider-pct-label">${(()=>{const pfc=pfCostExIndex(currentPf);if(pfc<=0)return'';const dpPct=(pf.dryPowder/pfc*100).toFixed(1);const mosPct=(dps.mosReserveMax/pfc*100).toFixed(1);return 'DP '+dpPct+'% · MOS reserve '+mosPct+'%'})()}</span></div>
+        <div class="dp-slider-labels"><span id="dp-slider-pct-label" style="font-size:10px;color:var(--text);opacity:0.6">${(()=>{const pfc=pfCostExIndex(currentPf);if(pfc<=0)return'';const dpPct=(pf.dryPowder/pfc*100).toFixed(1);const mosPct=(dps.mosReserveMax/pfc*100).toFixed(1);return 'DP '+dpPct+'% · MOS reserve '+mosPct+'%'})()}</span></div>
       </div>
     </div>`;
   }
@@ -2463,36 +2462,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       h+=`<div style="padding:0 2px;margin-bottom:2px;cursor:pointer;opacity:0.3" onclick="editNotes('${ticker}')"><div style="font-size:9px;color:var(--muted)">+ note</div></div>`;
     }
 
-    // MOS reserve bar (only for stocks with unlit valid triggers in this portfolio)
-    {const slots=validTriggerSlots(ticker,currentPf);const dc=deployCount(ticker,currentPf);const unlitRes=slots-dc;
-    if(unlitRes>0&&dc>0&&s.status!=="trophy"&&s.status!=="speculative"&&currentPf!=="nl"){
-      const resSym=s.currency==="USD"?"$":s.currency==="GBp"?"\u00a3":"\u20ac";
-      const resMult=s.currency==="GBp"?100:1;
-      const nTr=posTranchesOwned(pos);const avgTrCost=nTr>0&&avg>0&&shares>0?Math.round(avg*shares/nTr/resMult):0;
-      const ideal=avgTrCost*unlitRes;
-      const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
-      const pct=ideal>0?Math.min(actual/ideal,1.5):0;
-      const barCol=pct>=0.95?"var(--green)":pct>=0.5?"var(--amber)":"var(--red)";
-      const statusTxt=pct>=0.95?"funded":pct>=0.5?"undersized":"low";
-      // Which triggers are unlit (not deploying — excludes both valid-firing and piggybacking)
-      const unlitNames=[];
-      if(s.cons.mos&&!s.signals.mos)unlitNames.push("MOS");
-      if(s.cons.tenCap&&!s.signals.tenCap&&!isPiggyback(s,"tenCap"))unlitNames.push("10Cap");
-      if(s.cons.pbt&&!s.signals.pbt&&!isPiggyback(s,"pbt"))unlitNames.push("PBT");
-      const hasOverride=pos.mosReserve!=null;
-      h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-          <span style="font-size:10px;color:var(--muted)">${unlitNames.join("+")} reserve · <span style="color:${barCol}">${statusTxt}</span></span>
-          <span style="font-size:10px;font-family:var(--mono);color:${barCol}">${resSym}${actual.toLocaleString()} <span style="color:var(--muted)">/ ${resSym}${ideal.toLocaleString()}</span></span>
-        </div>
-        <div style="height:3px;background:var(--card);border-radius:2px;overflow:hidden;margin-bottom:4px">
-          <div style="height:100%;width:${Math.min(pct*100,100)}%;background:${barCol};border-radius:2px"></div></div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:9px;color:var(--muted)">Reserve ${resSym}</span>
-          <input type="number" value="${actual}" style="width:60px;background:var(--card);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px;font-family:var(--mono);padding:1px 4px;text-align:right" onchange="portfolios['${currentPf}'].positions['${ticker}'].mosReserve=+this.value||0;save();render()">
-          ${hasOverride?`<span style="font-size:9px;color:var(--accent);cursor:pointer" onclick="delete portfolios['${currentPf}'].positions['${ticker}'].mosReserve;save();render()">reset</span>`:""}
-        </div></div>`;
-    }}
+    // MOS reserve bar removed (v2.94)
 
     // Tranche rows with unified activation price — sorted PBT → 10Cap → MOS
     const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
@@ -3164,10 +3134,12 @@ function dpSliderPreview(el,pfKey){
   const spans=sec.querySelectorAll('div:first-child > div:first-child > span');
   const ccy=pfKey==='nl'?'€':'$';
   if(spans[0])spans[0].textContent='MOS '+ccy+mosAmt.toLocaleString();
-  if(spans[2])spans[2].textContent='EXP '+ccy+expAmt.toLocaleString();
-  // Update percentage badge
+  // Update center percentage
+  const pctSpan=sec.querySelector('div:first-child > span:first-of-type');
+  if(pctSpan)pctSpan.textContent=val+'%';
+  // Update EXP badge (right side)
   const badge=sec.querySelector('div:first-child > span:last-child');
-  if(badge)badge.textContent=val+'%';
+  if(badge)badge.textContent='EXP '+ccy+expAmt.toLocaleString();
   // Update MOS % of portfolio label
   const lbl=document.getElementById('dp-slider-pct-label');
   if(lbl){const pfc=pfCostExIndex(pfKey);if(pfc>0){const dpPct=(totalDP/pfc*100).toFixed(1);const mosPct=(mosAmt/pfc*100).toFixed(1);lbl.textContent='DP '+dpPct+'% · MOS reserve '+mosPct+'%';}}
