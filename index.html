@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.02</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.03</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -562,7 +562,7 @@ function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
 function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
-function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;pf.dryPowder=base==="USD"?Math.round(pf.dpUSD+(pf.dpEUR*settings.fxRate)):Math.round(pf.dpEUR+(pf.dpUSD/settings.fxRate));}
+function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD);pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
 
 // DP Slider: split total DP into MOS Reserve (capped) and Expansion (remainder)
 function getDPSplit(pfKey){
@@ -735,6 +735,9 @@ function load(){
       if(pfBaseCcy(pk)==="USD"){pf.dpUSD=pf.dryPowder||0;pf.dpEUR=0;}
       else{pf.dpEUR=pf.dryPowder||0;pf.dpUSD=0;}
     }
+    if(pf.dpGBP==null)pf.dpGBP=0;
+    if(pf.dpJPY==null)pf.dpJPY=0;
+    if(pf.dpCAD==null)pf.dpCAD=0;
     recalcDP(pk);
   });
   // Migration: add notification settings if missing
@@ -1019,20 +1022,26 @@ async function syncIBKR(pfKey){
 
     // Parse cash balances
     const cashNodes=doc.querySelectorAll("CashReportCurrency");
-    let cashEUR=0,cashUSD=0;
+    let cashEUR=0,cashUSD=0,cashGBP=0,cashJPY=0,cashCAD=0;
     cashNodes.forEach(cn=>{
       const ccy=cn.getAttribute("currency");
       const bal=parseFloat(cn.getAttribute("endingCash")||cn.getAttribute("endingSettledCash")||0);
       if(ccy==="EUR")cashEUR+=bal;
       else if(ccy==="USD")cashUSD+=bal;
+      else if(ccy==="GBP")cashGBP+=bal;
+      else if(ccy==="JPY")cashJPY+=bal;
+      else if(ccy==="CAD")cashCAD+=bal;
     });
-    if(!cashEUR&&!cashUSD){
+    if(!cashEUR&&!cashUSD&&!cashGBP&&!cashJPY&&!cashCAD){
       const cashBal=doc.querySelectorAll("CashBalance");
       cashBal.forEach(cb=>{
         const ccy=cb.getAttribute("currency");
         const bal=parseFloat(cb.getAttribute("balance")||0);
         if(ccy==="EUR")cashEUR+=bal;
         else if(ccy==="USD")cashUSD+=bal;
+        else if(ccy==="GBP")cashGBP+=bal;
+        else if(ccy==="JPY")cashJPY+=bal;
+        else if(ccy==="CAD")cashCAD+=bal;
       });
     }
 
@@ -1052,7 +1061,8 @@ async function syncIBKR(pfKey){
     // Step 4: Show preview before applying
     let matched=0,unmatched=[];
     Object.values(posData).forEach(p=>{if(p.t)matched++;else unmatched.push(p.sym);});
-    const totalCash=pfBaseCcy(pfKey)==="USD"?cashUSD+(cashEUR*settings.fxRate):cashEUR+cashUSD/settings.fxRate;
+    const totalCashEUR=cashEUR+(cashUSD/settings.fxRate)+(cashGBP/settings.fxGBP)+(cashJPY/settings.fxJPY)+(cashCAD/settings.fxCAD);
+    const totalCash=pfBaseCcy(pfKey)==="USD"?totalCashEUR*settings.fxRate:totalCashEUR;
     const pfName=pfKey==="nl"?"Caca":"Personal";
 
     let preview=`<div style="font-size:11px;color:var(--text);margin-top:8px;padding:10px;background:var(--bg);border-radius:8px">
@@ -1077,14 +1087,14 @@ async function syncIBKR(pfKey){
           return`<span style="color:${SC[sg]||"#a78bfa"}">${sg}</span> ${sh}sh`;}).join(" · ")}</div>`;
       }
     });
-    if(totalCash>0)preview+=`<div style="margin-top:4px">Cash: €${Math.round(cashEUR).toLocaleString()} + $${Math.round(cashUSD).toLocaleString()} (€${Math.round(totalCash).toLocaleString()} total)</div>`;
+    if(totalCash>0){let cashParts=[];if(cashUSD)cashParts.push("$"+Math.round(cashUSD).toLocaleString());if(cashEUR)cashParts.push("€"+Math.round(cashEUR).toLocaleString());if(cashGBP)cashParts.push("£"+Math.round(cashGBP).toLocaleString());if(cashJPY)cashParts.push("¥"+Math.round(cashJPY).toLocaleString());if(cashCAD)cashParts.push("C$"+Math.round(cashCAD).toLocaleString());preview+=`<div style="margin-top:4px">Cash: ${cashParts.join(" + ")} (${pfBaseCcy(pfKey)==="USD"?"$":"€"}${Math.round(totalCash).toLocaleString()} total)</div>`;}
     if(tradeData.length)preview+=`<div>${tradeData.length} recent trades found</div>`;
     if(unmatched.length)preview+=`<div style="color:var(--red);margin-top:4px">Unmatched: ${unmatched.join(", ")} — add these to your stock list first</div>`;
     preview+=`<div style="margin-top:8px">
       <button class="settings-save" onclick="applyIBKR('${pfKey}')">✓ Apply to ${pfName}</button></div></div>`;
 
     document.getElementById("ibkr-preview-"+pfKey).innerHTML=preview;
-    window["_ibkrData_"+pfKey]={posData,cashEUR,cashUSD,tradeData};
+    window["_ibkrData_"+pfKey]={posData,cashEUR,cashUSD,cashGBP,cashJPY,cashCAD,tradeData};
     ibkrStatus(`✓ ${matched} matched, ${unmatched.length} unmatched`,false,pfKey);
 
   }catch(err){
@@ -1133,8 +1143,10 @@ function applyIBKR(pfKey){
   });
 
   // Update cash as dry powder (base currency depends on portfolio setting)
-  const totalCash=pfBaseCcy(pfKey)==="USD"?cashUSD+(cashEUR*settings.fxRate):cashEUR+(cashUSD/settings.fxRate);
-  if(totalCash>0){pf.dpUSD=Math.round(cashUSD);pf.dpEUR=Math.round(cashEUR);pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
+  const{cashEUR,cashUSD,cashGBP,cashJPY,cashCAD}=data;
+  const totalCashEUR=cashEUR+(cashUSD/settings.fxRate)+(cashGBP/settings.fxGBP)+(cashJPY/settings.fxJPY)+(cashCAD/settings.fxCAD);
+  const totalCash=pfBaseCcy(pfKey)==="USD"?totalCashEUR*settings.fxRate:totalCashEUR;
+  if(totalCash>0){pf.dpUSD=Math.round(cashUSD);pf.dpEUR=Math.round(cashEUR);pf.dpGBP=Math.round(cashGBP);pf.dpJPY=Math.round(cashJPY);pf.dpCAD=Math.round(cashCAD);pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
 
   // Auto-demote grid stocks not in IBKR data (fully sold)
   const ibkrTickers=new Set(Object.values(data.posData).map(p=>p.t).filter(Boolean));
@@ -1255,11 +1267,12 @@ async function autoSyncIBKR(pfKey){
     }
 
     // Parse cash
-    let cashEUR=0,cashUSD=0;
-    doc.querySelectorAll("CashReportCurrency").forEach(cn=>{const ccy=cn.getAttribute("currency"),bal=parseFloat(cn.getAttribute("endingCash")||cn.getAttribute("endingSettledCash")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
-    if(!cashEUR&&!cashUSD)doc.querySelectorAll("CashBalance").forEach(cb=>{const ccy=cb.getAttribute("currency"),bal=parseFloat(cb.getAttribute("balance")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;});
-    const totalCash=pfBaseCcy(pfKey)==="USD"?cashUSD+(cashEUR*settings.fxRate):cashEUR+(cashUSD/settings.fxRate);
-    if(totalCash>0){pf.dpUSD=Math.round(cashUSD);pf.dpEUR=Math.round(cashEUR);pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
+    let cashEUR=0,cashUSD=0,cashGBP=0,cashJPY=0,cashCAD=0;
+    doc.querySelectorAll("CashReportCurrency").forEach(cn=>{const ccy=cn.getAttribute("currency"),bal=parseFloat(cn.getAttribute("endingCash")||cn.getAttribute("endingSettledCash")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;else if(ccy==="GBP")cashGBP+=bal;else if(ccy==="JPY")cashJPY+=bal;else if(ccy==="CAD")cashCAD+=bal;});
+    if(!cashEUR&&!cashUSD&&!cashGBP&&!cashJPY&&!cashCAD)doc.querySelectorAll("CashBalance").forEach(cb=>{const ccy=cb.getAttribute("currency"),bal=parseFloat(cb.getAttribute("balance")||0);if(ccy==="EUR")cashEUR+=bal;else if(ccy==="USD")cashUSD+=bal;else if(ccy==="GBP")cashGBP+=bal;else if(ccy==="JPY")cashJPY+=bal;else if(ccy==="CAD")cashCAD+=bal;});
+    const totalCashEUR2=cashEUR+(cashUSD/settings.fxRate)+(cashGBP/settings.fxGBP)+(cashJPY/settings.fxJPY)+(cashCAD/settings.fxCAD);
+    const totalCash=pfBaseCcy(pfKey)==="USD"?totalCashEUR2*settings.fxRate:totalCashEUR2;
+    if(totalCash>0){pf.dpUSD=Math.round(cashUSD);pf.dpEUR=Math.round(cashEUR);pf.dpGBP=Math.round(cashGBP);pf.dpJPY=Math.round(cashJPY);pf.dpCAD=Math.round(cashCAD);pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
 
     return true;
   }catch(e){return false;}
@@ -1398,8 +1411,8 @@ function exportExcel(){
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
     {key:"dryPowder_personal",value:portfolios.personal?.dryPowder||0},
     {key:"dryPowder_nl",value:portfolios.nl?.dryPowder||0},
-    {key:"dpUSD_personal",value:portfolios.personal?.dpUSD||0},{key:"dpEUR_personal",value:portfolios.personal?.dpEUR||0},
-    {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},
+    {key:"dpUSD_personal",value:portfolios.personal?.dpUSD||0},{key:"dpEUR_personal",value:portfolios.personal?.dpEUR||0},{key:"dpGBP_personal",value:portfolios.personal?.dpGBP||0},{key:"dpJPY_personal",value:portfolios.personal?.dpJPY||0},{key:"dpCAD_personal",value:portfolios.personal?.dpCAD||0},
+    {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},{key:"dpGBP_nl",value:portfolios.nl?.dpGBP||0},{key:"dpJPY_nl",value:portfolios.nl?.dpJPY||0},{key:"dpCAD_nl",value:portfolios.nl?.dpCAD||0},
     {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
     {key:"nlTranches",value:settings.nlTranches||16},
@@ -1550,8 +1563,14 @@ function handleExcelImport(e){
           if(k==="dryPowder_nl"&&val!=null)portfolios.nl.dryPowder=Number(val);
           if(k==="dpUSD_personal"&&val!=null)portfolios.personal.dpUSD=Number(val);
           if(k==="dpEUR_personal"&&val!=null)portfolios.personal.dpEUR=Number(val);
+          if(k==="dpGBP_personal"&&val!=null)portfolios.personal.dpGBP=Number(val);
+          if(k==="dpJPY_personal"&&val!=null)portfolios.personal.dpJPY=Number(val);
+          if(k==="dpCAD_personal"&&val!=null)portfolios.personal.dpCAD=Number(val);
           if(k==="dpUSD_nl"&&val!=null)portfolios.nl.dpUSD=Number(val);
           if(k==="dpEUR_nl"&&val!=null)portfolios.nl.dpEUR=Number(val);
+          if(k==="dpGBP_nl"&&val!=null)portfolios.nl.dpGBP=Number(val);
+          if(k==="dpJPY_nl"&&val!=null)portfolios.nl.dpJPY=Number(val);
+          if(k==="dpCAD_nl"&&val!=null)portfolios.nl.dpCAD=Number(val);
           if(k==="expansionSlots"&&val!=null)settings.expansionSlots=Number(val);
           if(k==="nlCapAtPersonal"&&val!=null)settings.nlCapAtPersonal=Number(val)===1;
           if(k==="nlTranches"&&val!=null)settings.nlTranches=Math.max(1,Number(val));
@@ -2701,8 +2720,8 @@ function renderAllocator(c){
       <div class="input-box" style="flex:0 0 70px"><div class="input-label">Exp.</div><div class="input-field"><input type="number" value="${expSlots}" min="0" max="9" style="width:36px;text-align:center" onchange="settings.expansionSlots=Math.max(0,+this.value||0);save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">slots</div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div>
-        <div style="display:flex;gap:4px;align-items:center"><span style="font-size:11px;color:var(--muted)">$</span><input type="number" value="${pf.dpUSD||0}" style="width:60px" onchange="portfolios.personal.dpUSD=+this.value||0;portfolios.personal.dpManual=true;save();render()"><span style="font-size:11px;color:var(--muted)">€</span><input type="number" value="${pf.dpEUR||0}" style="width:60px" onchange="portfolios.personal.dpEUR=+this.value||0;portfolios.personal.dpManual=true;save();render()"></div>
-        <div style="font-size:11px;color:var(--accent);margin-top:4px;font-family:var(--mono);font-weight:600">= ${_bs}${Math.round(pf.dryPowder).toLocaleString()}</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="editDP('personal')">${_bs}${Math.round(pf.dryPowder).toLocaleString()} <span style="font-size:10px;opacity:.5">✏</span></div>
+        <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"$0"})()}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${dpMosReserved>0?`<span style="color:#34d399">${_bs}${Math.round(dpMosCapped).toLocaleString()} MOS</span> · <span style="color:#60a5fa">${_bs}${Math.round(dpExpansionWithOverflow).toLocaleString()} EXP</span> <span style="opacity:.5">(${settings.dpSlider??40}%)</span>`:"not re-divided"}</div></div></div>`;
 
     // === INDEX / STOCK-PICKING SPLIT ===
@@ -2921,7 +2940,7 @@ function renderAllocator(c){
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.nlTranches||15}" onchange="settings.nlTranches=Math.max(1,+this.value);save();render()"></div><div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
-          <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">$${Math.round(pf.dpUSD||0).toLocaleString()} + €${Math.round(pf.dpEUR||0).toLocaleString()}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"€0"})()}</div>
           ${nlMosCapped>0?`<div style="font-size:9px;color:#34d399;margin-top:2px">−€${Math.round(nlMosCapped).toLocaleString()} MOS <span style="opacity:.5">(${settings.dpSliderCaca??50}%)</span></div><div style="font-size:9px;color:#60a5fa">€${Math.round(nlDpAvail).toLocaleString()} EXP</div>`:`<div style="font-size:9px;color:var(--muted);margin-top:2px">via IBKR sync or <span style="cursor:pointer;color:var(--accent)" onclick="editDP('nl')">✏ edit</span></div>`}</div>
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Covers</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${dpCovers>=3?"var(--green)":dpCovers>=1?"var(--amber)":"var(--red)"}">${dpCovers} tranche${dpCovers!==1?"s":""}</div></div></div></div>`;
 
@@ -3129,19 +3148,23 @@ function editDP(pfKey){
   const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
   const totalLabel=baseCcy==="USD"?"$":"€";
   const total=pf.dryPowder||0;
+  const ccyRow=(id,sym,label,val)=>`<div style="flex:1;min-width:80px"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">${label}</div>
+    <div style="display:flex;align-items:center;gap:4px"><span style="font-size:14px;font-weight:700;font-family:var(--mono)">${sym}</span>
+    <input id="dp-${id}" type="number" value="${Math.round(val||0)}" style="flex:1;font-size:14px;font-weight:700;font-family:var(--mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 8px;text-align:right;width:70px" oninput="dpPreviewTotal('${pfKey}')"></div></div>`;
   ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
     <div class="modal-title">Dry Powder — ${pf.name}</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:12px">${pf.dpManual?"✏ Manual — will be overwritten on next IBKR sync":"✓ Last set by IBKR sync"}</div>
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <div style="flex:1"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">USD cash</div>
-        <div style="display:flex;align-items:center;gap:4px"><span style="font-size:16px;font-weight:700;font-family:var(--mono)">$</span>
-        <input id="dp-usd" type="number" value="${Math.round(pf.dpUSD||0)}" style="flex:1;font-size:16px;font-weight:700;font-family:var(--mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:right" oninput="dpPreviewTotal('${pfKey}')"></div></div>
-      <div style="flex:1"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">EUR cash</div>
-        <div style="display:flex;align-items:center;gap:4px"><span style="font-size:16px;font-weight:700;font-family:var(--mono)">€</span>
-        <input id="dp-eur" type="number" value="${Math.round(pf.dpEUR||0)}" style="flex:1;font-size:16px;font-weight:700;font-family:var(--mono);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:right" oninput="dpPreviewTotal('${pfKey}')"></div></div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      ${ccyRow("usd","$","USD",pf.dpUSD)}
+      ${ccyRow("eur","€","EUR",pf.dpEUR)}
+      ${ccyRow("gbp","£","GBP",pf.dpGBP)}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      ${ccyRow("jpy","¥","JPY",pf.dpJPY)}
+      ${ccyRow("cad","C$","CAD",pf.dpCAD)}
     </div>
     <div style="background:var(--bg);border-radius:8px;padding:10px;margin-bottom:16px">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Total in ${baseCcy} <span style="opacity:.5">@ 1€=$${settings.fxRate}</span></div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Total in ${baseCcy} <span style="opacity:.5">@ 1€=$${settings.fxRate} · £${settings.fxGBP} · ¥${settings.fxJPY} · C$${settings.fxCAD}</span></div>
       <div id="dp-total" style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--accent)">${totalLabel}${Math.round(total).toLocaleString()}</div>
     </div>
     <div style="display:flex;gap:8px">
@@ -3150,13 +3173,15 @@ function editDP(pfKey){
     </div></div>`;
   document.body.appendChild(ov);
   document.getElementById("dp-usd").focus();
-  document.getElementById("dp-save").onclick=()=>{pf.dpUSD=+(document.getElementById("dp-usd").value)||0;pf.dpEUR=+(document.getElementById("dp-eur").value)||0;pf.dpManual=true;save();ov.remove();render();};
+  document.getElementById("dp-save").onclick=()=>{pf.dpUSD=+(document.getElementById("dp-usd").value)||0;pf.dpEUR=+(document.getElementById("dp-eur").value)||0;pf.dpGBP=+(document.getElementById("dp-gbp").value)||0;pf.dpJPY=+(document.getElementById("dp-jpy").value)||0;pf.dpCAD=+(document.getElementById("dp-cad").value)||0;pf.dpManual=true;save();ov.remove();render();};
   document.getElementById("dp-cancel").onclick=()=>ov.remove();
 }
 function dpPreviewTotal(pfKey){
   const u=+(document.getElementById("dp-usd").value)||0;const e=+(document.getElementById("dp-eur").value)||0;
+  const g=+(document.getElementById("dp-gbp").value)||0;const j=+(document.getElementById("dp-jpy").value)||0;const c=+(document.getElementById("dp-cad").value)||0;
   const base=pfBaseCcy(pfKey);
-  const total=base==="USD"?Math.round(u+(e*settings.fxRate)):Math.round(e+(u/settings.fxRate));
+  const eurTotal=e+(u/settings.fxRate)+(g/settings.fxGBP)+(j/settings.fxJPY)+(c/settings.fxCAD);
+  const total=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);
   const sym=base==="USD"?"$":"€";
   document.getElementById("dp-total").textContent=sym+total.toLocaleString();
 }
