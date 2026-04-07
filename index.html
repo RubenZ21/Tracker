@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.00</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.01</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2347,68 +2347,21 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _bs2=pfSym("personal");
     const _dpCol=_dpPct<25?"var(--red)":_dpPct<30?"var(--amber)":"var(--green)";
     const _dpIcon=_dpPct<25?"🔴":_dpPct<30?"🟡":"🟢";
-    const _rbi=riskBucketInfo("personal");
     h+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
       <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpIcon} DP ${Math.round(_dpPct)}% of Pool 1</span>
       <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">floor 25% · target 30%</span>
       ${_dpPct<25?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW FLOOR — Layer 1 trim eligible</span>`:""}
     </div>`;
-    // Risk bucket utilization (only if speculative positions exist)
-    if(_rbi.used>0){
-      const _rbCol=_rbi.pct>=100?"var(--red)":_rbi.pct>=80?"var(--amber)":"#d97706";
-      h+=`<div style="font-size:9px;font-family:var(--mono);color:${_rbCol};margin-bottom:2px">⚡ Risk: ${_bs2}${Math.round(_rbi.used).toLocaleString()} / ${_bs2}${Math.round(_rbi.cap).toLocaleString()} cap (${Math.round(_rbi.pct)}%)</div>`;
-    }
   }
   h+=`<div class="pos-grid">`;
-
-  // INDEX POSITION CARD (Personal or Caca — dual tracker XZMU+XZEU)
-  const _hasIdxShares=getIndexPos(currentPf,"us").shares>0||getIndexPos(currentPf,"eu").shares>0;
-  const _showIdx=(currentPf==="personal"&&(settings.indexAllocation>0||_hasIdxShares))||(currentPf==="nl");
-  if(_showIdx){
-    const totalIxVal=indexValue(currentPf);const totalIxCost=indexCostBasis(currentPf);
-    const totalIxPnl=totalIxCost>0?((totalIxVal-totalIxCost)/totalIxCost*100):0;
-    const baseSym=currentPf==="nl"?"€":"$";const baseCcy=pfBaseCcy(currentPf);
-    let ixSubtext="";
-    if(currentPf==="personal"){const half=(settings.indexAllocation||0)/2;ixSubtext=`$${half.toLocaleString()} US + $${half.toLocaleString()}→€ EU · Never sold · DCA on salary day`;}
-    else{const cii=cacaIndexInfo();ixSubtext=`${cii.deployed}/${cii.maxT} tranches · ${cii.pctOfPortfolio.toFixed(1)}% of portfolio · cap ${cii.cap}%${cii.atCap?" ✓ filled":""}`;}
-    h+=`<div class="pos-card" style="border-color:#0e7490">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">
-        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0e7490,#164e63);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#67e8f9;flex-shrink:0">IDX</div>
-        <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 XZMU + XZEU</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
-          <div class="pos-sub">MSCI ESG · 50/50 US + EU</div></div></div>
-        <div style="text-align:right"><div class="pos-price-val">${hideValues?"•••":baseSym+Math.round(totalIxVal).toLocaleString()}</div>
-          ${totalIxPnl?`<div class="pos-pnl" style="color:${totalIxPnl>=0?"var(--accent)":"var(--green)"}">${totalIxPnl>=0?"+":""}${totalIxPnl.toFixed(1)}%</div>`:""}</div></div>`;
-    // Sub-rows for each ETF
-    ["us","eu"].forEach(region=>{
-      const ip=getIndexPos(currentPf,region);const sh=ip.shares||0;const avg=ip.avgCost||0;const px=ip.currentPrice||0;
-      const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
-      const val=sh*px;const pnl=avg&&px?((px-avg)/avg*100):0;
-      const label=region==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";
-      const exch=region==="us"?(currentPf==="nl"?"Xetra EUR":"LSE USD"):"Xetra EUR";
-      h+=`<div style="border-top:1px solid var(--border);padding:8px 0 4px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div><span style="font-size:12px;font-weight:600">${label}</span><span style="font-size:9px;color:var(--muted);margin-left:6px">${exch}</span></div>
-          <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono)">${fmt(px,ccy)}</span>
-            ${pnl?`<span style="font-size:10px;margin-left:4px;color:${pnl>=0?"var(--accent)":"var(--green)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</span>`:""}
-            <div style="font-size:8px;color:var(--muted);font-family:var(--mono)">${ip.priceSource==="ibkr"?"⚡":ip.priceSource==="yahoo"?"YF ":""}${timeAgo(ip.lastUpdate)}</div></div></div>
-        <div class="stat-row" style="margin:2px 0 4px">
-          <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${sh>0?sh.toFixed(2):"0"}</div></div>
-          <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${avg>0?fmt(avg,ccy):"—"}</div></div>
-          <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(val,ccy)}</div></div></div>
-        <div class="btn-row" style="gap:4px">
-          <button class="btn-sm btn-accent" style="flex:1;font-size:10px;padding:4px 8px" onclick="logIndexBuy('${currentPf}','${region}')">+ Buy</button>
-          <button class="btn-sm" style="flex:0 0 auto;font-size:10px;padding:4px 8px" onclick="editIndexPosition('${currentPf}','${region}')">✏</button></div></div>`;
-    });
-    h+=`<div style="font-size:10px;color:var(--muted);padding:6px 0 2px;text-align:center">${ixSubtext}</div></div>`;
-  }
 
   // Build unified ticker list: owned + grid ghosts + speculative ghosts (deduped)
   const _ownedSet=new Set(Object.keys(pf.positions));
   const _allCardTickers=[..._ownedSet];
   GRID.forEach(t=>{if(!_ownedSet.has(t))_allCardTickers.push(t);});
   SPEC.forEach(t=>{if(!_ownedSet.has(t)&&!GRID.includes(t))_allCardTickers.push(t);});
-  // Sort: firing grid alpha → non-firing grid alpha → speculative last
-  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=sa?.status==="speculative"?1:0,specB=sb?.status==="speculative"?1:0;if(specA!==specB)return specA-specB;const fa=sigCount(a)>0?0:1,fb=sigCount(b)>0?0:1;return fa-fb||a.localeCompare(b);});
+  // Sort: non-risk by moat priority (ascending) → speculative last
+  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=sa?.status==="speculative"?1:0,specB=sb?.status==="speculative"?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
   if(!_allCardTickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
   const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
   _allCardTickers.forEach(ticker=>{
@@ -2618,6 +2571,46 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       <button class="btn-sm btn-red" style="flex:0 0 auto" onclick="removePosition('${currentPf}','${ticker}')">✕</button>
     </div></div>`;
   });
+
+  // INDEX POSITION CARD (Personal or Caca — at bottom after all stock cards)
+  const _hasIdxShares=getIndexPos(currentPf,"us").shares>0||getIndexPos(currentPf,"eu").shares>0;
+  const _showIdx=(currentPf==="personal"&&(settings.indexAllocation>0||_hasIdxShares))||(currentPf==="nl");
+  if(_showIdx){
+    const totalIxVal=indexValue(currentPf);const totalIxCost=indexCostBasis(currentPf);
+    const totalIxPnl=totalIxCost>0?((totalIxVal-totalIxCost)/totalIxCost*100):0;
+    const baseSym=currentPf==="nl"?"€":"$";const baseCcy=pfBaseCcy(currentPf);
+    let ixSubtext="";
+    if(currentPf==="personal"){const half=(settings.indexAllocation||0)/2;ixSubtext=`$${half.toLocaleString()} US + $${half.toLocaleString()}→€ EU · Never sold · DCA on salary day`;}
+    else{const cii=cacaIndexInfo();ixSubtext=`${cii.deployed}/${cii.maxT} tranches · ${cii.pctOfPortfolio.toFixed(1)}% of portfolio · cap ${cii.cap}%${cii.atCap?" ✓ filled":""}`;}
+    h+=`<div class="pos-card" style="border-color:#0e7490">
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">
+        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0e7490,#164e63);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#67e8f9;flex-shrink:0">IDX</div>
+        <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 XZMU + XZEU</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
+          <div class="pos-sub">MSCI ESG · 50/50 US + EU</div></div></div>
+        <div style="text-align:right"><div class="pos-price-val">${hideValues?"•••":baseSym+Math.round(totalIxVal).toLocaleString()}</div>
+          ${totalIxPnl?`<div class="pos-pnl" style="color:${totalIxPnl>=0?"var(--accent)":"var(--green)"}">${totalIxPnl>=0?"+":""}${totalIxPnl.toFixed(1)}%</div>`:""}</div></div>`;
+    ["us","eu"].forEach(region=>{
+      const ip=getIndexPos(currentPf,region);const sh=ip.shares||0;const avg=ip.avgCost||0;const px=ip.currentPrice||0;
+      const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
+      const val=sh*px;const pnl=avg&&px?((px-avg)/avg*100):0;
+      const label=region==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";
+      const exch=region==="us"?(currentPf==="nl"?"Xetra EUR":"LSE USD"):"Xetra EUR";
+      h+=`<div style="border-top:1px solid var(--border);padding:8px 0 4px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div><span style="font-size:12px;font-weight:600">${label}</span><span style="font-size:9px;color:var(--muted);margin-left:6px">${exch}</span></div>
+          <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono)">${fmt(px,ccy)}</span>
+            ${pnl?`<span style="font-size:10px;margin-left:4px;color:${pnl>=0?"var(--accent)":"var(--green)"}">${pnl>=0?"+":""}${pnl.toFixed(1)}%</span>`:""}
+            <div style="font-size:8px;color:var(--muted);font-family:var(--mono)">${ip.priceSource==="ibkr"?"⚡":ip.priceSource==="yahoo"?"YF ":""}${timeAgo(ip.lastUpdate)}</div></div></div>
+        <div class="stat-row" style="margin:2px 0 4px">
+          <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${sh>0?sh.toFixed(2):"0"}</div></div>
+          <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${avg>0?fmt(avg,ccy):"—"}</div></div>
+          <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(val,ccy)}</div></div></div>
+        <div class="btn-row" style="gap:4px">
+          <button class="btn-sm btn-accent" style="flex:1;font-size:10px;padding:4px 8px" onclick="logIndexBuy('${currentPf}','${region}')">+ Buy</button>
+          <button class="btn-sm" style="flex:0 0 auto;font-size:10px;padding:4px 8px" onclick="editIndexPosition('${currentPf}','${region}')">✏</button></div></div>`;
+    });
+    h+=`<div style="font-size:10px;color:var(--muted);padding:6px 0 2px;text-align:center">${ixSubtext}</div></div>`;
+  }
 
   h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button></div>`;
   c.innerHTML=h;
