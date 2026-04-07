@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.01</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.02</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2266,9 +2266,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     // Now render bar for current portfolio using the global color map (Pool 1 only — excludes speculative)
     const _wBase=pfBaseCcy(currentPf); // compute weights in portfolio's base currency
     const _wTickers=Object.keys(pf.positions).filter(t=>stocks[t]?.status!=="speculative");
+    // Market value bar (top, primary)
     const _wSegs=[];let _wTotal=0;
     _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
-      const avg=posAvgPrice(pf.positions[t]);const val=fromEUR(toEUR(sh*avg,s.currency),_wBase);if(val<=0)return;
+      const val=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),_wBase);if(val<=0)return;
       const col=_cMap[t]||_wPal[0];
       _wSegs.push({t,val,col});_wTotal+=val;
     });
@@ -2289,23 +2290,23 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=8?"DP\u2009"+Math.round(dpPct)+"%":dpPct>=5?Math.round(dpPct)+"%":""}</div>`;
       }
       h+=`</div>`;
-      // Market value bar (faded, below cost bar)
-      const _mvSegs=[];let _mvTotal=0;
+      // Cost basis bar (faded, below market value bar)
+      const _cbSegs=[];let _cbTotal=0;
       _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
-        const val=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),_wBase);if(val<=0)return;
-        _mvSegs.push({t,val,col:_cMap[t]||_wPal[0]});_mvTotal+=val;
+        const avg=posAvgPrice(pf.positions[t]);const val=fromEUR(toEUR(sh*avg,s.currency),_wBase);if(val<=0)return;
+        _cbSegs.push({t,val,col:_cMap[t]||_wPal[0]});_cbTotal+=val;
       });
-      _mvTotal+=dpBase;
-      if(_mvTotal>0){
-        _mvSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
+      _cbTotal+=dpBase;
+      if(_cbTotal>0){
+        _cbSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
         h+=`<div style="display:flex;height:10px;margin:2px 0 1px;border-radius:3px;overflow:hidden;gap:1px;opacity:0.55">`;
-        _mvSegs.forEach(sg=>{const pct=sg.val/_mvTotal*100;
+        _cbSegs.forEach(sg=>{const pct=sg.val/_cbTotal*100;
           h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
         });
         if(dpBase>0&&currentPf!=='nl'){const _dps2=getDPSplit(currentPf);const dpMos2=Math.round(dpBase*(_dps2.sliderPct/100));const dpExp2=dpBase-dpMos2;
-          if(dpMos2>0){const pct=dpMos2/_mvTotal*100;h+=`<div style="width:${pct}%;background:#0d3b2e;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#34d399;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
-          if(dpExp2>0){const pct=dpExp2/_mvTotal*100;h+=`<div style="width:${pct}%;background:#172554;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#60a5fa;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
-        }else if(dpBase>0){const dpPct=dpBase/_mvTotal*100;
+          if(dpMos2>0){const pct=dpMos2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#0d3b2e;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#34d399;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+          if(dpExp2>0){const pct=dpExp2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#172554;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#60a5fa;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+        }else if(dpBase>0){const dpPct=dpBase/_cbTotal*100;
           h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=10?Math.round(dpPct)+"%":""}</div>`;
         }
         h+=`</div>`;
