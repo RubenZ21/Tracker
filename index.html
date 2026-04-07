@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.03</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.04</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -351,6 +351,9 @@ function validTriggerSlots(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===fals
 function endOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,999).getTime();}
 function isSnoozed(t,sig){const s=stocks[t];if(!s?.snoozed)return false;if(sig){const exp=s.snoozed[sig];if(!exp)return false;if(Date.now()>exp){delete s.snoozed[sig];return false;}return true;}return Object.keys(s.snoozed).some(k=>isSnoozed(t,k));}
 function snoozeSignal(t,sig){if(!stocks[t].snoozed)stocks[t].snoozed={};stocks[t].snoozed[sig]=endOfMonth();save();render();}
+function toggleLimitOrder(t,sig){if(!stocks[t].limitOrders)stocks[t].limitOrders={};stocks[t].limitOrders[sig]=!stocks[t].limitOrders[sig];save();render();}
+function hasLimitOrder(t,sig){return!!stocks[t]?.limitOrders?.[sig];}
+function stockLimitOrderCount(t){const lo=stocks[t]?.limitOrders;if(!lo)return 0;return["mos","tenCap","pbt"].filter(k=>lo[k]).length;}
 function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
 function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?"10Cap":"PBT");return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
 // Returns {sticker, mos} or null if any input is missing
@@ -2209,7 +2212,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   }
 
   // Signal summary grid (compact lifecycle view)
-  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
+  const _loCount=[...GRID,...getSpeculative()].reduce((n,t)=>n+stockLimitOrderCount(t),0);
+  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   [...GRID].filter(t=>stocks[t]?.status!=="speculative").sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
@@ -2228,7 +2232,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
       const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:st.cls==="hold"?sigCol+"99":st.cls==="muted"?"#d9770699":"";
       const topSubOpacity=st.cls==="hold"?"90":st.cls==="muted"?"ff":"60";
-      h+=`<div class="sig-cell">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
+      const _lo=hasLimitOrder(t,key);
+      h+=`<div class="sig-cell" onclick="toggleLimitOrder('${t}','${key}')" style="cursor:pointer">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div>${_lo?`<div style="font-size:7px;color:#67e8f9;font-family:var(--mono);margin-top:1px">📋 LO</div>`:""}</div>`;
     });
     // Status column: overall stock status
     const _sigKeys=isBuffett(t)?["tenCap","pbt"]:["mos","tenCap","pbt"];
@@ -2253,7 +2258,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
       const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":"";
-      h+=`<div class="sig-cell"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div></div>`;
+      h+=`<div class="sig-cell" onclick="toggleLimitOrder('${t}','${key}')" style="cursor:pointer"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div>${hasLimitOrder(t,key)?`<div style="font-size:7px;color:#67e8f9;font-family:var(--mono);margin-top:1px">📋 LO</div>`:""}</div>`;
     });
     h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${deployCount(t,currentPf)||"0"}/${validTriggerSlots(t,currentPf)}</div></div>`;
   });
@@ -3096,14 +3101,16 @@ function renderWatchlist(c){
     _wlTrigs.forEach(({l,v,p,k})=>{
       if(!v&&!p)return; // skip empty triggers entirely
       const muted=v&&isTriggerMuted(s,k);const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk&&!muted?calcImpliedReturn(stk,v):null;
-      const col=on?"var(--green)":muted?"#d97706":"var(--muted)";
+      const col=on?"var(--green)":muted?"#d97706":"var(--muted)";const lo=hasLimitOrder(t,k);
       const borderStyle=muted?"border:1.5px dashed #d97706":(isClosest?"border:1px solid var(--accent)":"");
       h+=`<div class="wl-trig" ${borderStyle?`style="${borderStyle}"`:''}>
         <div class="wl-trig-label">${l}${isClosest?" ★":""}${muted?" ⌀":""}</div>
         <div class="wl-trig-val" style="color:${col}${muted?";opacity:0.6":""}">${v?fmt(v,s.currency):"—"}</div>
         ${muted?`<div style="font-size:8px;color:#d97706;font-family:var(--mono)">≥ sticker</div>`:""}
         ${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}
-        ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}</div>`;});
+        ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}
+        ${v?`<div style="margin-top:2px;cursor:pointer;font-size:8px;font-family:var(--mono);padding:1px 4px;border-radius:3px;text-align:center;${lo?"background:#0e7490;color:#67e8f9":"background:var(--bg);color:var(--muted);opacity:0.5"}" onclick="event.stopPropagation();toggleLimitOrder('${t}','${k}')">${lo?"📋 LO":"LO"}</div>`:""}
+        </div>`;});
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:9px;color:${calcFreshness(s.lastCalcDate).color};font-family:var(--mono);padding:1px 5px;background:${calcFreshness(s.lastCalcDate).stale?calcFreshness(s.lastCalcDate).color+'15':'var(--bg)'};border-radius:3px;flex-shrink:0">${calcFreshness(s.lastCalcDate).label}</span>${earningsChip(t)}
       <div style="display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-wrap:wrap">
