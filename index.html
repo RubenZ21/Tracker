@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v2.97</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.00</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -254,7 +254,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:15,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.DE",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.DE",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
@@ -354,13 +354,13 @@ function snoozeSignal(t,sig){if(!stocks[t].snoozed)stocks[t].snoozed={};stocks[t
 function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
 function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?"10Cap":"PBT");return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
 // Returns {sticker, mos} or null if any input is missing
-// Uses settings.marr (default 15%) as discount rate: divisor = (1 + marr/100)^10
+// Uses settings.marr (default 10%) as discount rate: divisor = (1 + marr/100)^10
 function recalcSticker(eps,gr,pe){
   if(eps==null||gr==null||pe==null)return null;
   const g=gr/100;
   const futureEPS=eps*Math.pow(1+g,10);
   const futurePE=Math.min(2*gr,pe);
-  const divisor=Math.pow(1+(settings.marr||15)/100,10);
+  const divisor=Math.pow(1+(settings.marr||10)/100,10);
   const sticker=+(futureEPS*futurePE/divisor).toFixed(2);
   const mos=+(sticker/2).toFixed(2);
   return{sticker,mos};
@@ -491,7 +491,7 @@ function nearestTrigger(t){const s=stocks[t];if(!s)return null;const tr=[s.cons.
 function gapPct(t){const s=stocks[t],nt=nearestTrigger(t);if(!s||!nt||!s.currentPrice)return null;return Math.round((s.currentPrice-nt)/s.currentPrice*100);}
 
 // Implied annual return: what you'd earn per year if buying at entryPrice and stock reaches projected future value in 10 years
-function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker<=0||entryPrice<=0)return null;const fv=sticker*Math.pow(1+(settings.marr||15)/100,10);return Math.pow(fv/entryPrice,1/10)-1;}
+function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker<=0||entryPrice<=0)return null;const fv=sticker*Math.pow(1+(settings.marr||10)/100,10);return Math.pow(fv/entryPrice,1/10)-1;}
 
 // Find the closest trigger (highest price = fires first on decline) and its implied return
 function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(!mos)return null;const sticker=mos*2;
@@ -525,6 +525,40 @@ function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).re
 // Stock-picking half: total value of all PT positions + DP (excl index)
 function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
 function stockPickingCostBasis(){const pf=portfolios.personal;if(!pf)return 0;let c=0;Object.entries(pf.positions).forEach(([t,pos])=>{pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)c+=sh*tr.buyPrice;});});return c+(pf.dryPowder||0);}
+// Pool 1 value: all non-speculative positions + DP (excludes index=Pool2, speculative=Pool3)
+function pool1Value(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(pos);if(sh>0)v+=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),base);});
+  return v+(pf.dryPowder||0);}
+function pool1CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status==="speculative")return;
+    pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});
+  return v+(pf.dryPowder||0);}
+// Pool 3 (risk bucket) cost basis
+function pool3CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status!=="speculative")return;
+    pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});return v;}
+// DP as % of Pool 1 market value
+function dpPctOfPool1(pfKey){const p1=pool1Value(pfKey);if(!p1)return 0;const pf=portfolios[pfKey];return(pf?.dryPowder||0)/p1*100;}
+// Position phase: 1=Accumulate, 2=Hold, 3=Monitor, 4=Trailing, 5=Sell
+function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
+  const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
+  const buf=isBuffett(ticker);const isSpec=s.status==="speculative";
+  // Fair-value threshold: Sticker for PT, activation (TC×1.333) for Buffett
+  const sticker=s.cons?.mos?s.cons.mos*2:null;
+  const fvt=buf?activationPrice(s):sticker;
+  // Check if any tranche has active trailing stop
+  const hasTrailing=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;return sh>0&&tr.ath!=null;});
+  const hasSellSignal=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||!tr.ath)return false;const base=sellBase(s,tr.signal);if(!base)return false;const dd=(tr.ath-s.currentPrice)/tr.ath*100;return dd>=25;});
+  if(hasSellSignal)return{phase:5,label:"SELL",color:"var(--red)"};
+  if(hasTrailing)return{phase:4,label:"TRAILING",color:"var(--accent)"};
+  if(fvt&&s.currentPrice>fvt&&!isSpec)return{phase:3,label:"MONITOR",color:"var(--amber)"};
+  const sig=sigCount(ticker);
+  if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
+  return{phase:2,label:"HOLD",color:"var(--muted)"};}
+// Risk bucket cap: 10% of Pool1+Pool3 combined cost basis
+function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const cap=(p1cost+p3cost)*0.10;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0};}
+// 5% initial entry size from Pool 1 market value
+function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
 function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
@@ -1369,7 +1403,7 @@ function exportExcel(){
     {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
     {key:"nlTranches",value:settings.nlTranches||16},
-    {key:"marr",value:settings.marr||15},
+    {key:"marr",value:settings.marr||10},
     {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
     {key:"indexAllocation",value:settings.indexAllocation||0},
     {key:"indexUSShares",value:getIndexPos("personal","us").shares||0},
@@ -1680,6 +1714,11 @@ function checkAlerts(){
       });
     });
   });
+
+  // DP FLOOR ALERT — warn when DP drops below 25% of Pool 1
+  {const _dpPctP=dpPctOfPool1("personal");
+   if(_dpPctP<25&&_dpPctP>0){const k="dp-floor-breach";if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"🔴",
+     html:`<strong>DP at ${Math.round(_dpPctP)}%</strong> of Pool 1 — below 25% floor. Layer 1 trim eligible: sell shares from weakest-moat stock at 0/3 above fair value.`});}}
 
   // BUY SIGNALS — grid stocks with active signals (respecting Sticker Ceiling)
   GRID.forEach(t=>{
@@ -2152,8 +2191,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
   // Signal summary grid (compact lifecycle view)
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
-  [...GRID].sort((a,b)=>{const sa=sigCount(a),sb=sigCount(b);return(sb>0?1:0)-(sa>0?1:0)||a.localeCompare(b);}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
+  [...GRID].filter(t=>stocks[t]?.status!=="speculative").sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       // Buffett category: MOS column shows "—" (not applicable)
       if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
@@ -2184,7 +2223,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Speculative stocks row(s) — shown in grid but not counted in totals (hidden for Caca)
   const SPEC=currentPf==="nl"?[]:getSpeculative();
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
-    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}</div></div>`;
+    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span></div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       const st=sigCellStatus(t,key,currentPf);
       const sigCol=key==="pbt"?"#a78bfa":key==="tenCap"?"#60a5fa":"#4ade80";
@@ -2214,19 +2253,19 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(!window._stockColorMap){window._stockColorMap={};}
     // Rebuild color map from Personal portfolio sorted by value (largest first)
     const _pPersonal=portfolios.personal;const _pRef=[];
-    if(_pPersonal)Object.keys(_pPersonal.positions).forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(_pPersonal.positions[t]);if(sh<=0)return;
+    if(_pPersonal)Object.keys(_pPersonal.positions).forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(_pPersonal.positions[t]);if(sh<=0)return;
       _pRef.push({t,valEUR:toEUR(sh*(s.currentPrice||0),s.currency)});});
     _pRef.sort((a,b)=>b.valEUR-a.valEUR);
     const _cMap={};let _ci=0;
     _pRef.forEach(p=>{_cMap[p.t]=_wPal[_ci%_wPal.length];_ci++;});
     // Add any stocks only in Caca (not in Personal) with next available colors
     const _pNl=portfolios.nl;
-    if(_pNl)Object.keys(_pNl.positions).forEach(t=>{if(_cMap[t])return;const s=stocks[t];if(!s)return;const sh=posShares(_pNl.positions[t]);if(sh<=0)return;
+    if(_pNl)Object.keys(_pNl.positions).forEach(t=>{if(_cMap[t])return;const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(_pNl.positions[t]);if(sh<=0)return;
       _cMap[t]=_wPal[_ci%_wPal.length];_ci++;});
 
-    // Now render bar for current portfolio using the global color map
+    // Now render bar for current portfolio using the global color map (Pool 1 only — excludes speculative)
     const _wBase=pfBaseCcy(currentPf); // compute weights in portfolio's base currency
-    const _wTickers=Object.keys(pf.positions);
+    const _wTickers=Object.keys(pf.positions).filter(t=>stocks[t]?.status!=="speculative");
     const _wSegs=[];let _wTotal=0;
     _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
       const avg=posAvgPrice(pf.positions[t]);const val=fromEUR(toEUR(sh*avg,s.currency),_wBase);if(val<=0)return;
@@ -2302,7 +2341,24 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     }
   }
 
-  // Per-stock unified cards
+  // Pool 1 DP% indicator (Personal only)
+  if(currentPf==="personal"&&!hideValues){
+    const _p1v=pool1Value("personal");const _dpPct=dpPctOfPool1("personal");const _dp=pf.dryPowder||0;
+    const _bs2=pfSym("personal");
+    const _dpCol=_dpPct<25?"var(--red)":_dpPct<30?"var(--amber)":"var(--green)";
+    const _dpIcon=_dpPct<25?"🔴":_dpPct<30?"🟡":"🟢";
+    const _rbi=riskBucketInfo("personal");
+    h+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpIcon} DP ${Math.round(_dpPct)}% of Pool 1</span>
+      <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">floor 25% · target 30%</span>
+      ${_dpPct<25?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW FLOOR — Layer 1 trim eligible</span>`:""}
+    </div>`;
+    // Risk bucket utilization (only if speculative positions exist)
+    if(_rbi.used>0){
+      const _rbCol=_rbi.pct>=100?"var(--red)":_rbi.pct>=80?"var(--amber)":"#d97706";
+      h+=`<div style="font-size:9px;font-family:var(--mono);color:${_rbCol};margin-bottom:2px">⚡ Risk: ${_bs2}${Math.round(_rbi.used).toLocaleString()} / ${_bs2}${Math.round(_rbi.cap).toLocaleString()} cap (${Math.round(_rbi.pct)}%)</div>`;
+    }
+  }
   h+=`<div class="pos-grid">`;
 
   // INDEX POSITION CARD (Personal or Caca — dual tracker XZMU+XZEU)
@@ -2408,9 +2464,11 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _isGrid&&isBuffett(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">BUFFETT 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:"";
+    const _phase=positionPhase(ticker,currentPf);
+    const phaseBadge=s.status!=="trophy"?`<span class="pos-badge" style="background:transparent;color:${_phase.color};font-size:8px;padding:1px 4px;border:1px solid ${_phase.color}33">${_phase.label}</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
     // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
@@ -2713,19 +2771,18 @@ function renderAllocator(c){
     // === SPECULATIVE BUCKET ===
     const specStocks=getSpeculative();
     {
-      const pfValEUR=pfValueEUR(currentPf);const maxSpec=pfValEUR*0.10;
+      const _rbi2=riskBucketInfo(currentPf);
       const specInPf=specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
-      const specVal=specInPf.reduce((v,t)=>{const s=stocks[t];const pos=pf.positions[t];return v+toEUR(posShares(pos)*posAvgPrice(pos),s.currency);},0);
-      const specAvail=Math.max(0,maxSpec-specVal);
+      const specValBase=specInPf.reduce((v,t)=>{const s=stocks[t];const pos=pf.positions[t];return v+fromEUR(toEUR(posShares(pos)*posAvgPrice(pos),s.currency),_bc);},0);
       if(specStocks.length||specInPf.length){
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Bucket</span>
-            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">max 10% cost</span></div>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">10% of Pool 1+3 cost</span></div>
           <div style="display:flex;gap:8px;margin-bottom:8px">
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">10% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(fromEUR(maxSpec,_bc)).toLocaleString()}</div></div>
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${specVal>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(fromEUR(specVal,_bc)).toLocaleString()}</div></div>
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${_bs}${Math.round(fromEUR(specAvail,_bc)).toLocaleString()}</div></div></div>`;
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">10% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_rbi2.cap).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbi2.used>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(_rbi2.used).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${_bs}${Math.round(_rbi2.available).toLocaleString()}</div></div></div>`;
         specInPf.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
           h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
             <div style="display:flex;justify-content:space-between;align-items:center">
@@ -2737,11 +2794,12 @@ function renderAllocator(c){
       }
     }
 
-    // === NEW ENTRY DEPLOYMENT (Personal DP ÷6 rule) ===
+    // === NEW ENTRY DEPLOYMENT (5% of Pool 1) ===
     // dpMosReserved and dpExpansion already calculated above
     const dpAvailable=dpExpansionWithOverflow;
     if(pf.dryPowder>0){
-      const dp=dpAvailable;const trSize=Math.max(Math.floor(dp/settings.dpDivisor),settings.dpFloor);const maxDeploys=dp>=settings.dpFloor?Math.min(settings.dpDivisor,Math.floor(dp/trSize)):0;
+      const _p1val=pool1Value("personal");const entrySize=initialEntrySize("personal");
+      const canAfford=entrySize>0&&dpAvailable>=entrySize;
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
       const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&stocks[t].status!=="speculative");
@@ -2767,14 +2825,13 @@ function renderAllocator(c){
       h+=`<div class="alloc-card" style="margin-top:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">÷${settings.dpDivisor} rule</span></div>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">5% of Pool 1</span></div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Total DP</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(pf.dryPowder).toLocaleString()}</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">$${Math.round(pf.dpUSD||0).toLocaleString()} + €${Math.round(pf.dpEUR||0).toLocaleString()}</div>
-            ${dpMosCapped>0?`<div style="font-size:9px;color:#34d399;margin-top:2px">−${_bs}${Math.round(dpMosCapped).toLocaleString()} MOS <span style="opacity:.5">(${settings.dpSlider??40}%)</span></div><div style="font-size:9px;color:#60a5fa">=${_bs}${Math.round(dpAvailable).toLocaleString()} EXP</div>`:""}</div>
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Tranche</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">${_bs}${trSize.toLocaleString()}</div>
-            <div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.dpDivisor}" onchange="settings.dpDivisor=Math.max(1,+this.value);save();render()"><span style="font-size:9px;color:var(--muted)">floor ${_bs}</span><input type="number" style="width:52px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.dpFloor}" onchange="settings.dpFloor=Math.max(0,+this.value);save();render()"></div></div>
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Max Deploys</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${maxDeploys}</div></div></div>`;
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Pool 1</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_p1val).toLocaleString()}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">DP ${Math.round(dpPctOfPool1("personal"))}%</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">5% Entry</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${canAfford?"var(--accent)":"var(--red)"}">${_bs}${entrySize.toLocaleString()}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px">${canAfford?"from EXP DP":"insufficient EXP DP"}</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">EXP Avail</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(dpAvailable).toLocaleString()}</div></div></div>`;
 
       if(!ready.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No watchlist stocks with triggers populated.</div>`;}
       else{
@@ -2782,12 +2839,12 @@ function renderAllocator(c){
         const firing=ready.filter(r=>r.firingCount>0);
         if(firing.length){
           h+=`<div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:4px">🔥 FIRING NOW</div>`;
-          firing.forEach(r=>{const s=stocks[r.ticker];const deployBase=r.firingCount*trSize;const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+          firing.forEach(r=>{const s=stocks[r.ticker];const localDeploy=fromEUR(toEUR(entrySize,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
                 <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
-              <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.firingCount} trigger${r.firingCount>1?"s":""} × ${_bs}${trSize.toLocaleString()} = ${_bs}${deployBase.toLocaleString()}</div></div>`;});
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">5% of Pool 1 = ${_bs}${entrySize.toLocaleString()}</div></div>`;});
         }
 
         // Show pending stocks (not firing yet) — deploy 1 tranche at nearest trigger
@@ -2795,8 +2852,7 @@ function renderAllocator(c){
         if(pendingStocks.length){
           h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">WATCHLIST — closest to trigger</div>`;
           pendingStocks.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.length?r.pending.reduce((a,b)=>a.gap<b.gap?a:b):null;
-            // At nearest trigger, only that 1 trigger fires = 1 tranche
-            const deployBase=trSize;const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
+            const localDeploy=fromEUR(toEUR(entrySize,_bc),s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--amber);margin-left:6px">${nearestP?Math.round(nearestP.gap)+"% to "+nearestP.name:"—"}</span></div>
@@ -3311,12 +3367,12 @@ function renderSettings(c){
       </div></div>
 
     <div class="settings-card"><div class="settings-title">📊 MARR (Discount Rate)</div>
-      <div class="settings-desc">Minimum Acceptable Rate of Return used to discount future value in Sticker Price calculation. Rule #1 default is 15%. Changing this recalculates ALL Sticker and MOS prices.</div>
+      <div class="settings-desc">Minimum Acceptable Rate of Return used to discount future value in Sticker Price calculation. Changed to 10% (Mar 2026). Changing this recalculates ALL Sticker and MOS prices.</div>
       <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="settings-save" style="padding:8px 16px;${(settings.marr||15)===15?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.marr=15;save();Object.keys(stocks).forEach(t=>{if(stocks[t].cons)applyRecalcSticker(stocks[t]);});Object.keys(stocks).forEach(updateSignals);save();render()">15% (Rule #1)</button>
-        <button class="settings-save" style="padding:8px 16px;${(settings.marr||15)===10?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.marr=10;save();Object.keys(stocks).forEach(t=>{if(stocks[t].cons)applyRecalcSticker(stocks[t]);});Object.keys(stocks).forEach(updateSignals);save();render()">10%</button>
+        <button class="settings-save" style="padding:8px 16px;${(settings.marr||10)===10?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.marr=10;save();Object.keys(stocks).forEach(t=>{if(stocks[t].cons)applyRecalcSticker(stocks[t]);});Object.keys(stocks).forEach(updateSignals);save();render()">10% (current)</button>
+        <button class="settings-save" style="padding:8px 16px;${(settings.marr||10)===15?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.marr=15;save();Object.keys(stocks).forEach(t=>{if(stocks[t].cons)applyRecalcSticker(stocks[t]);});Object.keys(stocks).forEach(updateSignals);save();render()">15% (old)</button>
       </div>
-      <div style="font-size:9px;color:var(--muted);margin-top:6px;font-family:var(--mono)">Divisor: (1+${(settings.marr||15)/100})^10 = ${Math.pow(1+(settings.marr||15)/100,10).toFixed(4)}</div></div>
+      <div style="font-size:9px;color:var(--muted);margin-top:6px;font-family:var(--mono)">Divisor: (1+${(settings.marr||10)/100})^10 = ${Math.pow(1+(settings.marr||10)/100,10).toFixed(4)}</div></div>
 
     <div class="settings-card"><div class="settings-title">💱 FX Rates</div>
       <div style="display:flex;gap:8px">
