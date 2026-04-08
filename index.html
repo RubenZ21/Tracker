@@ -156,7 +156,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.05</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.06</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -559,8 +559,8 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   const sig=sigCount(ticker);
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
-// Risk bucket cap: 10% of Pool1+Pool3 combined cost basis
-function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const cap=(p1cost+p3cost)*0.10;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0};}
+// Risk bucket cap: 15% of Pool1+Pool3 combined cost basis
+function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const cap=(p1cost+p3cost)*0.15;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0};}
 // 5% initial entry size from Pool 1 market value
 function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
@@ -2422,7 +2422,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
-        <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 10%)</div>
+        <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 15%)</div>
         ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.specReason)}</div>`:""}
         ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editNotes('${ticker}')">${esc(s.notes)}</div>`:""}
         <div class="btn-row">
@@ -2578,12 +2578,12 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(s.status==="speculative"){
       const specAge=s.specDate?Math.round((Date.now()-s.specDate)/86400000):null;
       const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
-      const costBasis=shares*avg;const costEUR=toEUR(costBasis,s.currency);const maxBudget=pfVal*0.10;const pctCost=maxBudget>0?(costEUR/maxBudget*100):0;
+      const costBasis=shares*avg;const costEUR=toEUR(costBasis,s.currency);const maxBudget=pfVal*0.15;const pctCost=maxBudget>0?(costEUR/maxBudget*100):0;
       h+=`<div style="margin-top:6px;padding:8px;background:#332d0d40;border:1px solid #d9770644;border-radius:6px">
         <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚡ Risk Position</div>
         ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(s.specReason)}</div>`:""}
         <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
-          <span>Cost: ${fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 10% budget${specAge!=null?" · "+specAge+"d held":""}</span>
+          <span>Cost: ${fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 15% budget${specAge!=null?" · "+specAge+"d held":""}</span>
         </div>
         <div style="display:flex;gap:6px;margin-top:6px">
           <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate to Grid</button>
@@ -2799,9 +2799,9 @@ function renderAllocator(c){
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Bucket</span>
-            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">10% of Pool 1+3 cost</span></div>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">15% of Pool 1+3 cost</span></div>
           <div style="display:flex;gap:8px;margin-bottom:8px">
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">10% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_rbi2.cap).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">15% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_rbi2.cap).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbi2.used>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(_rbi2.used).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${_bs}${Math.round(_rbi2.available).toLocaleString()}</div></div></div>`;
         specInPf.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
@@ -3044,29 +3044,7 @@ function renderAllocator(c){
     if(stockCount<TARGET_STOCKS){h+=`<div style="font-size:11px;color:var(--amber);margin-top:4px">${TARGET_STOCKS-stockCount} slot${TARGET_STOCKS-stockCount>1?"s":""} open — watchlist triggers will deploy DP</div>`;}
     h+=`</div>`;
 
-    // === NL SPECULATIVE BUCKET === (hidden — Caca bans speculative positions)
-    // Kept as dead code for potential future use
-    if(false){
-    const specNL=getSpeculative();
-    const specInNL=specNL.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
-    const nlSpecVal=specInNL.reduce((v,t)=>{const s=stocks[t];return v+toEUR(posShares(pf.positions[t])*s.currentPrice,s.currency);},0);
-    const nlMaxSpec=pvTotal*0.10;
-    if(specNL.length||specInNL.length){
-      h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:14px;font-weight:700;color:#d97706">⚠ Speculative Bucket</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">max 10% · 1 slot</span></div>
-        <div style="display:flex;gap:8px;margin-bottom:6px">
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">10% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(nlMaxSpec).toLocaleString()}</div></div>
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${nlSpecVal>0?"#d97706":"var(--muted)"}">€${Math.round(nlSpecVal).toLocaleString()}</div></div></div>`;
-      specInNL.forEach(t=>{const s=stocks[t];const sh=posShares(pf.positions[t]);
-        h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
-          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmtSh(sh)} sh</span></div>
-          ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
-      if(!specInNL.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">Slot open. Funded from DP only.</div>`;}
-      h+=`</div>`;
-    }
-    } // end if(false) — Caca speculative bucket suppressed
+
   }
   h+=`</div>`;c.innerHTML=h;
 }
