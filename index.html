@@ -2027,7 +2027,7 @@ function sigCellStatus(ticker, sigKey, pfKey){
   if(worst==="sell")return{cls:"sell",label:"S",sub:`−${Math.round(maxDD)}%`,subCls:"sell-sub"};
   if(worst==="track"){
     const cls=maxDD>=15?"warn":"track";
-    return{cls,label:cls==="warn"?"!":"↑",sub:`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
+    return{cls,label:cls==="warn"?"!":"↑",sub:Math.round(maxDD)===0?"ATH":`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
   }
   // HOLD: circle shows current price, activation above, trigger below
   const sym=s.currency==="USD"?"$":s.currency==="GBp"?"":s.currency==="CAD"?"C$":"€";
