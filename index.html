@@ -150,13 +150,39 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .dp-slider::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--text);border:2px solid var(--accent);cursor:pointer;box-shadow:0 0 6px rgba(0,0,0,.4)}
 .dp-slider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--text);border:2px solid var(--accent);cursor:pointer}
 .dp-slider-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px;padding:0 2px}
+/* Import diff modal */
+.diff-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:200;animation:buyFadeIn .3s ease-out}
+.diff-modal{width:92%;max-width:520px;max-height:82vh;background:var(--card);border-radius:16px;border:1px solid var(--border);overflow:hidden;display:flex;flex-direction:column}
+.diff-modal-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.diff-modal-header h2{font-size:16px;font-weight:700}
+.diff-modal-header .diff-summary{font-size:11px;color:var(--muted)}
+.diff-modal-body{overflow-y:auto;padding:10px 14px 16px;flex:1}
+.diff-stock{margin-bottom:10px;background:var(--bg);border-radius:8px;padding:10px 12px;border:1px solid var(--border)}
+.diff-stock.diff-new{border-color:#34d39940}
+.diff-stock-hdr{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.diff-stock-ticker{font-size:14px;font-weight:700;font-family:var(--mono)}
+.diff-stock-name{font-size:11px;color:var(--muted)}
+.diff-stock-badge{font-size:9px;padding:1px 6px;border-radius:4px;font-weight:700}
+.diff-stock-badge.new{background:#34d39920;color:var(--green)}
+.diff-stock-badge.changed{background:#60a5fa20;color:var(--accent)}
+.diff-changes{display:flex;flex-wrap:wrap;gap:4px}
+.diff-chip{font-size:10px;font-family:var(--mono);padding:3px 8px;border-radius:5px;background:var(--card);border:1px solid var(--border);line-height:1.3}
+.diff-chip .diff-field{color:var(--muted);margin-right:4px}
+.diff-chip .diff-old{color:var(--red);text-decoration:line-through;margin-right:3px}
+.diff-chip .diff-arrow{color:var(--muted);margin-right:3px}
+.diff-chip .diff-new-val{color:var(--green)}
+.diff-chip .diff-set{color:var(--accent)}
+.diff-chip .diff-cleared{color:var(--red);font-style:italic}
+.diff-dismiss{width:100%;padding:13px;background:var(--bg);color:var(--accent);border:none;border-top:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font)}
+.diff-dismiss:active{opacity:.6}
+.diff-no-changes{text-align:center;padding:24px;color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.07</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.08</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1304,11 +1330,120 @@ function exportCSV(){
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
+// ============ IMPORT DIFF: snapshot, compare, display ============
+const DIFF_FIELDS=[
+  {key:"mos",label:"MOS",path:["cons","mos"]},
+  {key:"tenCap",label:"10Cap",path:["cons","tenCap"]},
+  {key:"pbt",label:"PBT",path:["cons","pbt"]},
+  {key:"pbtYrs",label:"PBT Yrs",path:["cons","pbtYrs"]},
+  {key:"gr",label:"GR%",path:["cons","gr"]},
+  {key:"oe",label:"OE",path:["cons","oe"]},
+  {key:"fcf",label:"FCF",path:["cons","fcf"]},
+  {key:"eps",label:"EPS",path:["cons","eps"]},
+  {key:"pe",label:"PE",path:["cons","pe"]},
+  {key:"sticker",label:"Sticker",path:["cons","sticker"]},
+  {key:"name",label:"Name",path:["name"]},
+  {key:"category",label:"Category",path:["category"]},
+  {key:"gate",label:"Gate",path:["gate"]},
+  {key:"priority",label:"Priority",path:["priority"]},
+  {key:"earningsDate",label:"Earnings Date",path:["earningsDate"],isDate:true},
+  {key:"lastCalcDate",label:"Last Calc",path:["lastCalcDate"],isDate:true}
+];
+function snapshotStocks(){
+  const snap={};
+  Object.entries(stocks).forEach(([t,s])=>{
+    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null};
+    if(s.cons){Object.keys(s.cons).forEach(k=>o["cons."+k]=s.cons[k]);}
+    snap[t]=o;
+  });
+  return snap;
+}
+function diffStocks(before){
+  const changes=[];
+  Object.entries(stocks).forEach(([t,s])=>{
+    const old=before[t];
+    if(!old){changes.push({ticker:t,name:s.name,isNew:true,fields:[]});return;}
+    const fields=[];
+    DIFF_FIELDS.forEach(df=>{
+      let oldVal,newVal;
+      if(df.path.length===2){oldVal=old["cons."+df.path[1]];newVal=s[df.path[0]]?.[df.path[1]];}
+      else{oldVal=old[df.path[0]];newVal=s[df.path[0]];}
+      // Normalize: treat undefined as null
+      if(oldVal===undefined)oldVal=null;
+      if(newVal===undefined)newVal=null;
+      // Compare with tolerance for floats, day-level for dates
+      if(oldVal===newVal)return;
+      if(df.isDate&&typeof oldVal==="number"&&typeof newVal==="number"&&Math.abs(oldVal-newVal)<86400000)return;
+      if(!df.isDate&&typeof oldVal==="number"&&typeof newVal==="number"&&Math.abs(oldVal-newVal)<0.005)return;
+      fields.push({label:df.label,oldVal,newVal,isDate:!!df.isDate});
+    });
+    if(fields.length)changes.push({ticker:t,name:s.name||t,isNew:false,fields});
+  });
+  return changes;
+}
+function fmtDiffVal(v){
+  if(v===null||v===undefined)return null;
+  if(typeof v==="number")return Number.isInteger(v)?v.toString():v.toFixed(2);
+  if(typeof v==="boolean")return v?"PASS":"FAIL";
+  return String(v);
+}
+function showImportDiffModal(changes,nUpd,nNew){
+  // Remove any existing diff modal
+  const existing=document.getElementById("import-diff-overlay");
+  if(existing)existing.remove();
+  const overlay=document.createElement("div");
+  overlay.id="import-diff-overlay";
+  overlay.className="diff-overlay";
+  const nChanged=changes.filter(c=>!c.isNew).length;
+  const nNewStocks=changes.filter(c=>c.isNew).length;
+  let bodyHTML="";
+  if(!changes.length){
+    bodyHTML=`<div class="diff-no-changes">No trigger values changed — all values identical.</div>`;
+  }else{
+    // New stocks first, then changed
+    const sorted=[...changes.filter(c=>c.isNew),...changes.filter(c=>!c.isNew)];
+    sorted.forEach(c=>{
+      let chipsHTML="";
+      if(c.isNew){
+        chipsHTML=`<span class="diff-chip"><span class="diff-set">New stock added to watchlist</span></span>`;
+      }else{
+        c.fields.forEach(f=>{
+          const fmtV=v=>f.isDate&&typeof v==="number"?new Date(v).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):fmtDiffVal(v);
+          const oldStr=fmtV(f.oldVal);
+          const newStr=fmtV(f.newVal);
+          if(oldStr===null&&newStr!==null){
+            chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-set">${newStr}</span></span>`;
+          }else if(oldStr!==null&&newStr===null){
+            chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-old">${oldStr}</span><span class="diff-cleared">cleared</span></span>`;
+          }else{
+            chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-old">${oldStr}</span><span class="diff-arrow">→</span><span class="diff-new-val">${newStr}</span></span>`;
+          }
+        });
+      }
+      const badge=c.isNew?`<span class="diff-stock-badge new">NEW</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
+      bodyHTML+=`<div class="diff-stock ${c.isNew?'diff-new':''}">
+        <div class="diff-stock-hdr"><span class="diff-stock-ticker">${c.ticker}</span><span class="diff-stock-name">${c.name}</span>${badge}</div>
+        <div class="diff-changes">${chipsHTML}</div></div>`;
+    });
+  }
+  const summaryParts=[];
+  if(nNewStocks)summaryParts.push(`${nNewStocks} new`);
+  if(nChanged)summaryParts.push(`${nChanged} changed`);
+  if(nUpd-nChanged-nNewStocks>0)summaryParts.push(`${nUpd-nChanged-nNewStocks} unchanged`);
+  overlay.innerHTML=`<div class="diff-modal">
+    <div class="diff-modal-header"><h2>Import Results</h2><span class="diff-summary">${summaryParts.join(" · ")}</span></div>
+    <div class="diff-modal-body">${bodyHTML}</div>
+    <button class="diff-dismiss" onclick="document.getElementById('import-diff-overlay').remove()">Done</button></div>`;
+  overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function handleCSVImport(e){
   const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=function(ev){
     const lines=ev.target.result.split("\n").filter(l=>l.trim());if(lines.length<2)return alert("Empty CSV");
     const hdr=lines[0].split(",").map(h=>h.trim().toLowerCase());let nUpd=0,nNew=0;
+    const beforeSnap=snapshotStocks();
     for(let i=1;i<lines.length;i++){const v=lines[i].split(",").map(x=>x.trim());const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
       const t=(row.ticker||"").toUpperCase();if(!t)continue;
       // Auto-create stock if ticker doesn't exist yet
@@ -1373,7 +1508,9 @@ function handleCSVImport(e){
       // If no eps/pe auto-calc, derive sticker from manual MOS
       if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
       updateSignals(t);nUpd++;}
-    save();render();alert(`Updated ${nUpd} stocks${nNew?` (${nNew} new)`:""}.`);
+    save();render();
+    const changes=diffStocks(beforeSnap);
+    showImportDiffModal(changes,nUpd,nNew);
     // Auto-sync triggers to push worker if connected
     if(settings.pushSubscribed&&settings.pushWorkerUrl)syncTriggersToCloud();
     };r.readAsText(f);e.target.value="";
@@ -1465,6 +1602,7 @@ function handleExcelImport(e){
       const wb=XLSX.read(ev.target.result,{type:"array"});
       let nStocks=0,nPos=0,nSet=0;
       const vn=x=>(x!=null&&x!=="")?Number(x):null;
+      const beforeSnap=snapshotStocks();
 
       // Sheet 1: Stocks — update or create
       if(wb.SheetNames.includes("Stocks")){
@@ -1658,7 +1796,8 @@ function handleExcelImport(e){
       Object.values(stocks).forEach(s=>{if(s.status==="grid")s.status="watchlist";});
 
       save();render();
-      alert(`Imported: ${nStocks} stocks, ${nPos} tranches, ${nSet} settings${nLog?`, ${nLog} log entries`:""}. `);
+      const changes=diffStocks(beforeSnap);
+      showImportDiffModal(changes,nStocks,changes.filter(c=>c.isNew).length);
     }catch(err){alert("Import error: "+err.message);}
   };r.readAsArrayBuffer(f);e.target.value="";
 }
