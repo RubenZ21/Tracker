@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.08</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.09</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -879,15 +879,31 @@ async function fetchPrices(){
   let ibkrOk=0;
   try{ibkrOk=await autoSyncAll();}catch(e){}
 
-  // 2. Fetch FX from ECB via frankfurter.app (free, no key)
-  let fxOk=false;
-  try{const fxR=await fetch("https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,CAD,JPY");
-    const fxD=await fxR.json();
-    if(fxD.rates?.USD){settings.fxRate=parseFloat(fxD.rates.USD.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
-    if(fxD.rates?.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
-    if(fxD.rates?.CAD){settings.fxCAD=parseFloat(fxD.rates.CAD.toFixed(4));settings.lastFxUpdate=Date.now();fxOk=true;}
-    if(fxD.rates?.JPY){settings.fxJPY=parseFloat(fxD.rates.JPY.toFixed(2));settings.lastFxUpdate=Date.now();fxOk=true;}
-  }catch(e){}
+  // 2. Fetch FX from ECB via Frankfurter (free, no key)
+  //    Primary: api.frankfurter.dev (current canonical). Fallback: api.frankfurter.app (legacy redirect).
+  let fxOk=false,fxErr=null;
+  const FX_ENDPOINTS=[
+    "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD,GBP,CAD,JPY",
+    "https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,CAD,JPY"
+  ];
+  for(const url of FX_ENDPOINTS){
+    try{
+      const fxR=await fetch(url);
+      if(!fxR.ok){fxErr=`HTTP ${fxR.status} ${fxR.statusText||""}`.trim();continue;}
+      const fxD=await fxR.json();
+      if(!fxD.rates){fxErr="No rates in response";continue;}
+      if(fxD.rates.USD){settings.fxRate=parseFloat(fxD.rates.USD.toFixed(4));fxOk=true;}
+      if(fxD.rates.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));fxOk=true;}
+      if(fxD.rates.CAD){settings.fxCAD=parseFloat(fxD.rates.CAD.toFixed(4));fxOk=true;}
+      if(fxD.rates.JPY){settings.fxJPY=parseFloat(fxD.rates.JPY.toFixed(2));fxOk=true;}
+      if(fxOk){settings.lastFxUpdate=Date.now();settings.lastFxError=null;fxErr=null;break;}
+      fxErr="No expected currencies (USD/GBP/CAD/JPY) in response";
+    }catch(e){fxErr=e.message||String(e);}
+  }
+  if(!fxOk){
+    settings.lastFxError=fxErr||"Unknown FX error";
+    console.warn("FX fetch failed:",fxErr);
+  }
 
   // 3. Yahoo Finance for all stocks via Cloudflare Worker proxy
   let yfOk=0;
@@ -2119,7 +2135,10 @@ function render(){
   document.getElementById("pf-total-val").innerHTML=hideValues?`<span onclick="toggleValues()" style="cursor:pointer;opacity:0.25;font-size:9px">👁</span>`:`${pfLabel} DP ${dpCcy}${Math.round(portfolios[currentPf]?.dryPowder||0).toLocaleString()} <span style="font-size:8px;color:${portfolios[currentPf]?.dpManual?"#f59e0b":"#22c55e"};cursor:pointer" onclick="editDP('${currentPf}')">${portfolios[currentPf]?.dpManual?"✏":"✓"}</span> <span onclick="toggleValues()" style="cursor:pointer;opacity:0.2;font-size:9px">👁</span>`;
   const fxEl=document.getElementById("fx-display");
   if(fxEl){const fxAge=timeAgo(settings.lastFxUpdate);const ibkrAge=settings.lastIbkrSync?timeAgo(settings.lastIbkrSync):"";
-    fxEl.textContent=`1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD} · 1€=¥${settings.fxJPY}${ibkrAge?" · ⚡"+ibkrAge:""}`;}
+    const fxStale=settings.lastFxUpdate?(Date.now()-settings.lastFxUpdate>24*60*60*1000):true;
+    const fxErrTxt=settings.lastFxError?` · ⚠ FX: ${settings.lastFxError}`:(fxStale&&settings.lastFxUpdate?` · ⚠ FX stale ${fxAge}`:"");
+    const fxColor=settings.lastFxError?"color:var(--red)":(fxStale?"color:var(--amber)":"");
+    fxEl.innerHTML=`<span style="${fxColor}" title="${settings.lastFxError||''}">1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD} · 1€=¥${settings.fxJPY}${ibkrAge?" · ⚡"+ibkrAge:""}${fxErrTxt}</span>`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   const _earBanner=renderEarningsBanner();
   const _contentEl=document.getElementById("content");
