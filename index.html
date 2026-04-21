@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.09</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.10</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -589,6 +589,11 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
 function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const cap=(p1cost+p3cost)*0.15;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0};}
 // 5% initial entry size from Pool 1 market value
 function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
+// Per-stock position cap: 15% Pool 1 MV for Phil Town, 10% for Buffett Category.
+// When at/above cap, monthly allocator skips deployment and routes tranche(s) to DP.
+function positionCapPct(ticker){return isBuffett(ticker)?0.10:0.15;}
+function positionMVPct(ticker,pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const s=stocks[ticker];if(!s)return 0;const pos=pf.positions?.[ticker];if(!pos)return 0;const p1=pool1Value(pfKey);if(p1<=0)return 0;const base=pfBaseCcy(pfKey);const mv=fromEUR(toEUR(posShares(pos)*(s.currentPrice||0),s.currency),base);return mv/p1;}
+function atPositionCap(ticker,pfKey){return positionMVPct(ticker,pfKey)>=positionCapPct(ticker);}
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
 function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
@@ -2852,7 +2857,12 @@ function renderAllocator(c){
     // Count lit (deploy) vs unlit signals across firing stocks — deployCount includes piggyback
     const litTotal=firingStocks.reduce((n,t)=>n+deployCount(t,'personal'),0);
     const unlitTotal=validSlots-litTotal;
-    const deployTotal=denom>0?Math.round(income*litTotal/denom):0;
+    // Position cap enforcement: lit tranches for stocks at/above per-stock cap
+    // (15% Pool 1 MV for Phil Town, 10% for Buffett) are redirected to DP.
+    const cappedLit=firingStocks.reduce((n,t)=>n+(atPositionCap(t,'personal')?deployCount(t,'personal'):0),0);
+    const litDeploying=litTotal-cappedLit;
+    const deployTotal=denom>0?Math.round(income*litDeploying/denom):0;
+    const cappedRedirect=denom>0?Math.round(income*cappedLit/denom):0;
     const toDP=income-deployTotal;
     const sliderPct=settings.dpSlider??40;
     const mosReserveTotal=Math.round(toDP*(sliderPct/100));
@@ -2915,15 +2925,17 @@ function renderAllocator(c){
     h+=`<div class="alloc-card">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">${idxAlloc>0?"Stock-Picking Allocation":"Monthly Allocation"}</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+${expSlots} = ${denom} slots</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Per tranche (${_bs}${income.toLocaleString()} ÷ ${denom})</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${perTr.toLocaleString()}</span></div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litTotal} lit signals)</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${deployTotal.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litDeploying} lit signals${cappedLit>0?`, ${cappedLit} at cap → DP`:""})</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${deployTotal.toLocaleString()}</span></div>
+      ${cappedLit>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Cap redirect (${cappedLit} lit → DP)</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${cappedRedirect.toLocaleString()}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">MOS reserves (${unlitTotal} unlit)</span><span style="font-size:13px;font-family:var(--mono);color:#34d399">${_bs}${mosReserveTotal.toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Expansion (${expSlots} slots)</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${expansionTotal.toLocaleString()}</span></div>
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP <span style="font-size:9px;opacity:.6">(${Math.round(dps.sliderPct)}% MOS)</span></span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + MOS reserve
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
-      const deployBase=dc*perTr;const mosBase=unlit*perTr;
-      const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+      const capped=atPositionCap(t,'personal');const capPct=positionCapPct(t);const mvPct=positionMVPct(t,'personal');
+      const deployBase=capped?0:dc*perTr;const cappedBase=capped?dc*perTr:0;const mosBase=unlit*perTr;
+      const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0,resCcy:_bc};
       const allocSym=mi.resCcy==="USD"?"$":mi.resCcy==="GBP"?"\u00a3":"\u20ac";
       const resRatio=mi.ideal>0?(mi.actual/mi.ideal):mi.actual>0?999:1;
@@ -2934,8 +2946,12 @@ function renderAllocator(c){
       const isSpec=s.status==="speculative";const isBuf=isBuffett(t);
       const unlitDest=isSpec||isBuf?"EXP":"DP";
       const unlitCol="#34d399";
-      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → deploy · ${unlit} unlit → <span style="color:${unlitCol}">${unlitDest}</span>${pbNote}</div></div>
-        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmt(Math.round(localDeploy),s.currency)}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">~${sh} sh${mosBase?` · +${allocSym}${Math.round(fromEUR(toEUR(mosBase,_bc),mi.resCcy)).toLocaleString()}/mo`:""}</div></div></div>`;
+      const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:`deploy`;
+      const amtCol=capped?"#d97706":"var(--green)";
+      const amtVal=capped?fmt(Math.round(fromEUR(toEUR(cappedBase,_bc),s.currency)),s.currency):fmt(Math.round(localDeploy),s.currency);
+      const subline=capped?`${isBuf?"10%":"15%"} of Pool 1 reached — routed to DP`:`~${sh} sh${mosBase?` · +${allocSym}${Math.round(fromEUR(toEUR(mosBase,_bc),mi.resCcy)).toLocaleString()}/mo`:""}`;
+      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}${capped?' <span style="font-size:10px;color:#d97706">🔒</span>':""}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → ${litDest} · ${unlit} unlit → <span style="color:${unlitCol}">${unlitDest}</span>${pbNote}</div></div>
+        <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${amtCol}">${amtVal}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">${subline}</div></div></div>`;
     });
     // Show 0/3 grid stocks (not firing — no allocation)
     const notFiring=GRID.filter(t=>sigCount(t)===0);
