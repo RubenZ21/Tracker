@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.13</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.14</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -280,7 +280,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.DE",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
@@ -543,7 +543,7 @@ function indexAllocationUSD(){const pct=settings.indexAllocationPct;if(pct==null
 function ptIncome(pfKey){if(pfKey!=="personal")return pfIncome(pfKey);return pfIncome(pfKey)-indexAllocationUSD();}
 // Index position helpers — dual tracker (XZMU=US, XZEU=EU)
 const _emptyIx=(ccy)=>({shares:0,avgCost:0,currency:ccy||"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
-function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR")};const ccyUS=pfKey==="nl"?"EUR":"USD";if(!pf.indexPositions)pf.indexPositions={us:_emptyIx(ccyUS),eu:_emptyIx("EUR")};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx(ccyUS);if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");return pf.indexPositions;}
+function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR")};const ccyUS="USD";if(!pf.indexPositions)pf.indexPositions={us:_emptyIx(ccyUS),eu:_emptyIx("EUR")};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx(ccyUS);if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");return pf.indexPositions;}
 function getIndexPos(pfKey,region){return getIndexPositions(pfKey)[region||"us"];}
 function indexValueSingle(pfKey,region){const ip=getIndexPos(pfKey,region);return(ip.shares||0)*(ip.currentPrice||0);}
 function indexValue(pfKey){const base=pfBaseCcy(pfKey||"personal");let v=0;["us","eu"].forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.currentPrice||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
@@ -552,7 +552,7 @@ function indexCostBasis(pfKey){let v=0;["us","eu"].forEach(r=>{const ip=getIndex
 function indexReturn(pfKey){const v=indexValue(pfKey),c=indexCostBasis(pfKey);if(!c)return null;return((v-c)/c*100);}
 // Caca index: how many tranches deployed (across both ETFs), % of portfolio, cap check
 function cacaIndexInfo(){const ips=getIndexPositions("nl");const deployed=(ips.us.deployLog||[]).length+(ips.eu.deployLog||[]).length;const cap=settings.nlIndexCap||10;const maxT=(settings.nlIndexMaxTranches||4)*2;const ci=cacaInfo();const ixVal=indexValue("nl");const totalWithIndex=ci.total+ixVal;const pctOfPortfolio=totalWithIndex>0?(ixVal/totalWithIndex*100):0;const capRoom=totalWithIndex>0?Math.max(0,(cap/100)*totalWithIndex-ixVal):0;const atCap=deployed>=maxT||pctOfPortfolio>=cap;return{deployed,maxT,cap,pctOfPortfolio,capRoom,atCap,ixVal};}
-function indexTickerForPf(pfKey,region){const r=region||"us";if(pfKey==="nl")return r==="us"?(settings.nlIndexTickerUS||"XZMU.DE"):(settings.nlIndexTickerEU||"XZEU.DE");return r==="us"?(settings.indexTickerUS||"XZMU.L"):(settings.indexTickerEU||"XZEU.L");}
+function indexTickerForPf(pfKey,region){const r=region||"us";if(pfKey==="nl")return r==="us"?(settings.nlIndexTickerUS||"XZMU.L"):(settings.nlIndexTickerEU||"XZEU.DE");return r==="us"?(settings.indexTickerUS||"XZMU.L"):(settings.indexTickerEU||"XZEU.L");}
 function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).replace(/\.(L|DE|AS)$/,"");}
 // Stock-picking half: total value of all PT positions + DP (excl index)
 function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
@@ -824,7 +824,18 @@ function load(){
   // Migrate old single ticker settings
   if(settings.indexTicker&&settings.indexTicker!=="XZW0.L"){settings.indexTickerUS=settings.indexTicker;}delete settings.indexTicker;
   if(settings.nlIndexTicker&&settings.nlIndexTicker!=="XZW0.DE"){settings.nlIndexTickerUS=settings.nlIndexTicker;}delete settings.nlIndexTicker;
-  if(!settings.nlIndexTickerUS)settings.nlIndexTickerUS="XZMU.DE";
+  if(!settings.nlIndexTickerUS)settings.nlIndexTickerUS="XZMU.L";
+  // One-shot migration (v3.14, Apr 22 2026): Caca US leg moved from XZMU.DE (EUR) to XZMU.L (USD).
+  // Only auto-migrate if the existing position has zero shares; otherwise keep whatever the user has
+  // so historical cost basis isn't silently re-denominated.
+  if(settings.nlIndexTickerUS==="XZMU.DE"){
+    const _nlPf=portfolios.nl;
+    const _nlUS=_nlPf&&_nlPf.indexPositions&&_nlPf.indexPositions.us;
+    if(!_nlUS||!_nlUS.shares){
+      settings.nlIndexTickerUS="XZMU.L";
+      if(_nlUS){_nlUS.currency="USD";_nlUS.currentPrice=0;_nlUS.avgCost=0;_nlUS.lastUpdate=null;_nlUS.priceSource=null;}
+    }
+  }
   if(!settings.nlIndexTickerEU)settings.nlIndexTickerEU="XZEU.DE";
   if(settings.nlIndexCap===undefined)settings.nlIndexCap=10;
   if(settings.nlIndexTranche===undefined)settings.nlIndexTranche=1000;
@@ -3558,8 +3569,8 @@ function renderSettings(c){
       </div>
       ${(function(){const ips=getIndexPositions("personal");let out="";["us","eu"].forEach(r=>{const ip=ips[r];const sym=ip.currency==="EUR"?"€":"$";const label=r==="us"?"🇺🇸 XZMU (USD)":"🇪🇺 XZEU (EUR)";if(ip.shares>0)out+=`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label}: ${ip.shares.toFixed(2)} sh @ ${sym}${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`;});if(out)out=`<div style="margin-top:6px">${out}</div>`;out+=`<div style="display:flex;gap:8px;margin-top:8px"><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','us')">✏ XZMU</button><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','eu')">✏ XZEU</button></div>`;return out;})()}</div>
 
-    <div class="settings-card"><div class="settings-title">🧓 Caca Index (XZMU + XZEU — Xetra EUR)</div>
-      <div class="settings-desc">Permanent index positions capped at ${settings.nlIndexCap||10}% of Caca portfolio. €${((settings.nlIndexTranche||1000)/2).toLocaleString()} each per tranche (max ${settings.nlIndexMaxTranches||4}×2). Never sold.</div>
+    <div class="settings-card"><div class="settings-title">🧓 Caca Index (XZMU.L USD + XZEU.DE EUR)</div>
+      <div class="settings-desc">Permanent index positions capped at ${settings.nlIndexCap||10}% of Caca portfolio. €${((settings.nlIndexTranche||1000)/2).toLocaleString()} per tranche per ETF (XZMU.L converted to USD at current rate ≈ $${Math.round(((settings.nlIndexTranche||1000)/2)*(settings.fxRate||1)).toLocaleString()}; max ${settings.nlIndexMaxTranches||4}×2). Never sold.</div>
       ${(function(){const cii=cacaIndexInfo();return `
       <div style="display:flex;gap:8px;margin-top:8px">
         <div style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
@@ -3571,7 +3582,7 @@ function renderSettings(c){
           <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${cii.pctOfPortfolio>=cii.cap?"var(--amber)":"var(--accent)"}">${cii.pctOfPortfolio.toFixed(1)}% / ${cii.cap}%</div>
         </div>
       </div>` +
-      ["us","eu"].map(r=>{const ip=getIndexPos("nl",r);const label=r==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";return ip.shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label}: ${ip.shares.toFixed(2)} sh @ €${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`:"";}).join("") + `
+      ["us","eu"].map(r=>{const ip=getIndexPos("nl",r);const label=r==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";const sym=ip.currency==="USD"?"$":"€";return ip.shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label} (${ip.currency||"EUR"}): ${ip.shares.toFixed(2)} sh @ ${sym}${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`:"";}).join("") + `
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','us')">✏ XZMU</button>
         <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','eu')">✏ XZEU</button>
@@ -3699,10 +3710,22 @@ function logIndexBuy(pfKey,region){
   const ip=getIndexPos(pfKey,region);
   const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
   const label=region==="us"?"XZMU":"XZEU";
-  const defAmt=pfKey==="nl"?((settings.nlIndexTranche||1000)/2):(pfKey==="personal"&&region==="eu"?Math.round((indexAllocationUSD()||6000)/2/settings.fxRate):((indexAllocationUSD()||6000)/2));
+  // Caca per-tranche is nominally EUR (nlIndexTranche/2 = €500). If the target position is
+  // USD-denominated (XZMU.L on LSE in USD), convert €500 → USD at the current EUR/USD rate.
+  let defAmt;
+  if(pfKey==="nl"){
+    const perTrancheEUR=(settings.nlIndexTranche||1000)/2;
+    defAmt=ccy==="USD"?Math.round(perTrancheEUR*(settings.fxRate||1)):perTrancheEUR;
+  }else{
+    defAmt=pfKey==="personal"&&region==="eu"?Math.round((indexAllocationUSD()||6000)/2/settings.fxRate):((indexAllocationUSD()||6000)/2);
+  }
   // Caca cap check
   if(pfKey==="nl"){const cii=cacaIndexInfo();if(cii.atCap){alert(`Cap reached: ${cii.deployed}/${cii.maxT} tranches, ${cii.pctOfPortfolio.toFixed(1)}% of portfolio (cap ${cii.cap}%)`);return;}}
-  const amt=prompt(`${label} — Amount invested (${sym}):`,String(Math.round(defAmt)));if(!amt)return;
+  const perTrancheEUR=(settings.nlIndexTranche||1000)/2;
+  const promptMsg=(pfKey==="nl"&&ccy==="USD")
+    ?`${label} — Amount invested (${sym}):\n€${perTrancheEUR.toLocaleString()} × ${(settings.fxRate||1).toFixed(4)} ≈ $${Math.round(defAmt).toLocaleString()}`
+    :`${label} — Amount invested (${sym}):`;
+  const amt=prompt(promptMsg,String(Math.round(defAmt)));if(!amt)return;
   const price=prompt(`${label} — Price per share (${sym}):`,ip.currentPrice?ip.currentPrice.toFixed(2):"");if(!price)return;
   const a=parseFloat(amt),p=parseFloat(price);if(isNaN(a)||isNaN(p)||p<=0)return alert("Invalid input");
   const sh=a/p;
@@ -3710,8 +3733,8 @@ function logIndexBuy(pfKey,region){
   ip.avgCost=newShares>0?newCost/newShares:0;ip.shares=newShares;
   if(!ip.deployLog)ip.deployLog=[];
   ip.deployLog.push({date:new Date().toISOString(),shares:+sh.toFixed(4),price:p,amount:a});
-  // Caca: reduce DP by amount
-  if(pfKey==="nl"){const pf=portfolios.nl;pf.dpEUR=Math.max(0,(pf.dpEUR||0)-a);recalcDP("nl");}
+  // Caca: reduce DP by amount (convert to EUR if position is USD-denominated)
+  if(pfKey==="nl"){const pf=portfolios.nl;const fx=settings.fxRate||1;const amtEUR=ccy==="USD"?(a/fx):a;pf.dpEUR=Math.max(0,(pf.dpEUR||0)-amtEUR);recalcDP("nl");}
   deployLog.push({id:Date.now()+Math.random()*1000|0,date:new Date().toISOString(),ticker:label,flag:"🌍",action:"buy",signal:"INDEX",shares:+sh.toFixed(4),price:p,currency:ccy,portfolio:pfKey,triggerPrice:null,note:`Index DCA ${sym}${a.toLocaleString()}`});
   localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));
   save();render();

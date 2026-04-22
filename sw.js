@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ttt-v3.13';
+const CACHE_NAME = 'ttt-v3.14';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', e => {
