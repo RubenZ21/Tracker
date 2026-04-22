@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.12</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.13</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -280,7 +280,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:16,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.DE",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.DE",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
@@ -671,9 +671,17 @@ function cacaInfo(){
   const total=mv+(pf.dryPowder||0);
   const ixVal=indexValue("nl");
   const totalWithIndex=total+ixVal;
-  return{total,tranche:Math.round(total/(settings.nlTranches||15)),mv,totalWithIndex,ixVal};
+  return{total,tranche:Math.round(total/(settings.nlTranches||40)),mv,totalWithIndex,ixVal};
 }
 // Per-stock cost allocation status for Caca: target cost vs actual cost
+// TRIM RULE (v3.13): target is based on how many triggers the AVERAGE COST sits at-or-below,
+// NOT on which signals happen to be lit right now. Philosophy: reward good entries with room
+// to hold. If the avg cost beat all triggers historically, earn full 10% allocation even if
+// the current price has rallied and no signals are firing anymore.
+//   Phil Town stocks (3 triggers): 3 below → 4 tranches (10%), 2 → 2 (5%), 1 → 1 (2.5%), 0 → 0
+//   Buffett stocks   (2 triggers): 2 below → 2 tranches (5%),  1 → 1 (2.5%), 0 → 0
+// Muted triggers still count: if avg is below the trigger price, the historical entry was good
+// regardless of whether that trigger is above Sticker in today's framework state.
 function cacaAllocStatus(ticker){
   const pf=portfolios.nl;if(!pf)return null;
   const pos=pf.positions?.[ticker];if(!pos)return null;
@@ -682,11 +690,19 @@ function cacaAllocStatus(ticker){
   const avg=posAvgPrice(pos);
   const costEUR=toEUR(avg*sh,s.currency);
   const ci=cacaInfo();
-  const dc=deployCount(ticker,'nl');const sig=sigCount(ticker);
-  // Target = lit signals × tranche; 0/4 stocks get 0 target (Caca: MOS counts as 2 deploy slots)
-  const target=dc*ci.tranche;
+  const sig=sigCount(ticker);
+  // Count how many triggers the avg cost is at-or-below (in stock's native currency)
+  const cons=s.cons||{};const buf=isBuffett(ticker);
+  let trBelow=0;
+  if(!buf&&cons.mos!=null&&avg<=cons.mos)trBelow++;
+  if(cons.tenCap!=null&&avg<=cons.tenCap)trBelow++;
+  if(cons.pbt!=null&&avg<=cons.pbt)trBelow++;
+  // Map trigger count → tranche count. Phil Town: 3→4, 2→2, 1→1, 0→0. Buffett: 2→2, 1→1, 0→0.
+  let targetTranches;
+  if(buf){targetTranches=trBelow;}
+  else{targetTranches=trBelow>=3?4:(trBelow===2?2:(trBelow===1?1:0));}
+  const target=targetTranches*ci.tranche;
   // Buffett: sell threshold is activation price (tenCap × 1.333). Phil Town: sell at sticker.
-  const buf=isBuffett(ticker);
   const sellRef=buf?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
   const aboveSellRef=sellRef&&s.currentPrice>sellRef;
   const diff=costEUR-target;
@@ -697,7 +713,7 @@ function cacaAllocStatus(ticker){
   else if(target===0&&sig===0)status="noTarget";
   else if(diff>ci.tranche*0.15)status="over";
   else if(diff<-ci.tranche*0.15)status="under";
-  return{costEUR,target,diff,status,aboveCost,aboveSticker:aboveSellRef,tranche:ci.tranche,dc};
+  return{costEUR,target,diff,status,aboveCost,aboveSticker:aboveSellRef,tranche:ci.tranche,trBelow,targetTranches};
 }
 
 function load(){
@@ -762,7 +778,7 @@ function load(){
   // Migration: add dpDivisor and dpFloor if missing
   if(!settings.dpDivisor)settings.dpDivisor=6;
   if(!settings.dpFloor)settings.dpFloor=2000;
-  if(!settings.nlTranches)settings.nlTranches=16;
+  if(!settings.nlTranches)settings.nlTranches=40;
   if(settings.dpSlider==null)settings.dpSlider=40;
   if(settings.dpSliderCaca==null)settings.dpSliderCaca=50;
   // Migration: add dpUSD/dpEUR split if missing (seed from existing dryPowder)
@@ -1588,7 +1604,7 @@ function exportExcel(){
     {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},{key:"dpGBP_nl",value:portfolios.nl?.dpGBP||0},{key:"dpJPY_nl",value:portfolios.nl?.dpJPY||0},{key:"dpCAD_nl",value:portfolios.nl?.dpCAD||0},
     {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
-    {key:"nlTranches",value:settings.nlTranches||16},
+    {key:"nlTranches",value:settings.nlTranches||40},
     {key:"marr",value:settings.marr||10},
     {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
     {key:"indexAllocation",value:settings.indexAllocation||0},
@@ -2388,7 +2404,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(ci.totalWithIndex).toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
-        <div style="font-size:9px;color:var(--muted)">Tranche (÷${settings.nlTranches||15})</div>
+        <div style="font-size:9px;color:var(--muted)">Tranche (${(100/(settings.nlTranches||40)).toFixed(2).replace(/\.?0+$/,"")}%)</div>
         <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${ci.tranche.toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
@@ -3089,7 +3105,7 @@ function renderAllocator(c){
       if(!isTrophy){pvTotal+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
     const ixValNl=indexValue("nl"); // Index value for display (not for tranche calc)
-    const TARGET_SLOTS=settings.nlTranches||16;const TARGET_STOCKS=Math.round(TARGET_SLOTS/4);
+    const TARGET_SLOTS=settings.nlTranches||40;const TARGET_STOCKS=Math.round(TARGET_SLOTS/4);
     const targetTrRaw=Math.round(pvTotal/TARGET_SLOTS);
     // Cap at Personal portfolio's tranche size so Caca never over-deploys relative to Personal
     const personalDP=portfolios.personal?.dryPowder||0;
@@ -3141,7 +3157,7 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value <span style="opacity:.6">(excl. trophy)</span></div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal+ixValNl).toLocaleString()}</div></div>
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (÷${TARGET_SLOTS}${trCapped?" capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.nlTranches||15}" onchange="settings.nlTranches=Math.max(1,+this.value);save();render()"></div><div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (${(100/TARGET_SLOTS).toFixed(2).replace(/\.?0+$/,"")}%${trCapped?" · capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.nlTranches||40}" onchange="settings.nlTranches=Math.max(1,+this.value);save();render()"></div><div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"€0"})()}</div>
