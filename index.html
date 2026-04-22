@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.11</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.12</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2091,21 +2091,27 @@ function marketStatus(){
 }
 
 
-// Earnings banner: show stocks reporting within 14 days
+// Earnings banner: show stocks reporting within 14 days (upcoming) or stale after reporting
 // Dismissals stored in settings.earningsBannerDismissed = { ticker: dismissTimestamp }
-// Dismissed BEFORE earnings day → reappears on earnings day
-// Dismissed ON earnings day → stays dismissed for the day
+// Two snooze modes, inferred from timing of the dismissal relative to earnings day:
+//   UPCOMING banner (today < earnings day): dismissed hides until earnings day arrives.
+//   STALE banner   (today >= earnings day): dismissed hides for the rest of today only;
+//                  the banner reappears the next calendar day so the reminder keeps nagging
+//                  until the user actually updates the triggers.
 function isEarningsBannerDismissed(t,s){
   const d=settings.earningsBannerDismissed;if(!d||!d[t])return false;
-  const dismissTime=d[t];
   const today=new Date();today.setHours(0,0,0,0);
   const earnDay=new Date(s.earningsDate);earnDay.setHours(0,0,0,0);
-  const dismissDay=new Date(dismissTime);dismissDay.setHours(0,0,0,0);
-  // Dismissed on earnings day itself → stays dismissed
-  if(dismissDay.getTime()>=earnDay.getTime())return true;
-  // Dismissed before earnings day → reappear on earnings day
-  if(today.getTime()>=earnDay.getTime())return false;
-  return true;
+  const dismissDay=new Date(d[t]);dismissDay.setHours(0,0,0,0);
+  // Case A: still before the earnings day → "until earnings day" snooze
+  // Any prior dismissal counts; it will auto-expire when today crosses earnDay.
+  if(today.getTime()<earnDay.getTime())return true;
+  // Case B: today is on or after earnings day → "snooze for the day" mode for stale banners
+  //   - Dismissal happened before earnings day → earnings day has now rolled in, show again.
+  //   - Dismissal happened today → keep hidden for the rest of today.
+  //   - Dismissal happened on a prior day (but still post-earnings) → show again.
+  if(dismissDay.getTime()<earnDay.getTime())return false;
+  return dismissDay.getTime()===today.getTime();
 }
 function dismissEarningsBanner(t){
   if(!settings.earningsBannerDismissed)settings.earningsBannerDismissed={};
@@ -2123,13 +2129,17 @@ function renderEarningsBanner(){
   if(!upcoming.length)return"";
   let h='<div style="margin:6px 10px">';
   upcoming.forEach(({t,s,ei})=>{
-    if(ei.status==="upcoming"&&isEarningsBannerDismissed(t,s))return;
+    // Dismissal check now applies to BOTH upcoming and stale banners.
+    // isEarningsBannerDismissed uses dismissal timing to decide which snooze rule applies.
+    if(isEarningsBannerDismissed(t,s))return;
     const cls=ei.status==="upcoming"?"info":"watch";
     const icon=ei.status==="upcoming"?"📅":"⚠️";
     const msg=ei.status==="upcoming"?
       `<strong>${s.flag} ${t}</strong> reports in <strong>${ei.days}d</strong> — prep trigger inputs`:
       `<strong>${s.flag} ${t}</strong> reported ${ei.label.replace("📅 ","").replace(" → update","")} — <strong>triggers need update</strong>`;
-    const dismissBtn=ei.status==="upcoming"?` <span class="alert-dismiss" onclick="event.stopPropagation();dismissEarningsBanner('${t}')" title="Dismiss until earnings day">×</span>`:"";
+    // Upcoming → hide until earnings day. Stale → snooze for the rest of today.
+    const dismissTitle=ei.status==="upcoming"?"Dismiss until earnings day":"Snooze until tomorrow";
+    const dismissBtn=` <span class="alert-dismiss" onclick="event.stopPropagation();dismissEarningsBanner('${t}')" title="${dismissTitle}">×</span>`;
     h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px;display:flex;align-items:center"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px;flex:1">${msg}</span>${dismissBtn}</div>`;
   });
   h+='</div>';return h;
