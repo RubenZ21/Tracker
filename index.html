@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.14</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.15</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -678,10 +678,12 @@ function cacaInfo(){
 // NOT on which signals happen to be lit right now. Philosophy: reward good entries with room
 // to hold. If the avg cost beat all triggers historically, earn full 10% allocation even if
 // the current price has rallied and no signals are firing anymore.
-//   Phil Town stocks (3 triggers): 3 below → 4 tranches (10%), 2 → 2 (5%), 1 → 1 (2.5%), 0 → 0
-//   Buffett stocks   (2 triggers): 2 below → 2 tranches (5%),  1 → 1 (2.5%), 0 → 0
-// Muted triggers still count: if avg is below the trigger price, the historical entry was good
-// regardless of whether that trigger is above Sticker in today's framework state.
+// Caca allocation status: where this position stands relative to its target tranche count.
+// Target is driven by how many tranches are actually deployed (recorded in pos.tranches),
+// since avg cost almost always sits between trigger prices and made the old "trBelow"
+// comparison unreliable.
+//   Phil Town stocks (3 triggers): 3+ deployed → 4 tranches (10%), 2 → 2 (5%), 1 → 1 (2.5%), 0 → 0
+//   Buffett stocks   (2 triggers): 2+ deployed → 2 tranches (5%),  1 → 1 (2.5%), 0 → 0
 function cacaAllocStatus(ticker){
   const pf=portfolios.nl;if(!pf)return null;
   const pos=pf.positions?.[ticker];if(!pos)return null;
@@ -691,16 +693,16 @@ function cacaAllocStatus(ticker){
   const costEUR=toEUR(avg*sh,s.currency);
   const ci=cacaInfo();
   const sig=sigCount(ticker);
-  // Count how many triggers the avg cost is at-or-below (in stock's native currency)
+  // Target allocation is based on how many tranches were actually deployed (recorded
+  // in pos.tranches), NOT how many triggers the avg cost sits below. Avg price almost
+  // always lands between trigger prices, which made the old comparison unreliable.
+  // Phil Town: 1 tranche→2.5%, 2→5%, 3+→10%. Buffett: 1→2.5%, 2→5% (max 2 signals).
   const cons=s.cons||{};const buf=isBuffett(ticker);
-  let trBelow=0;
-  if(!buf&&cons.mos!=null&&avg<=cons.mos)trBelow++;
-  if(cons.tenCap!=null&&avg<=cons.tenCap)trBelow++;
-  if(cons.pbt!=null&&avg<=cons.pbt)trBelow++;
-  // Map trigger count → tranche count. Phil Town: 3→4, 2→2, 1→1, 0→0. Buffett: 2→2, 1→1, 0→0.
+  const nTranches=posTranchesOwned(pos);
   let targetTranches;
-  if(buf){targetTranches=trBelow;}
-  else{targetTranches=trBelow>=3?4:(trBelow===2?2:(trBelow===1?1:0));}
+  if(buf){targetTranches=nTranches>=2?2:(nTranches===1?1:0);}
+  else{targetTranches=nTranches>=3?4:(nTranches===2?2:(nTranches===1?1:0));}
+  const trBelow=nTranches; // kept in return shape for backward compat
   const target=targetTranches*ci.tranche;
   // Buffett: sell threshold is activation price (tenCap × 1.333). Phil Town: sell at sticker.
   const sellRef=buf?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
