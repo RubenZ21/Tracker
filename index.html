@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.15</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.17</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2637,7 +2637,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 15%)</div>
-        ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.specReason)}</div>`:""}
+        ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;opacity:0.5" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
         ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editNotes('${ticker}')">${esc(s.notes)}</div>`:""}
         <div class="btn-row">
           <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
@@ -2743,18 +2743,21 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
       // Sell info row
       if(currentPf==="nl"&&!isTrophy&&!isHold){
-        // Caca: sell at sticker — no trailing stop, no activation
-        const stkP=s.cons?.mos?s.cons.mos*2:null;
+        // Caca sell rules: Phil Town → sticker, Buffett → activation (Ten Cap × 1.333).
+        // No trailing stop in Caca either way — sell at the reference price.
+        const _bufC=isBuffett(ticker);
+        const _refLabel=_bufC?"activation":"sticker";
+        const stkP=_bufC?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
         if(stkP&&stkP>0){
           const gapPctStk=cp?((stkP-cp)/cp*100):0;
           const atOrAbove=cp>=stkP;
           if(atOrAbove){
             h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-              <span style="color:var(--red);font-weight:700">⚠ SELL — at/above sticker</span>
+              <span style="color:var(--red);font-weight:700">⚠ SELL — at/above ${_refLabel}</span>
               <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(stkP.toFixed(2),s.currency)}</span></div>`;
           }else{
             h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-              <span style="color:var(--muted)">sell at ${fmt(stkP.toFixed(2),s.currency)} (sticker)</span>
+              <span style="color:var(--muted)">sell at ${fmt(stkP.toFixed(2),s.currency)} (${_refLabel})</span>
               <span style="font-family:var(--mono);color:var(--muted)">+${gapPctStk.toFixed(0)}% away</span></div>`;
           }
         }
@@ -2795,7 +2798,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const costBasis=shares*avg;const costEUR=toEUR(costBasis,s.currency);const maxBudget=pfVal*0.15;const pctCost=maxBudget>0?(costEUR/maxBudget*100):0;
       h+=`<div style="margin-top:6px;padding:8px;background:#332d0d40;border:1px solid #d9770644;border-radius:6px">
         <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚡ Risk Position</div>
-        ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(s.specReason)}</div>`:""}
+        ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;opacity:0.6" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
         <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
           <span>Cost: ${fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 15% budget${specAge!=null?" · "+specAge+"d held":""}</span>
         </div>
@@ -3354,6 +3357,23 @@ function editNotes(t){
   const ta=document.getElementById("notes-ta");ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
   document.getElementById("notes-save").onclick=()=>{s.notes=ta.value.trim()||undefined;save();ov.remove();render();};
   document.getElementById("notes-cancel").onclick=()=>ov.remove();
+}
+
+function editSpecReason(t){
+  const s=stocks[t];if(s.status!=="speculative")return;
+  const cur=s.specReason||"";
+  const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-title" style="color:#d97706">⚡ ${s.flag} ${t} — Risk thesis</div>
+    <textarea id="spec-ta" placeholder="Conviction thesis: e.g. 'AI leader, IPO play, potential wide moat'" style="width:100%;min-height:180px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:14px;font-family:inherit;line-height:1.5;resize:vertical;box-sizing:border-box">${cur}</textarea>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="modal-done" style="flex:1" id="spec-save">Save</button>
+      <button class="modal-done" style="flex:0;background:var(--bg);color:var(--muted)" id="spec-cancel">Cancel</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const ta=document.getElementById("spec-ta");ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
+  document.getElementById("spec-save").onclick=()=>{s.specReason=ta.value.trim();save();ov.remove();render();};
+  document.getElementById("spec-cancel").onclick=()=>ov.remove();
 }
 
 function editDP(pfKey){
