@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.22</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.23</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2236,21 +2236,21 @@ function sigCellStatus(ticker, sigKey, pfKey){
       else if(tr.state==="stopActive"&&worst!=="sell"){worst="track";if(tr.ath){const dd=(tr.ath-p)/tr.ath*100;if(dd>maxDD)maxDD=dd;}}
     });
   });
-  // No shares in this tranche type — show trigger price plus gap % from current
+  // No shares in this tranche type — show trigger price plus drop % needed from current
   // Gap turns amber when price is within 10% of trigger (close to firing)
-  if(!hasShares){const gap=Math.round((p/trigger-1)*100);if(gap<=0)return{cls:"none",label:"",sub:fmt(trigger,s.currency),subCls:""};const _gapCol=gap<10?"#d97706":"var(--muted)";return{cls:"none",label:"",sub:`${fmt(trigger,s.currency)} <span style="color:${_gapCol};font-weight:${gap<10?"700":"400"}">▼${gap}%</span>`,subCls:""};}
+  if(!hasShares){const gap=p>trigger?Math.round((p-trigger)/p*100):0;if(gap<=0)return{cls:"none",label:"",sub:fmt(trigger,s.currency),subCls:""};const _gapCol=gap<10?"#d97706":"var(--muted)";return{cls:"none",label:"",sub:`${fmt(trigger,s.currency)} <span style="color:${_gapCol};font-weight:${gap<10?"700":"400"}">▼${gap}%</span>`,subCls:""};}
   // Has shares — show lifecycle state
   if(worst==="sell")return{cls:"sell",label:"S",sub:`−${Math.round(maxDD)}%`,subCls:"sell-sub"};
   if(worst==="track"){
     const cls=maxDD>=15?"warn":"track";
     return{cls,label:cls==="warn"?"!":"↑",sub:Math.round(maxDD)===0?"ATH":`−${Math.round(maxDD)}%`,subCls:cls==="warn"?"warn-sub":"track-sub"};
   }
-  // HOLD: circle shows current price, activation above, trigger + gap % below
+  // HOLD: circle shows current price, activation above, trigger + drop % below
   // Gap turns amber when within 10% of re-triggering
   const sym=s.currency==="USD"?"$":s.currency==="GBp"?"":s.currency==="CAD"?"C$":"€";
   const sfx=s.currency==="GBp"?"p":"";
   const act=activationPrice(s);
-  const _holdGap=Math.round((p/trigger-1)*100);
+  const _holdGap=p>trigger?Math.round((p-trigger)/p*100):0;
   let _holdSub;
   if(_holdGap<=0){_holdSub=fmt(trigger,s.currency);}
   else{const _hc=_holdGap<10?"#d97706":"var(--muted)";_holdSub=`${fmt(trigger,s.currency)} <span style="color:${_hc};font-weight:${_holdGap<10?"700":"400"}">▼${_holdGap}%</span>`;}
