@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.17</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.18</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -314,11 +314,13 @@ function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.to
 function esc(s){if(!s)return"";return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function moatDisp(m){return m==="Wide"?"Excellent":m==="Narrow"?"Strong":m||"Strong";}
 // Trigger freshness: how stale are the calculated triggers?
+// stale=true (warning shown) only kicks in at 90+ days. Under 90d the date is informational.
 function calcFreshness(ts){
   if(!ts)return{label:"no date",color:"var(--red)",stale:true,days:null};
   const days=Math.floor((Date.now()-ts)/86400000);
   if(days<30)return{label:new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"short"}),color:"var(--green)",stale:false,days};
-  if(days<90){const mo=Math.round(days/30);return{label:"⚠ "+mo+"mo ago",color:"var(--amber)",stale:true,days};}
+  if(days<90){const mo=Math.round(days/30);return{label:mo+"mo ago",color:"var(--muted)",stale:false,days};}
+  if(days<180){const mo=Math.round(days/30);return{label:"⚠ "+mo+"mo ago",color:"var(--amber)",stale:true,days};}
   const mo=Math.round(days/30);return{label:"⚠ "+mo+"mo ago",color:"var(--red)",stale:true,days};
 }
 
