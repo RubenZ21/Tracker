@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.23</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.24</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2683,7 +2683,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     h+=`<div class="stat-row" style="margin:8px 0">
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
       <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above "+_refLabel:"≈ "+_refLabel}</div>`:""}</div>
-      <div class="stat-box"><div class="stat-label">Invested</div><div class="stat-val">${hideValues?"•••":fmt(Math.round(shares*avg),s.currency)}</div></div></div>`;
+      <div class="stat-box"><div class="stat-label">Invested</div><div class="stat-val">${hideValues?"•••":(s.currency==="GBp"?"£"+(shares*avg/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(shares*avg),s.currency))}</div></div></div>`;
 
     // Caca allocation indicator (between stats and notes)
     if(currentPf==="nl"){
@@ -2808,7 +2808,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚡ Risk Position</div>
         ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;opacity:0.6" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
         <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
-          <span>Cost: ${fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 15% budget${specAge!=null?" · "+specAge+"d held":""}</span>
+          <span>Cost: ${s.currency==="GBp"?"£"+(costBasis/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 15% budget${specAge!=null?" · "+specAge+"d held":""}</span>
         </div>
         <div style="display:flex;gap:6px;margin-top:6px">
           <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate to Grid</button>
