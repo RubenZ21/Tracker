@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.26</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.27</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2854,6 +2854,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div class="btn-row">
           <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
           <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
+          ${isPool3Quarantine(ticker,currentPf)?`<button class="btn-sm" style="flex:0 0 auto;background:#1e293b;color:#94a3b8;border:1px solid #475569" onclick="unquarantinePool3('${ticker}')">⚡</button>`:`<button class="btn-sm" style="flex:0 0 auto;background:#1e293b;color:#94a3b8;border:1px solid #475569" onclick="quarantinePool3('${ticker}','${currentPf}')">❄️</button>`}
           <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:#d97706" onclick="demoteSpec('${ticker}')">→ Watch</button>
         </div></div>`;
       return;
@@ -3024,8 +3025,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <span>Cost: ${s.currency==="GBp"?"£"+(costBasis/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 15% budget${specAge!=null?" · "+specAge+"d held":""}</span>
         </div>
         ${!_isQuar?renderTrancheMarkerRow(ticker,currentPf):""}
-        <div style="display:flex;gap:6px;margin-top:6px">
-          <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate to Grid</button>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          ${_isQuar?`<button class="btn-sm" style="flex:1;background:#1e293b;color:#94a3b8;font-size:10px;padding:4px;border:1px solid #475569" onclick="unquarantinePool3('${ticker}')">⚡ Activate</button>`:`<button class="btn-sm" style="flex:1;background:#1e293b;color:#94a3b8;font-size:10px;padding:4px;border:1px solid #475569" onclick="quarantinePool3('${ticker}','${currentPf}')">❄️ Quarantine</button>`}
+          <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate</button>
           <button class="btn-sm" style="flex:0;background:var(--bg);color:var(--muted);font-size:10px;padding:4px" onclick="demoteSpec('${ticker}')">→ Watch</button>
         </div>
       </div>`;
@@ -3266,6 +3268,33 @@ function renderAllocator(c){
               <span style="font-size:12px;font-family:var(--mono);color:${_cc}">${fmt(Math.round(costVal),s.currency)} · ${fmtSh(sh)} sh</span></div>
             ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
         if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions. Use → Risk on a watchlist stock to add one.</div>`;}
+        // Phase C: Tranche progress summary across active Pool 3 positions
+        if(specInPfActive.length){
+          const _withTr=specInPfActive.filter(t=>{const pos=pf.positions[t];return pos?.originalEntryPrice;});
+          if(_withTr.length){
+            h+=`<div style="margin-top:8px;padding:6px 8px;background:#332d0d20;border-radius:6px;border:1px solid #d9770622">
+              <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:4px">📊 TRANCHE PROGRESS</div>`;
+            _withTr.forEach(t=>{
+              const s=stocks[t];const pos=pf.positions[t];
+              const td=pos.tranchesDone||0;const oep=pos.originalEntryPrice;
+              const due=trancheNotificationDue(t,currentPf);
+              const nextThr=nextTrancheThreshold(t,currentPf);
+              const cur=s.currentPrice||0;
+              const pips=[];
+              for(let n=1;n<=MAX_TRANCHES_POOL3;n++){
+                const st=trancheMarkerState(t,currentPf,n);
+                const c=st==="confirmed"?"#4ade80":st==="skipped"?"#d97706":st==="deferred"?"#60a5fa":st==="pending"?"#666":"#333";
+                pips.push(`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:2px"></span>`);
+              }
+              const status=due?`<span style="color:#d97706;font-weight:700">🔔 T${td+1} ready</span>`:td>=MAX_TRANCHES_POOL3?`<span style="color:var(--muted)">complete</span>`:nextThr?`<span style="color:var(--muted)">next ${fmt(nextThr,s.currency)}</span>`:"";
+              h+=`<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;padding:2px 0">
+                <span><span style="font-weight:600">${t}</span> ${pips.join("")} <span style="color:var(--muted);font-family:var(--mono)">${td}/${MAX_TRANCHES_POOL3}</span></span>
+                <span>${status}</span>
+              </div>`;
+            });
+            h+=`</div>`;
+          }
+        }
         h+=`</div>`;
       }
     }
@@ -4047,20 +4076,53 @@ function graduateToGrid(t){
   if(!confirm(`Graduate ${t} to grid? This stock must now pass all 4Ms.`))return;
   const s=stocks[t];s.status="watchlist";s.pool="pool1";
   delete s.specReason;delete s.specDate;delete s.quarantineSuppressedFires;
-  // Clear pool flag on all positions
-  ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos)delete pos.pool;});
+  delete s.quarantineDate;delete s.quarantineReviewDate;delete s.quarantineReason;
+  // Preserve tranche audit per-position before clearing pool flag (Phase C)
+  ["personal","nl"].forEach(pk=>{
+    const pos=portfolios[pk]?.positions?.[t];if(!pos)return;
+    if(pos.originalEntryPrice||pos.tranchesDone||(pos.trancheHistory&&pos.trancheHistory.length)){
+      pos._pool3Audit={
+        graduatedAt:Date.now(),
+        originalEntryPrice:pos.originalEntryPrice||null,
+        tranchesDone:pos.tranchesDone||0,
+        trancheHistory:pos.trancheHistory||[],
+        lastTrancheTimestamp:pos.lastTrancheTimestamp||null
+      };
+    }
+    delete pos.pool;
+    delete pos.originalEntryPrice;delete pos.tranchesDone;delete pos.trancheHistory;
+    delete pos.lastTrancheTimestamp;delete pos.lastNotifiedThreshold;
+  });
   // Add to current portfolio's grid
   const pf=portfolios[currentPf];
   if(!pf.gridStocks)pf.gridStocks=[];
   if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
   updateSignals(t);save();render();
+  if(settings.pushWorkerUrl&&settings.pushSubscribed)syncTriggersToCloud();
 }
 function demoteSpec(t){
   if(!confirm(`Move ${t} back to watchlist? (Position keeps tracking if shares held.)`))return;
   const s=stocks[t];s.status="watchlist";s.pool="pool1";
   delete s.specReason;delete s.specDate;
-  ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos)delete pos.pool;});
+  delete s.quarantineDate;delete s.quarantineReviewDate;delete s.quarantineReason;
+  // Same audit preservation as graduation
+  ["personal","nl"].forEach(pk=>{
+    const pos=portfolios[pk]?.positions?.[t];if(!pos)return;
+    if(pos.originalEntryPrice||pos.tranchesDone||(pos.trancheHistory&&pos.trancheHistory.length)){
+      pos._pool3Audit={
+        demotedAt:Date.now(),
+        originalEntryPrice:pos.originalEntryPrice||null,
+        tranchesDone:pos.tranchesDone||0,
+        trancheHistory:pos.trancheHistory||[],
+        lastTrancheTimestamp:pos.lastTrancheTimestamp||null
+      };
+    }
+    delete pos.pool;
+    delete pos.originalEntryPrice;delete pos.tranchesDone;delete pos.trancheHistory;
+    delete pos.lastTrancheTimestamp;delete pos.lastNotifiedThreshold;
+  });
   save();render();
+  if(settings.pushWorkerUrl&&settings.pushSubscribed)syncTriggersToCloud();
 }
 // Phase A: quarantine controls — toggles between active and quarantined within Pool 3
 function quarantinePool3(t,pfKey){
@@ -4398,6 +4460,10 @@ async function syncTriggersToCloud(){
       if(!s.cons)return;
       const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;
       if(!hasTriggers)return;
+      // Phase C: aggregate tranche state across portfolios for worker push
+      // Worker uses originalEntryPrice + tranchesDone to detect tranche-due thresholds server-side
+      const _trBy={};
+      ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos&&isPool3Active(t,pk)&&pos.originalEntryPrice){_trBy[pk]={originalEntryPrice:pos.originalEntryPrice,tranchesDone:pos.tranchesDone||0,lastTrancheTimestamp:pos.lastTrancheTimestamp||null};}});
       alertStocks.push({
         ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
@@ -4405,7 +4471,8 @@ async function syncTriggersToCloud(){
         pool:isPool3QuarantineAnyPf(t)?"pool3-quarantine":isPool3AnyPf(t)?"pool3-active":"pool1",
         sticker:s.category==="buffett"?null:(s.cons.mos?s.cons.mos*2:null),
         triggers:{mos:s.category==="buffett"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
-        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}
+        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt},
+        tranches:Object.keys(_trBy).length?_trBy:null
       });
     });
     const resp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
@@ -4461,6 +4528,8 @@ async function resetWorkerSignals(){
       if(!s.cons)return;
       const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;
       if(!hasTriggers)return;
+      const _trBy={};
+      ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos&&isPool3Active(t,pk)&&pos.originalEntryPrice){_trBy[pk]={originalEntryPrice:pos.originalEntryPrice,tranchesDone:pos.tranchesDone||0,lastTrancheTimestamp:pos.lastTrancheTimestamp||null};}});
       alertStocks.push({
         ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
@@ -4468,7 +4537,8 @@ async function resetWorkerSignals(){
         pool:isPool3QuarantineAnyPf(t)?"pool3-quarantine":isPool3AnyPf(t)?"pool3-active":"pool1",
         sticker:s.cons.mos?s.cons.mos*2:null,
         triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
-        signals:{mos:false,tenCap:false,pbt:false}
+        signals:{mos:false,tenCap:false,pbt:false},
+        tranches:Object.keys(_trBy).length?_trBy:null
       });
     });
     const syncResp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
