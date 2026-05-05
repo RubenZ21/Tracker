@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.27</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.24</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -301,137 +301,9 @@ function getGrid(pfKey){
 function isOnAnyGrid(t){return Object.values(portfolios).some(pf=>pf.gridStocks&&pf.gridStocks.includes(t));}
 // Check if stock is on a specific portfolio's grid
 function isOnGrid(t,pfKey){return portfolios[pfKey]?.gridStocks?.includes(t)||false;}
-// ============ POOL 3 HELPERS (Phase A migration — April 2026) ============
-// `pool` lives on the position record (per-portfolio). Falls back to stocks[t].pool
-// (global default) and finally to legacy stocks[t].status === "speculative".
-// Values: "pool1" (default) | "pool3-active" | "pool3-quarantine"
-function _getPool(t,pfKey){
-  if(pfKey){const pos=portfolios[pfKey]?.positions?.[t];if(pos?.pool)return pos.pool;}
-  const s=stocks[t];if(!s)return"pool1";
-  if(s.pool)return s.pool;
-  if(s.status==="speculative")return"pool3-active"; // legacy compat
-  return"pool1";
-}
-function isPool3(t,pfKey){const p=_getPool(t,pfKey);return p==="pool3-active"||p==="pool3-quarantine";}
-function isPool3Active(t,pfKey){return _getPool(t,pfKey)==="pool3-active";}
-function isPool3Quarantine(t,pfKey){return _getPool(t,pfKey)==="pool3-quarantine";}
-// Global (no pfKey): true if ticker is Pool 3 in ANY portfolio or via stock-level default
-function isPool3AnyPf(t){
-  if(isPool3(t))return true; // checks stock-level
-  return Object.keys(portfolios).some(pf=>isPool3(t,pf));
-}
-function isPool3QuarantineAnyPf(t){
-  if(isPool3Quarantine(t))return true;
-  return Object.keys(portfolios).some(pf=>isPool3Quarantine(t,pf));
-}
-function getPool3(){return Object.keys(stocks).filter(t=>isPool3AnyPf(t));}
-function getPool3Active(){return Object.keys(stocks).filter(t=>isPool3AnyPf(t)&&!isPool3QuarantineAnyPf(t));}
-function getPool3Quarantine(){return Object.keys(stocks).filter(t=>isPool3QuarantineAnyPf(t));}
-// Audit log: when a quarantined trigger would have fired, record it silently for review
-function logQuarantineSuppressed(t,sig,price){
-  const s=stocks[t];if(!s)return;
-  if(!s.quarantineSuppressedFires)s.quarantineSuppressedFires=[];
-  s.quarantineSuppressedFires.push({ts:Date.now(),sig,price});
-  // Bound the log to last 50 entries to prevent unbounded growth
-  if(s.quarantineSuppressedFires.length>50)s.quarantineSuppressedFires=s.quarantineSuppressedFires.slice(-50);
-}
-// Phase B: Pool 3 badge helper — single source of truth for risk-bucket badge HTML
-function pool3Badge(t,pfKey,opts){
-  const dc=opts?.deployCount;const slots=opts?.slots;
-  if(isPool3Quarantine(t,pfKey))return `<span class="pos-badge" style="background:#1e293b;color:#94a3b8" title="Quarantined: price-based alerts muted">❄️ QUARANTINE</span>`;
-  if(isPool3Active(t,pfKey)){
-    const sigStr=(dc!=null&&slots!=null)?` ${dc}/${slots}`:"";
-    return `<span class="pos-badge" style="background:#332d0d;color:#d97706">⚡ ACTIVE${sigStr}</span>`;
-  }
-  return "";
-}
-// Phase B: Tranche logic — staged deployment for Pool 3 active positions
-// Schedule: after initial entry, each subsequent tranche fires when price drops 10% below originalEntryPrice * (1 - 0.10 * N)
-// where N = tranchesDone (initial entry counts as N=1). Maximum 5 tranches total.
-const MAX_TRANCHES_POOL3=5;
-const TRANCHE_PAUSE_DAYS=7;
-function nextTrancheThreshold(t,pfKey){
-  const pos=portfolios[pfKey]?.positions?.[t];
-  if(!pos||!isPool3Active(t,pfKey))return null;
-  const oep=pos.originalEntryPrice;const td=pos.tranchesDone||0;
-  if(!oep||td<=0||td>=MAX_TRANCHES_POOL3)return null;
-  // After first tranche (td=1), threshold is 10% below entry; after td=2, 20% below; etc.
-  return oep*(1-0.10*td);
-}
-function trancheNotificationDue(t,pfKey){
-  const pos=portfolios[pfKey]?.positions?.[t];
-  if(!pos||!isPool3Active(t,pfKey))return false;
-  const s=stocks[t];if(!s||!s.currentPrice)return false;
-  const td=pos.tranchesDone||0;
-  if(td<=0||td>=MAX_TRANCHES_POOL3)return false;
-  const threshold=nextTrancheThreshold(t,pfKey);if(!threshold)return false;
-  if(s.currentPrice>threshold)return false;
-  // 7-day pause check
-  if(pos.lastTrancheTimestamp){
-    const days=(Date.now()-pos.lastTrancheTimestamp)/86400000;
-    if(days<TRANCHE_PAUSE_DAYS)return false;
-  }
-  // Anti-spam: don't re-notify for same threshold
-  if(pos.lastNotifiedThreshold===threshold)return false;
-  return true;
-}
-// Mark threshold as notified (anti-spam — call when banner is shown)
-function markTrancheNotified(t,pfKey){
-  const pos=portfolios[pfKey]?.positions?.[t];if(!pos)return;
-  const threshold=nextTrancheThreshold(t,pfKey);if(threshold!=null)pos.lastNotifiedThreshold=threshold;
-}
-// Record a tranche action: confirm | skip | defer | pending
-// confirm: tranche was bought externally (IBKR), increment tranchesDone, stamp timestamp
-// skip:    user explicitly chose not to deploy this tranche, advances to next threshold
-// defer:   re-arm later (clears lastNotifiedThreshold so banner re-fires)
-// pending: revert to default state (e.g., undo a previous mark)
-function fireTranche(t,pfKey,action,opts){
-  const pos=portfolios[pfKey]?.positions?.[t];if(!pos)return false;
-  if(!pos.trancheHistory)pos.trancheHistory=[];
-  const threshold=nextTrancheThreshold(t,pfKey);
-  const entry={ts:Date.now(),action,threshold,trancheNum:(pos.tranchesDone||0)+1,price:stocks[t]?.currentPrice||null};
-  if(opts?.note)entry.note=opts.note;
-  pos.trancheHistory.push(entry);
-  if(action==="confirm"){
-    pos.tranchesDone=(pos.tranchesDone||0)+1;
-    pos.lastTrancheTimestamp=Date.now();
-    pos.lastNotifiedThreshold=null;
-  }else if(action==="skip"){
-    // Skip advances tranche counter (user opted out of this rung)
-    pos.tranchesDone=(pos.tranchesDone||0)+1;
-    pos.lastNotifiedThreshold=null;
-  }else if(action==="defer"){
-    // Re-arm: clear notification state so banner re-fires next render
-    pos.lastNotifiedThreshold=null;
-  }else if(action==="pending"){
-    // Undo: reset notification state without changing tranchesDone
-    pos.lastNotifiedThreshold=null;
-  }
-  save();return true;
-}
-// Get marker state for tranche N (1-indexed). Returns: "confirmed" | "skipped" | "deferred" | "pending" | "future"
-function trancheMarkerState(t,pfKey,n){
-  const pos=portfolios[pfKey]?.positions?.[t];if(!pos)return"future";
-  const td=pos.tranchesDone||0;
-  if(n>td)return"future";
-  // Find most recent action for tranche n in history
-  const hist=pos.trancheHistory||[];
-  for(let i=hist.length-1;i>=0;i--){
-    if(hist[i].trancheNum===n){
-      if(hist[i].action==="confirm")return"confirmed";
-      if(hist[i].action==="skip")return"skipped";
-      if(hist[i].action==="defer")return"deferred";
-      if(hist[i].action==="pending")return"pending";
-    }
-  }
-  // No history but tranchesDone >= n means it was confirmed (legacy/migrated)
-  return"confirmed";
-}
-
-// Watchlist: stocks not on any portfolio's grid and not Pool 3
-function getWatchlist(){return Object.keys(stocks).filter(t=>!isOnAnyGrid(t)&&!isPool3AnyPf(t));}
-// Backward-compat alias — new code should use getPool3() / getPool3Active() / getPool3Quarantine()
-function getSpeculative(){return getPool3();}
+// Watchlist: stocks not on any portfolio's grid and not speculative
+function getWatchlist(){return Object.keys(stocks).filter(t=>!isOnAnyGrid(t)&&stocks[t].status!=="speculative");}
+function getSpeculative(){return Object.keys(stocks).filter(t=>stocks[t].status==="speculative");}
 function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s+(t.bought-t.sold),0);}
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
 function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t=>(t.bought-t.sold)>0).length;}
@@ -615,14 +487,9 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
   };
   // Detect signal changes for alerts
   if(!s._sigChanges)s._sigChanges=[];
-  const _quarantined=isPool3QuarantineAnyPf(t);
   ["mos","tenCap","pbt"].forEach(sig=>{
     if(prev[sig]&&!s.signals[sig])s._sigChanges.push({sig,dir:"off"});
-    else if(!prev[sig]&&s.signals[sig]){
-      s._sigChanges.push({sig,dir:"on"});
-      if(_quarantined)logQuarantineSuppressed(t,sig==="tenCap"?"Ten Cap":sig==="pbt"?"PBT":"MOS",p);
-      else if(!window._suppressBuyModal)queueBuyModal(t,sig);
-    }
+    else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(!window._suppressBuyModal)queueBuyModal(t,sig);}
   });
   // Track per-tranche state machine + ATH
   ["personal","nl"].forEach(pk=>{
@@ -692,31 +559,24 @@ function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).re
 // Stock-picking half: total value of all PT positions + DP (excl index)
 function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
 function stockPickingCostBasis(){const pf=portfolios.personal;if(!pf)return 0;let c=0;Object.entries(pf.positions).forEach(([t,pos])=>{pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)c+=sh*tr.buyPrice;});});return c+(pf.dryPowder||0);}
-// Pool 1 value: all non-Pool-3 positions + DP (excludes index=Pool2, Pool 3=risk bucket)
+// Pool 1 value: all non-speculative positions + DP (excludes index=Pool2, speculative=Pool3)
 function pool1Value(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||isPool3(t,pfKey))return;const sh=posShares(pos);if(sh>0)v+=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),base);});
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(pos);if(sh>0)v+=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),base);});
   return v+(pf.dryPowder||0);}
 function pool1CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||isPool3(t,pfKey))return;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status==="speculative")return;
     pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});
   return v+(pf.dryPowder||0);}
-// Pool 3 (risk bucket) cost basis — includes both active AND quarantine positions
+// Pool 3 (risk bucket) cost basis
 function pool3CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||!isPool3(t,pfKey))return;
-    pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});return v;}
-// Phase B: split Pool 3 cost basis by quarantine state
-function pool3CostBasisActive(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||!isPool3Active(t,pfKey))return;
-    pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});return v;}
-function pool3CostBasisQuarantine(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||!isPool3Quarantine(t,pfKey))return;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status!=="speculative")return;
     pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});return v;}
 // DP as % of Pool 1 market value
 function dpPctOfPool1(pfKey){const p1=pool1Value(pfKey);if(!p1)return 0;const pf=portfolios[pfKey];return(pf?.dryPowder||0)/p1*100;}
 // Position phase: 1=Accumulate, 2=Hold, 3=Monitor, 4=Trailing, 5=Sell
 function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
-  const buf=isBuffett(ticker);const isSpec=isPool3(ticker,pfKey);
+  const buf=isBuffett(ticker);const isSpec=s.status==="speculative";
   // Fair-value threshold: Sticker for PT, activation (TC×1.333) for Buffett
   const sticker=s.cons?.mos?s.cons.mos*2:null;
   const fvt=buf?activationPrice(s):sticker;
@@ -730,8 +590,7 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
 // Risk bucket cap: 15% of Pool1+Pool3 combined cost basis
-// Phase B: split used into active vs quarantine for dashboard transparency
-function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const cap=(p1cost+p3cost)*0.15;const used=p3cost;const usedActive=pool3CostBasisActive(pfKey);const usedQuarantine=pool3CostBasisQuarantine(pfKey);return{cap,used,usedActive,usedQuarantine,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0,pctActive:cap>0?usedActive/cap*100:0,pctQuarantine:cap>0?usedQuarantine/cap*100:0};}
+function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const cap=(p1cost+p3cost)*0.15;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0};}
 // 5% initial entry size from Pool 1 market value
 function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
 // Per-stock position cap: 15% Pool 1 MV for Phil Town, 10% for Buffett Category.
@@ -771,8 +630,8 @@ function getMOSBreakdown(pfKey){
   firingStocks.forEach(t=>{
     const s=stocks[t];const slots=validTriggerSlots(t,pfKey);const dc=deployCount(t,pfKey);const unlit=slots-dc;
     if(unlit<=0)return;
-    // Skip Pool 3 stocks (MOS reserves suppressed)
-    if(isPool3(t,pfKey))return;
+    // Skip speculative stocks (MOS reserves suppressed)
+    if(s.status==="speculative")return;
     // Buffett stocks: unlit goes to expansion, not MOS
     if(isBuffett(t))return;
     const monthlyFlow=unlit*perTr;
@@ -1008,7 +867,7 @@ function load(){
     Object.keys(pf.positions).forEach(t=>{
       if(pf.gridStocks.includes(t))return;
       const s=stocks[t];
-      if(s&&(isPool3AnyPf(t)||s.status==='trophy'||s.status==='hold'))return;
+      if(s&&(s.status==='speculative'||s.status==='trophy'||s.status==='hold'))return;
       delete pf.positions[t];
     });
   });
@@ -1028,42 +887,6 @@ function load(){
       ["mos","tenCap","pbt"].forEach(k=>{if(s.signals?.[k])s.snoozed[k]=s.snoozedUntil;});
       delete s.snoozedUntil;
     }
-  });
-  // Phase A migration: backfill `pool` field from legacy `status==="speculative"`
-  Object.values(stocks).forEach(s=>{
-    if(!s.pool&&s.status==="speculative")s.pool="pool3-active";
-    else if(!s.pool)s.pool="pool1";
-  });
-  ["personal","nl"].forEach(pk=>{
-    const pf=portfolios[pk];if(!pf)return;
-    Object.entries(pf.positions).forEach(([t,pos])=>{
-      const s=stocks[t];if(!s)return;
-      // Position-level pool inherits from stock-level if not set
-      if(!pos.pool&&s.pool&&s.pool!=="pool1")pos.pool=s.pool;
-    });
-  });
-  // Phase B migration: backfill tranche tracking fields for Pool 3 active positions
-  ["personal","nl"].forEach(pk=>{
-    const pf=portfolios[pk];if(!pf)return;
-    Object.entries(pf.positions).forEach(([t,pos])=>{
-      if(!isPool3Active(t,pk))return;
-      if(!pos.tranches||!pos.tranches.length)return;
-      // originalEntryPrice = first tranche buy price (chronological — tranches are appended)
-      if(pos.originalEntryPrice==null){
-        const first=pos.tranches[0];if(first&&first.buyPrice)pos.originalEntryPrice=first.buyPrice;
-      }
-      // tranchesDone = number of tranches with shares still held (unsold)
-      if(pos.tranchesDone==null){
-        pos.tranchesDone=pos.tranches.filter(tr=>(tr.bought-tr.sold)>0).length;
-      }
-      if(!pos.trancheHistory)pos.trancheHistory=[];
-      if(pos.lastTrancheTimestamp==null){
-        // Use most recent tranche date if available, else null (no pause active)
-        const dates=pos.tranches.filter(tr=>tr.date).map(tr=>new Date(tr.date).getTime()).filter(t=>!isNaN(t));
-        pos.lastTrancheTimestamp=dates.length?Math.max(...dates):null;
-      }
-      if(pos.lastNotifiedThreshold===undefined)pos.lastNotifiedThreshold=null;
-    });
   });
   // Recalculate all signals from current prices/triggers (suppress buy modals — these aren't new signals)
   window._suppressBuyModal=true;
@@ -2068,7 +1891,7 @@ function checkAlerts(){
 
   // CRITICAL: 4M GATE FAIL — sell all (highest priority)
   Object.entries(stocks).forEach(([t,s])=>{
-    if(s.gate===false&&(isOnAnyGrid(t)||isPool3AnyPf(t))){
+    if(s.gate===false&&(isOnAnyGrid(t)||s.status==="speculative")){
       const k=`gate-fail-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"critical",icon:"🚫",
         html:`<strong>${s.flag} ${t}</strong> 4M GATE FAILED — SELL ALL tranches immediately!`});}
   });
@@ -2155,34 +1978,15 @@ function checkAlerts(){
     if(gap>0&&gap<=0.10&&!isSnoozed(t)){const k=`watch-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"👁",
       html:`<strong>${s.flag} ${t}</strong> approaching buy zone — ${fmt(s.currentPrice,s.currency)} is ${Math.round(gap*100)}% above trigger ${fmt(nt,s.currency)}`});}
     else if(gap<=0){
-      // Quarantine mute: do not surface fires for Pool 3 quarantined stocks
-      if(isPool3QuarantineAnyPf(t))return;
       // Build list of ALL firing signals for this watchlist stock (respecting Sticker Ceiling + per-signal snooze)
       const p=s.currentPrice,c=s.cons,fires=[],buf=s.category==="buffett";
       if(!buf&&c.mos&&p<=c.mos&&!isSnoozed(t,"mos"))fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
       if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
       if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
-      const isSpec=isPool3AnyPf(t);const maxSigs=buf?2:3;
+      const isSpec=s.status==="speculative";const maxSigs=buf?2:3;
       if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
         html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});}
     }
-  });
-
-  // POOL 3 TRANCHE NOTIFICATIONS — staged deployment for active risk positions
-  // (Quarantined positions skipped automatically: trancheNotificationDue checks isPool3Active)
-  ["personal","nl"].forEach(pk=>{
-    const pf=portfolios[pk];if(!pf)return;
-    Object.keys(pf.positions||{}).forEach(t=>{
-      if(!trancheNotificationDue(t,pk))return;
-      const s=stocks[t];const pos=pf.positions[t];const td=pos.tranchesDone||0;
-      const thr=nextTrancheThreshold(t,pk);if(thr==null)return;
-      const k=`tranche-${pk}-${t}-${td}`;
-      if(dismissedAlerts[k])return;
-      alerts.push({key:k,type:"buy",icon:"📊",
-        html:`<strong>${s.flag} ${t}</strong> tranche ${td+1}/${MAX_TRANCHES_POOL3} ready — <strong>${fmt(s.currentPrice,s.currency)}</strong> at/below ${fmt(thr,s.currency)} (entry ${fmt(pos.originalEntryPrice,s.currency)})`});
-      // Mark as notified so banner doesn't spam while price hovers below threshold
-      markTrancheNotified(t,pk);
-    });
   });
 
   // BACKUP REMINDER — weekly prompt to export Excel backup
@@ -2547,16 +2351,15 @@ function checkNewSignals(){
     if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap"});
     if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT"});
   });
-  // Also check watchlist + Pool 3 for new fires
-  [...getWatchlist(),...getPool3()].forEach(t=>{
+  // Also check watchlist + speculative for new fires
+  [...getWatchlist(),...getSpeculative()].forEach(t=>{
     if(isOnAnyGrid(t))return; // already counted above
     const s=stocks[t];if(!s?.signals)return;
     const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
-    const quarantined=isPool3QuarantineAnyPf(t);
-    const tag=isPool3AnyPf(t)?"spec":"wl";
-    if(s.signals.mos&&!prev.mos){if(quarantined)logQuarantineSuppressed(t,"MOS",s.currentPrice);else newFires.push({ticker:t,signal:"MOS",wl:true,tag});}
-    if(s.signals.tenCap&&!prev.tenCap){if(quarantined)logQuarantineSuppressed(t,"Ten Cap",s.currentPrice);else newFires.push({ticker:t,signal:"Ten Cap",wl:true,tag});}
-    if(s.signals.pbt&&!prev.pbt){if(quarantined)logQuarantineSuppressed(t,"PBT",s.currentPrice);else newFires.push({ticker:t,signal:"PBT",wl:true,tag});}
+    const tag=s.status==="speculative"?"spec":"wl";
+    if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS",wl:true,tag});
+    if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap",wl:true,tag});
+    if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT",wl:true,tag});
   });
   // Save current state
   Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
@@ -2633,9 +2436,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   }
 
   // Signal summary grid (compact lifecycle view)
-  const _loCount=[...GRID,...getPool3()].reduce((n,t)=>n+stockLimitOrderCount(t),0);
+  const _loCount=[...GRID,...getSpeculative()].reduce((n,t)=>n+stockLimitOrderCount(t),0);
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
-  [...GRID].filter(t=>!isPool3(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
+  [...GRID].filter(t=>stocks[t]?.status!=="speculative").sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       // Buffett category: MOS column shows "—" (not applicable)
@@ -2666,14 +2469,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
   // Speculative stocks row(s) — shown in grid but not counted in totals (hidden for Caca)
-  const SPEC=currentPf==="nl"?[]:getPool3();
+  const SPEC=currentPf==="nl"?[]:getSpeculative();
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
-    const _quar=isPool3Quarantine(t,currentPf);
-    const _rowBorder=_quar?"#47556944":"#d9770644";
-    const _labelBg=_quar?"#1e293b":"#d9770620";
-    const _labelColor=_quar?"#94a3b8":"#d97706";
-    const _labelTxt=_quar?"❄️ QUAR":"⚡ ACTIVE";
-    h+=`<div class="sig-row" style="border-top:1px dashed ${_rowBorder}"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:${_labelColor};background:${_labelBg};padding:1px 4px;border-radius:3px;margin-right:4px">${_labelTxt}</span>${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span></div></div>`;
+    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span></div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
       const st=sigCellStatus(t,key,currentPf);
@@ -2704,19 +2502,19 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(!window._stockColorMap){window._stockColorMap={};}
     // Rebuild color map from Personal portfolio sorted by value (largest first)
     const _pPersonal=portfolios.personal;const _pRef=[];
-    if(_pPersonal)Object.keys(_pPersonal.positions).forEach(t=>{const s=stocks[t];if(!s||isPool3(t,"personal"))return;const sh=posShares(_pPersonal.positions[t]);if(sh<=0)return;
+    if(_pPersonal)Object.keys(_pPersonal.positions).forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(_pPersonal.positions[t]);if(sh<=0)return;
       _pRef.push({t,valEUR:toEUR(sh*(s.currentPrice||0),s.currency)});});
     _pRef.sort((a,b)=>b.valEUR-a.valEUR);
     const _cMap={};let _ci=0;
     _pRef.forEach(p=>{_cMap[p.t]=_wPal[_ci%_wPal.length];_ci++;});
     // Add any stocks only in Caca (not in Personal) with next available colors
     const _pNl=portfolios.nl;
-    if(_pNl)Object.keys(_pNl.positions).forEach(t=>{if(_cMap[t])return;const s=stocks[t];if(!s||isPool3(t,"nl"))return;const sh=posShares(_pNl.positions[t]);if(sh<=0)return;
+    if(_pNl)Object.keys(_pNl.positions).forEach(t=>{if(_cMap[t])return;const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(_pNl.positions[t]);if(sh<=0)return;
       _cMap[t]=_wPal[_ci%_wPal.length];_ci++;});
 
     // Now render bar for current portfolio using the global color map (Pool 1 only — excludes speculative)
     const _wBase=pfBaseCcy(currentPf); // compute weights in portfolio's base currency
-    const _wTickers=Object.keys(pf.positions).filter(t=>!isPool3(t,currentPf));
+    const _wTickers=Object.keys(pf.positions).filter(t=>stocks[t]?.status!=="speculative");
     // Market value bar (top, primary)
     const _wSegs=[];let _wTotal=0;
     _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
@@ -2812,15 +2610,15 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   const _allCardTickers=[..._ownedSet];
   GRID.forEach(t=>{if(!_ownedSet.has(t))_allCardTickers.push(t);});
   SPEC.forEach(t=>{if(!_ownedSet.has(t)&&!GRID.includes(t))_allCardTickers.push(t);});
-  // Sort: non-Pool-3 by moat priority (ascending) → Pool 3 last
-  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=isPool3AnyPf(a)?1:0,specB=isPool3AnyPf(b)?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
+  // Sort: non-risk by moat priority (ascending) → speculative last
+  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=sa?.status==="speculative"?1:0,specB=sb?.status==="speculative"?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
   if(!_allCardTickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
   const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
   _allCardTickers.forEach(ticker=>{
     const s=stocks[ticker];if(!s)return;
     const isOwned=_ownedSet.has(ticker);
     const pos=isOwned?pf.positions[ticker]:null;
-    const isSpec=isPool3(ticker,currentPf);
+    const isSpec=s.status==="speculative";
     // Caca bans speculative positions — hide cards entirely
     if(isSpec&&currentPf==="nl")return;
     const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.some(tr=>(tr.bought-tr.sold)>0));
@@ -2842,10 +2640,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     // Ghost card for speculative stock not in this portfolio
     if(isGhost&&isSpec){
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
-      const _slots=validTriggerSlots(ticker,currentPf);
-      const badge=pool3Badge(ticker,currentPf,{deployCount:dc,slots:_slots});
-      const _ghostBorder=isPool3Quarantine(ticker,currentPf)?"#475569":"#d97706";
-      h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed ${_ghostBorder}">
+      const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
+      h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 15%)</div>
@@ -2854,7 +2650,6 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div class="btn-row">
           <button class="btn-sm btn-accent" style="flex:1" onclick="openAddTranche('${currentPf}','${ticker}')">+ Buy</button>
           <button class="btn-sm btn-accent" style="flex:0 0 auto" onclick="openEditStock('${ticker}')">✏ Triggers</button>
-          ${isPool3Quarantine(ticker,currentPf)?`<button class="btn-sm" style="flex:0 0 auto;background:#1e293b;color:#94a3b8;border:1px solid #475569" onclick="unquarantinePool3('${ticker}')">⚡</button>`:`<button class="btn-sm" style="flex:0 0 auto;background:#1e293b;color:#94a3b8;border:1px solid #475569" onclick="quarantinePool3('${ticker}','${currentPf}')">❄️</button>`}
           <button class="btn-sm" style="flex:0 0 auto;background:#332d0d;color:#d97706" onclick="demoteSpec('${ticker}')">→ Watch</button>
         </div></div>`;
       return;
@@ -2865,11 +2660,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const avg=posAvgPrice(pos);const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);const nTr=posTranchesOwned(pos);
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const _isGrid=isOnGrid(ticker,currentPf);
-    const _isPool3 = isPool3(ticker, currentPf);
-    const _isQuar  = isPool3Quarantine(ticker, currentPf);
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
-      _isQuar?`<span class="pos-badge" style="background:#1e293b;color:#94a3b8" title="Quarantined: price-based alerts muted">❄️ QUARANTINE</span>`:
-      _isPool3?`<span class="pos-badge" style="background:#332d0d;color:#d97706">⚡ ACTIVE ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
+      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
       _isGrid&&isBuffett(ticker)&&sig>0?`<span class="pos-badge" style="background:#1a2332;color:#38bdf8">BUFFETT ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&isBuffett(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">BUFFETT 0/${validTriggerSlots(ticker,currentPf)}</span>`:
@@ -3007,27 +2799,19 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <span style="font-size:11px;color:var(--red);font-weight:700">🚫 4M GATE FAILED — SELL ALL</span></div>`;
     }
 
-    // Pool 3 (risk bucket) info — split by active vs quarantine
-    if(_isPool3){
+    // Speculative bucket info
+    if(s.status==="speculative"){
       const specAge=s.specDate?Math.round((Date.now()-s.specDate)/86400000):null;
       const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
       const costBasis=shares*avg;const costEUR=toEUR(costBasis,s.currency);const maxBudget=pfVal*0.15;const pctCost=maxBudget>0?(costEUR/maxBudget*100):0;
-      const _color=_isQuar?"#94a3b8":"#d97706";
-      const _bg=_isQuar?"#1e293b40":"#332d0d40";
-      const _border=_isQuar?"#475569":"#d9770644";
-      const _icon=_isQuar?"❄️":"⚡";
-      const _label=_isQuar?"Quarantine — alerts muted":"Risk Position";
-      h+=`<div style="margin-top:6px;padding:8px;background:${_bg};border:1px solid ${_border};border-radius:6px">
-        <div style="font-size:11px;font-weight:700;color:${_color};margin-bottom:4px">${_icon} ${_label}</div>
-        ${_isQuar?`<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;font-weight:600">🔇 All price-based alerts muted</div>`:""}
+      h+=`<div style="margin-top:6px;padding:8px;background:#332d0d40;border:1px solid #d9770644;border-radius:6px">
+        <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚡ Risk Position</div>
         ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;opacity:0.6" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
         <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
           <span>Cost: ${s.currency==="GBp"?"£"+(costBasis/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 15% budget${specAge!=null?" · "+specAge+"d held":""}</span>
         </div>
-        ${!_isQuar?renderTrancheMarkerRow(ticker,currentPf):""}
-        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-          ${_isQuar?`<button class="btn-sm" style="flex:1;background:#1e293b;color:#94a3b8;font-size:10px;padding:4px;border:1px solid #475569" onclick="unquarantinePool3('${ticker}')">⚡ Activate</button>`:`<button class="btn-sm" style="flex:1;background:#1e293b;color:#94a3b8;font-size:10px;padding:4px;border:1px solid #475569" onclick="quarantinePool3('${ticker}','${currentPf}')">❄️ Quarantine</button>`}
-          <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate</button>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate to Grid</button>
           <button class="btn-sm" style="flex:0;background:var(--bg);color:var(--muted);font-size:10px;padding:4px" onclick="demoteSpec('${ticker}')">→ Watch</button>
         </div>
       </div>`;
@@ -3220,7 +3004,7 @@ function renderAllocator(c){
       const resLabel=resRatio>=0.95?"✓":resRatio>=0.5?"▼":"⚠";
       const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
       // Determine if this stock's unlit tranches overflow to expansion
-      const isSpec=isPool3(t,currentPf);const isBuf=isBuffett(t);
+      const isSpec=s.status==="speculative";const isBuf=isBuffett(t);
       const unlitDest=isSpec||isBuf?"EXP":"DP";
       const unlitCol="#34d399";
       const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:`deploy`;
@@ -3242,59 +3026,27 @@ function renderAllocator(c){
     h+=`</div>`; // close alloc-waiting wrapper
 
     // === SPECULATIVE BUCKET ===
-    const specStocks=getPool3();
+    const specStocks=getSpeculative();
     {
       const _rbi2=riskBucketInfo(currentPf);
       const specInPf=specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
-      const specInPfActive=specInPf.filter(t=>isPool3Active(t,currentPf));
-      const specInPfQuar=specInPf.filter(t=>isPool3Quarantine(t,currentPf));
       const specValBase=specInPf.reduce((v,t)=>{const s=stocks[t];const pos=pf.positions[t];return v+fromEUR(toEUR(posShares(pos)*posAvgPrice(pos),s.currency),_bc);},0);
       if(specStocks.length||specInPf.length){
-        const _hasQuar=_rbi2.usedQuarantine>0;
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Bucket</span>
             <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">15% of Pool 1+3 cost</span></div>
           <div style="display:flex;gap:8px;margin-bottom:8px">
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">15% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_rbi2.cap).toLocaleString()}</div></div>
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbi2.used>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(_rbi2.used).toLocaleString()}</div>${_hasQuar?`<div style="font-size:9px;font-family:var(--mono);margin-top:2px"><span style="color:#d97706">⚡${_bs}${Math.round(_rbi2.usedActive).toLocaleString()}</span> · <span style="color:#94a3b8">❄️${_bs}${Math.round(_rbi2.usedQuarantine).toLocaleString()}</span></div>`:""}</div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbi2.used>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(_rbi2.used).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${_bs}${Math.round(_rbi2.available).toLocaleString()}</div></div></div>`;
         specInPf.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
-          const _qua=isPool3Quarantine(t,currentPf);
-          const _ic=_qua?"❄️":"⚡";const _cc=_qua?"#94a3b8":"#d97706";
-          h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px${_qua?";border-left:2px solid #475569":""}">
+          h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div><span style="font-size:13px;font-weight:600">${_ic} ${s.flag} ${t}</span>${_qua?`<span style="font-size:9px;color:#94a3b8;margin-left:6px">QUARANTINE · alerts muted</span>`:`<span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t,currentPf)} signals</span>`}</div>
-              <span style="font-size:12px;font-family:var(--mono);color:${_cc}">${fmt(Math.round(costVal),s.currency)} · ${fmtSh(sh)} sh</span></div>
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t,currentPf)} signals</span></div>
+              <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(costVal),s.currency)} · ${fmtSh(sh)} sh</span></div>
             ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
         if(!specInPf.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions. Use → Risk on a watchlist stock to add one.</div>`;}
-        // Phase C: Tranche progress summary across active Pool 3 positions
-        if(specInPfActive.length){
-          const _withTr=specInPfActive.filter(t=>{const pos=pf.positions[t];return pos?.originalEntryPrice;});
-          if(_withTr.length){
-            h+=`<div style="margin-top:8px;padding:6px 8px;background:#332d0d20;border-radius:6px;border:1px solid #d9770622">
-              <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:4px">📊 TRANCHE PROGRESS</div>`;
-            _withTr.forEach(t=>{
-              const s=stocks[t];const pos=pf.positions[t];
-              const td=pos.tranchesDone||0;const oep=pos.originalEntryPrice;
-              const due=trancheNotificationDue(t,currentPf);
-              const nextThr=nextTrancheThreshold(t,currentPf);
-              const cur=s.currentPrice||0;
-              const pips=[];
-              for(let n=1;n<=MAX_TRANCHES_POOL3;n++){
-                const st=trancheMarkerState(t,currentPf,n);
-                const c=st==="confirmed"?"#4ade80":st==="skipped"?"#d97706":st==="deferred"?"#60a5fa":st==="pending"?"#666":"#333";
-                pips.push(`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:2px"></span>`);
-              }
-              const status=due?`<span style="color:#d97706;font-weight:700">🔔 T${td+1} ready</span>`:td>=MAX_TRANCHES_POOL3?`<span style="color:var(--muted)">complete</span>`:nextThr?`<span style="color:var(--muted)">next ${fmt(nextThr,s.currency)}</span>`:"";
-              h+=`<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;padding:2px 0">
-                <span><span style="font-weight:600">${t}</span> ${pips.join("")} <span style="color:var(--muted);font-family:var(--mono)">${td}/${MAX_TRANCHES_POOL3}</span></span>
-                <span>${status}</span>
-              </div>`;
-            });
-            h+=`</div>`;
-          }
-        }
         h+=`</div>`;
       }
     }
@@ -3307,7 +3059,7 @@ function renderAllocator(c){
       const canAfford=entrySize>0&&dpAvailable>=entrySize;
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-      const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&!isPool3AnyPf(t));
+      const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&stocks[t].status!=="speculative");
       // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
@@ -3390,7 +3142,7 @@ function renderAllocator(c){
 
     // MOS reserves for NL: firing stocks with unlit valid triggers
     let nlMosReserved=0;
-    nlTickers.forEach(t=>{const s=stocks[t];if(!s||isPool3(t,"nl"))return;const dc=deployCount(t,'nl');if(dc<=0)return;
+    nlTickers.forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const dc=deployCount(t,'nl');if(dc<=0)return;
       const slots=validTriggerSlots(t,'nl');const unlit=slots-dc;if(unlit<=0)return;
       const pos=nlPos[t];if(!pos)return;
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
@@ -3463,7 +3215,7 @@ function renderAllocator(c){
 
     // === NEW ENTRY DEPLOYMENT (Caca ÷15 rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-    const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&!isPool3AnyPf(t));
+    const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&stocks[t].status!=="speculative");
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
       const buf=s.category==="buffett";
@@ -3616,7 +3368,7 @@ function editNotes(t){
 }
 
 function editSpecReason(t){
-  const s=stocks[t];if(!isPool3AnyPf(t))return;
+  const s=stocks[t];if(s.status!=="speculative")return;
   const cur=s.specReason||"";
   const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
   ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
@@ -3630,123 +3382,6 @@ function editSpecReason(t){
   const ta=document.getElementById("spec-ta");ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
   document.getElementById("spec-save").onclick=()=>{s.specReason=ta.value.trim();save();ov.remove();render();};
   document.getElementById("spec-cancel").onclick=()=>ov.remove();
-}
-
-// Phase B: Tranche marker row — visualizes 5 tranches with tap-editable state
-// State colors:
-//   confirmed (✓): green   — user bought this tranche externally
-//   skipped (⊘):   amber   — user explicitly skipped
-//   deferred (⏸): blue    — re-armed for next render cycle
-//   pending (·):   muted   — undecided / default
-//   future (·):    dim     — not yet reached
-function renderTrancheMarkerRow(t,pfKey){
-  const pos=portfolios[pfKey]?.positions?.[t];
-  if(!pos||!isPool3Active(t,pfKey))return"";
-  const oep=pos.originalEntryPrice;if(!oep)return"";
-  const s=stocks[t];const ccy=s.currency;
-  const td=pos.tranchesDone||0;const cur=s.currentPrice||0;
-  const nextThr=nextTrancheThreshold(t,pfKey);
-  const dueNext=trancheNotificationDue(t,pfKey);
-  let h=`<div style="margin-top:8px;padding:8px;background:#332d0d20;border:1px solid #d9770633;border-radius:6px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:11px;font-weight:700;color:#d97706">📊 Tranche Schedule</span>
-      <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">entry ${fmt(oep,ccy)}</span>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">`;
-  for(let n=1;n<=MAX_TRANCHES_POOL3;n++){
-    const state=trancheMarkerState(t,pfKey,n);
-    // threshold for tranche n: oep * (1 - 0.10*(n-1)). Tranche 1 = entry price itself.
-    const thr=oep*(1-0.10*(n-1));
-    let icon,bg,col,brd;
-    if(state==="confirmed"){icon="✓";bg="#0d3320";col="#4ade80";brd="#4ade8055";}
-    else if(state==="skipped"){icon="⊘";bg="#332d0d";col="#d97706";brd="#d9770655";}
-    else if(state==="deferred"){icon="⏸";bg="#1a2332";col="#60a5fa";brd="#60a5fa55";}
-    else if(state==="pending"){icon="·";bg="#1a1a2e";col="var(--muted)";brd="var(--border)";}
-    else{icon="·";bg="transparent";col="#444";brd="#222";}
-    const isNext=n===td+1;
-    const ringStyle=(isNext&&dueNext)?"box-shadow:0 0 8px #d9770688;animation:pulse 2s infinite":"";
-    h+=`<div onclick="openTrancheStateEdit('${pfKey}','${t}',${n})" style="cursor:pointer;background:${bg};border:1px solid ${brd};border-radius:6px;padding:6px 4px;text-align:center;${ringStyle}">
-      <div style="font-size:9px;color:var(--muted);font-weight:700">T${n}</div>
-      <div style="font-size:14px;color:${col};font-weight:700;line-height:1">${icon}</div>
-      <div style="font-size:8px;color:var(--muted);font-family:var(--mono);margin-top:2px">${fmt(thr,ccy)}</div>
-    </div>`;
-  }
-  h+=`</div>`;
-  if(dueNext&&nextThr!=null){
-    h+=`<div style="margin-top:6px;padding:6px;background:#332d0d80;border:1px solid #d97706;border-radius:6px;text-align:center">
-      <div style="font-size:11px;color:#d97706;font-weight:700">🔔 Tranche ${td+1} ready — price ${fmt(cur,ccy)} ≤ ${fmt(nextThr,ccy)}</div>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:5px" onclick="trancheActionConfirm('${pfKey}','${t}')">✓ Bought</button>
-        <button class="btn-sm" style="flex:1;background:#332d0d;color:#d97706;font-size:10px;padding:5px" onclick="trancheActionSkip('${pfKey}','${t}')">⊘ Skip</button>
-        <button class="btn-sm" style="flex:1;background:#1a2332;color:#60a5fa;font-size:10px;padding:5px" onclick="trancheActionDefer('${pfKey}','${t}')">⏸ Later</button>
-      </div>
-    </div>`;
-  }else if(td>=MAX_TRANCHES_POOL3){
-    h+=`<div style="margin-top:4px;font-size:9px;color:var(--muted);text-align:center">All ${MAX_TRANCHES_POOL3} tranches deployed</div>`;
-  }else if(nextThr!=null){
-    const gap=cur>0?((cur-nextThr)/cur*100):0;
-    h+=`<div style="margin-top:4px;font-size:9px;color:var(--muted);text-align:center;font-family:var(--mono)">next T${td+1} at ${fmt(nextThr,ccy)} · ${gap>0?"−":"+"}${Math.abs(gap).toFixed(1)}%</div>`;
-  }
-  h+=`</div>`;
-  return h;
-}
-
-// Bottom-sheet modal: tap any marker to retroactively flip state (because IBKR execution is external)
-function openTrancheStateEdit(pfKey,t,n){
-  const pos=portfolios[pfKey]?.positions?.[t];if(!pos)return;
-  const s=stocks[t];const cur=trancheMarkerState(t,pfKey,n);
-  const td=pos.tranchesDone||0;
-  const oep=pos.originalEntryPrice||0;
-  const thr=oep*(1-0.10*(n-1));
-  const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
-  // For markers > tranchesDone+1, state changes don't make sense (they're future)
-  const isFuture=n>td+1;
-  ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
-    <div class="modal-title" style="color:#d97706">📊 ${s.flag} ${t} — Tranche ${n}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
-      Threshold: <span style="color:var(--text);font-family:var(--mono)">${fmt(thr,s.currency)}</span> ·
-      Current state: <span style="color:var(--text);font-weight:600">${cur}</span>
-    </div>
-    ${isFuture?`<div style="padding:10px;background:#1a1a2e;border-radius:6px;font-size:11px;color:var(--muted);text-align:center;margin-bottom:12px">Future tranche — not yet reached. Cannot flip state until tranche ${td+1} is decided.</div>`:`
-    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
-      <button class="btn-sm" style="background:#0d3320;color:var(--green);padding:10px;text-align:left;font-size:13px" onclick="trancheStateSet('${pfKey}','${t}',${n},'confirm');this.closest('.modal-overlay').remove()">✓ Confirmed — bought externally</button>
-      <button class="btn-sm" style="background:#332d0d;color:#d97706;padding:10px;text-align:left;font-size:13px" onclick="trancheStateSet('${pfKey}','${t}',${n},'skip');this.closest('.modal-overlay').remove()">⊘ Skipped — opted out of this rung</button>
-      <button class="btn-sm" style="background:#1a2332;color:#60a5fa;padding:10px;text-align:left;font-size:13px" onclick="trancheStateSet('${pfKey}','${t}',${n},'defer');this.closest('.modal-overlay').remove()">⏸ Deferred — re-arm later</button>
-      <button class="btn-sm" style="background:#1a1a2e;color:var(--muted);padding:10px;text-align:left;font-size:13px" onclick="trancheStateSet('${pfKey}','${t}',${n},'pending');this.closest('.modal-overlay').remove()">· Pending — clear state</button>
-    </div>`}
-    ${pos.trancheHistory&&pos.trancheHistory.length?`<div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:12px"><div style="font-size:10px;color:var(--muted);font-weight:700;margin-bottom:4px">HISTORY (this position)</div>${pos.trancheHistory.slice(-5).reverse().map(e=>`<div style="font-size:10px;font-family:var(--mono);color:var(--muted);padding:2px 0">T${e.trancheNum} · ${e.action} · ${new Date(e.ts).toLocaleDateString()} · ${e.price?fmt(e.price,s.currency):"—"}</div>`).join("")}</div>`:""}
-    <button class="modal-done" style="background:var(--bg);color:var(--muted);width:100%" onclick="this.closest('.modal-overlay').remove()">Close</button>
-  </div>`;
-  document.body.appendChild(ov);
-}
-
-// Tranche action handlers (called from buttons in marker row + bottom-sheet)
-function trancheActionConfirm(pfKey,t){
-  if(!confirm(`Confirm tranche bought for ${t}?\n\nThis will:\n• Increment tranchesDone\n• Stamp timestamp (starts 7-day pause)\n• Add 'confirmed' marker to T${(portfolios[pfKey]?.positions?.[t]?.tranchesDone||0)+1}\n\nNote: this records the schedule decision. Add the actual share purchase via the +Tranche button.`))return;
-  fireTranche(t,pfKey,"confirm");render();
-}
-function trancheActionSkip(pfKey,t){
-  if(!confirm(`Skip this tranche rung for ${t}?\n\nMarker advances to next threshold. No shares change.`))return;
-  fireTranche(t,pfKey,"skip");render();
-}
-function trancheActionDefer(pfKey,t){
-  fireTranche(t,pfKey,"defer");render();
-}
-function trancheStateSet(pfKey,t,n,action){
-  const pos=portfolios[pfKey]?.positions?.[t];if(!pos)return;
-  // Retroactive edit on marker n: replay action with explicit trancheNum override
-  if(!pos.trancheHistory)pos.trancheHistory=[];
-  pos.trancheHistory.push({ts:Date.now(),action,trancheNum:n,price:stocks[t]?.currentPrice||null,note:"manual edit"});
-  // Re-derive tranchesDone from latest action per slot (skip "defer" & "pending" — those don't advance)
-  let td=0;
-  for(let i=1;i<=MAX_TRANCHES_POOL3;i++){
-    const state=trancheMarkerState(t,pfKey,i);
-    if(state==="confirmed"||state==="skipped")td=i;else break;
-  }
-  pos.tranchesDone=td;
-  pos.lastNotifiedThreshold=null;
-  if(action==="confirm"&&n===td)pos.lastTrancheTimestamp=Date.now();
-  save();render();
 }
 
 function editDP(pfKey){
@@ -3888,7 +3523,7 @@ function exportDeployLog(){
 
 // ============ SETTINGS ============
 function renderSettings(c){
-  const GRID_P=getGrid("personal"),GRID_N=getGrid("nl"),wl=getWatchlist(),SPEC=getPool3();
+  const GRID_P=getGrid("personal"),GRID_N=getGrid("nl"),wl=getWatchlist(),SPEC=getSpeculative();
   let h=`<div class="settings-section"><div style="font-size:16px;font-weight:700;margin-bottom:16px">Settings</div>
     <div class="settings-card"><div class="settings-title">🔔 Push Alerts</div>
       <div class="settings-desc">Cloudflare Worker checks prices every 15 min during market hours and sends push notifications even when the app is closed.</div>
@@ -4062,93 +3697,28 @@ function promoteToSpec(t){
   const s=stocks[t];
   const reason=prompt("Conviction thesis (optional):\ne.g. 'AI leader, IPO play, potential wide moat'","");
   if(reason===null)return;
-  s.status="speculative"; // legacy compat
-  s.pool="pool3-active";
+  s.status="speculative";
   s.specReason=reason||"";
   s.specDate=Date.now();
-  // Also tag any existing positions for both portfolios
-  ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos)pos.pool="pool3-active";});
   updateSignals(t);save();
   currentTab="portfolio";render();
   window.scrollTo(0,0);
 }
 function graduateToGrid(t){
   if(!confirm(`Graduate ${t} to grid? This stock must now pass all 4Ms.`))return;
-  const s=stocks[t];s.status="watchlist";s.pool="pool1";
-  delete s.specReason;delete s.specDate;delete s.quarantineSuppressedFires;
-  delete s.quarantineDate;delete s.quarantineReviewDate;delete s.quarantineReason;
-  // Preserve tranche audit per-position before clearing pool flag (Phase C)
-  ["personal","nl"].forEach(pk=>{
-    const pos=portfolios[pk]?.positions?.[t];if(!pos)return;
-    if(pos.originalEntryPrice||pos.tranchesDone||(pos.trancheHistory&&pos.trancheHistory.length)){
-      pos._pool3Audit={
-        graduatedAt:Date.now(),
-        originalEntryPrice:pos.originalEntryPrice||null,
-        tranchesDone:pos.tranchesDone||0,
-        trancheHistory:pos.trancheHistory||[],
-        lastTrancheTimestamp:pos.lastTrancheTimestamp||null
-      };
-    }
-    delete pos.pool;
-    delete pos.originalEntryPrice;delete pos.tranchesDone;delete pos.trancheHistory;
-    delete pos.lastTrancheTimestamp;delete pos.lastNotifiedThreshold;
-  });
+  const s=stocks[t];s.status="watchlist";
+  delete s.specReason;delete s.specDate;
   // Add to current portfolio's grid
   const pf=portfolios[currentPf];
   if(!pf.gridStocks)pf.gridStocks=[];
   if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
   updateSignals(t);save();render();
-  if(settings.pushWorkerUrl&&settings.pushSubscribed)syncTriggersToCloud();
 }
 function demoteSpec(t){
   if(!confirm(`Move ${t} back to watchlist? (Position keeps tracking if shares held.)`))return;
-  const s=stocks[t];s.status="watchlist";s.pool="pool1";
+  const s=stocks[t];s.status="watchlist";
   delete s.specReason;delete s.specDate;
-  delete s.quarantineDate;delete s.quarantineReviewDate;delete s.quarantineReason;
-  // Same audit preservation as graduation
-  ["personal","nl"].forEach(pk=>{
-    const pos=portfolios[pk]?.positions?.[t];if(!pos)return;
-    if(pos.originalEntryPrice||pos.tranchesDone||(pos.trancheHistory&&pos.trancheHistory.length)){
-      pos._pool3Audit={
-        demotedAt:Date.now(),
-        originalEntryPrice:pos.originalEntryPrice||null,
-        tranchesDone:pos.tranchesDone||0,
-        trancheHistory:pos.trancheHistory||[],
-        lastTrancheTimestamp:pos.lastTrancheTimestamp||null
-      };
-    }
-    delete pos.pool;
-    delete pos.originalEntryPrice;delete pos.tranchesDone;delete pos.trancheHistory;
-    delete pos.lastTrancheTimestamp;delete pos.lastNotifiedThreshold;
-  });
   save();render();
-  if(settings.pushWorkerUrl&&settings.pushSubscribed)syncTriggersToCloud();
-}
-// Phase A: quarantine controls — toggles between active and quarantined within Pool 3
-function quarantinePool3(t,pfKey){
-  const reviewDate=prompt("Review date (YYYY-MM-DD) — when to revisit this position:","");
-  if(reviewDate===null)return;
-  const reason=prompt("Quarantine reason (optional):\ne.g. 'CEO search, gross margin emergency'","");
-  if(reason===null)return;
-  const s=stocks[t];
-  s.pool="pool3-quarantine";
-  s.quarantineDate=Date.now();
-  s.quarantineReviewDate=reviewDate||null;
-  s.quarantineReason=reason||"";
-  // Apply to positions in BOTH portfolios so worker mute is global
-  ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos)pos.pool="pool3-quarantine";});
-  save();render();
-  // Re-sync worker so server-side mute kicks in
-  if(settings.pushWorkerUrl&&settings.pushSubscribed)syncTriggersToCloud();
-}
-function unquarantinePool3(t){
-  if(!confirm(`Lift quarantine on ${t}? Price-based alerts will resume.`))return;
-  const s=stocks[t];
-  s.pool="pool3-active";
-  delete s.quarantineDate;delete s.quarantineReviewDate;delete s.quarantineReason;
-  ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos)pos.pool="pool3-active";});
-  save();render();
-  if(settings.pushWorkerUrl&&settings.pushSubscribed)syncTriggersToCloud();
 }
 function demoteFromGrid(t){
   const hasShares=["personal","nl"].some(pk=>{const pos=portfolios[pk]?.positions?.[t];return pos&&pos.tranches.some(tr=>(tr.bought-tr.sold)>0);});
@@ -4460,19 +4030,13 @@ async function syncTriggersToCloud(){
       if(!s.cons)return;
       const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;
       if(!hasTriggers)return;
-      // Phase C: aggregate tranche state across portfolios for worker push
-      // Worker uses originalEntryPrice + tranchesDone to detect tranche-due thresholds server-side
-      const _trBy={};
-      ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos&&isPool3Active(t,pk)&&pos.originalEntryPrice){_trBy[pk]={originalEntryPrice:pos.originalEntryPrice,tranchesDone:pos.tranchesDone||0,lastTrancheTimestamp:pos.lastTrancheTimestamp||null};}});
       alertStocks.push({
         ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
         category:s.category||"philtown",
-        pool:isPool3QuarantineAnyPf(t)?"pool3-quarantine":isPool3AnyPf(t)?"pool3-active":"pool1",
         sticker:s.category==="buffett"?null:(s.cons.mos?s.cons.mos*2:null),
         triggers:{mos:s.category==="buffett"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
-        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt},
-        tranches:Object.keys(_trBy).length?_trBy:null
+        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}
       });
     });
     const resp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
@@ -4528,17 +4092,12 @@ async function resetWorkerSignals(){
       if(!s.cons)return;
       const hasTriggers=s.cons.mos||s.cons.tenCap||s.cons.pbt;
       if(!hasTriggers)return;
-      const _trBy={};
-      ["personal","nl"].forEach(pk=>{const pos=portfolios[pk]?.positions?.[t];if(pos&&isPool3Active(t,pk)&&pos.originalEntryPrice){_trBy[pk]={originalEntryPrice:pos.originalEntryPrice,tranchesDone:pos.tranchesDone||0,lastTrancheTimestamp:pos.lastTrancheTimestamp||null};}});
       alertStocks.push({
         ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
-        category:s.category||"philtown",
-        pool:isPool3QuarantineAnyPf(t)?"pool3-quarantine":isPool3AnyPf(t)?"pool3-active":"pool1",
         sticker:s.cons.mos?s.cons.mos*2:null,
         triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
-        signals:{mos:false,tenCap:false,pbt:false},
-        tranches:Object.keys(_trBy).length?_trBy:null
+        signals:{mos:false,tenCap:false,pbt:false}
       });
     });
     const syncResp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
