@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.30</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.31</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -269,12 +269,12 @@ SAP:{name:"SAP",currency:"EUR",moat:"Wide",sector:"Enterprise SW",flag:"🇪🇺
 };
 
 const PF_DEFAULTS={
-  nl:{name:"Caca",type:"closed",dryPowder:6850,gridStocks:["PGR","SFM","WKL"],positions:{
+  nl:{name:"Caca",type:"closed",dryPowder:6850,gridStocks:["PGR","SFM","WKL"],riskStocks:[],positions:{
     PGR:{tranches:[{signal:"MOS",bought:24.33,sold:0,buyPrice:201.16},{signal:"10Cap",bought:24.33,sold:0,buyPrice:201.16},{signal:"PBT",bought:24.34,sold:0,buyPrice:201.16}]},
     SFM:{tranches:[{signal:"10Cap",bought:145,sold:0,buyPrice:69.03}]},
     WKL:{tranches:[{signal:"10Cap",bought:67.5,sold:0,buyPrice:61.17},{signal:"PBT",bought:67.5,sold:0,buyPrice:61.17}]},
     ASML:{tranches:[{signal:"trophy",bought:1,sold:0,buyPrice:1233}]}}},
-  personal:{name:"Personal",type:"rolling",dryPowder:8000,gridStocks:["PGR","SFM","WKL"],positions:{
+  personal:{name:"Personal",type:"rolling",dryPowder:8000,gridStocks:["PGR","SFM","WKL"],riskStocks:[],positions:{
     PGR:{tranches:[{signal:"MOS",bought:23.67,sold:0,buyPrice:207},{signal:"10Cap",bought:23.67,sold:0,buyPrice:207},{signal:"PBT",bought:23.66,sold:0,buyPrice:207}]},
     SFM:{tranches:[{signal:"10Cap",bought:144,sold:0,buyPrice:68.65}]},
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
@@ -301,9 +301,18 @@ function getGrid(pfKey){
 function isOnAnyGrid(t){return Object.values(portfolios).some(pf=>pf.gridStocks&&pf.gridStocks.includes(t));}
 // Check if stock is on a specific portfolio's grid
 function isOnGrid(t,pfKey){return portfolios[pfKey]?.gridStocks?.includes(t)||false;}
-// Watchlist: stocks not on any portfolio's grid and not speculative
-function getWatchlist(){return Object.keys(stocks).filter(t=>!isOnAnyGrid(t)&&stocks[t].status!=="speculative");}
-function getSpeculative(){return Object.keys(stocks).filter(t=>stocks[t].status==="speculative");}
+// Risk bucket membership is per-portfolio (v3.31). isRisk(t,pfKey) checks one portfolio; isRiskAnywhere checks union.
+function isRisk(t,pfKey){return portfolios[pfKey]?.riskStocks?.includes(t)||false;}
+function isRiskAnywhere(t){return Object.values(portfolios).some(pf=>pf.riskStocks&&pf.riskStocks.includes(t));}
+// Watchlist: stocks not on any portfolio's grid and not in any portfolio's risk bucket
+function getWatchlist(){return Object.keys(stocks).filter(t=>!isOnAnyGrid(t)&&!isRiskAnywhere(t));}
+// Speculative stocks for a given portfolio (or union if no key supplied — caller should always pass a key for portfolio-scoped renders)
+function getSpeculative(pfKey){
+  if(pfKey){const pf=portfolios[pfKey];if(!pf||!pf.riskStocks)return[];return pf.riskStocks.filter(t=>stocks[t]);}
+  // No key: return union across all portfolios (used by global checks)
+  const all=new Set();Object.values(portfolios).forEach(pf=>{if(pf.riskStocks)pf.riskStocks.forEach(t=>{if(stocks[t])all.add(t);});});
+  return Array.from(all);
+}
 function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s+(t.bought-t.sold),0);}
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
 function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t=>(t.bought-t.sold)>0).length;}
@@ -559,24 +568,24 @@ function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).re
 // Stock-picking half: total value of all PT positions + DP (excl index)
 function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
 function stockPickingCostBasis(){const pf=portfolios.personal;if(!pf)return 0;let c=0;Object.entries(pf.positions).forEach(([t,pos])=>{pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)c+=sh*tr.buyPrice;});});return c+(pf.dryPowder||0);}
-// Pool 1 value: all non-speculative positions + DP (excludes index=Pool2, speculative=Pool3)
+// Pool 1 value: all non-risk-bucket positions + DP (excludes index=Pool2, risk=Pool3)
 function pool1Value(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(pos);if(sh>0)v+=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),base);});
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||isRisk(t,pfKey))return;const sh=posShares(pos);if(sh>0)v+=fromEUR(toEUR(sh*(s.currentPrice||0),s.currency),base);});
   return v+(pf.dryPowder||0);}
 function pool1CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status==="speculative")return;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||isRisk(t,pfKey))return;
     pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});
   return v+(pf.dryPowder||0);}
 // Pool 3 (risk bucket) cost basis
 function pool3CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const base=pfBaseCcy(pfKey);let v=0;
-  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||s.status!=="speculative")return;
+  Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s||!isRisk(t,pfKey))return;
     pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});return v;}
 // DP as % of Pool 1 market value
 function dpPctOfPool1(pfKey){const p1=pool1Value(pfKey);if(!p1)return 0;const pf=portfolios[pfKey];return(pf?.dryPowder||0)/p1*100;}
 // Position phase: 1=Accumulate, 2=Hold, 3=Monitor, 4=Trailing, 5=Sell
 function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
-  const buf=isBuffett(ticker);const isSpec=s.status==="speculative";
+  const buf=isBuffett(ticker);const isSpec=isRisk(ticker,pfKey);
   // Fair-value threshold: Sticker for PT, activation (TC×1.333) for Buffett
   const sticker=s.cons?.mos?s.cons.mos*2:null;
   const fvt=buf?activationPrice(s):sticker;
@@ -631,8 +640,8 @@ function getMOSBreakdown(pfKey){
   firingStocks.forEach(t=>{
     const s=stocks[t];const slots=validTriggerSlots(t,pfKey);const dc=deployCount(t,pfKey);const unlit=slots-dc;
     if(unlit<=0)return;
-    // Skip speculative stocks (MOS reserves suppressed)
-    if(s.status==="speculative")return;
+    // Skip risk-bucket stocks in this portfolio (MOS reserves suppressed)
+    if(isRisk(t,pfKey))return;
     // Buffett stocks: unlit goes to expansion, not MOS
     if(isBuffett(t))return;
     const monthlyFlow=unlit*perTr;
@@ -869,8 +878,41 @@ function load(){
       if(pf.gridStocks.includes(t))return;
       const s=stocks[t];
       if(s&&(s.status==='speculative'||s.status==='trophy'||s.status==='hold'))return;
+      // Also keep positions for stocks already migrated into riskStocks below (handled in next pass)
+      if(pf.riskStocks&&pf.riskStocks.includes(t))return;
       delete pf.positions[t];
     });
+  });
+  // Migration (v3.31): convert global s.status==="speculative" → per-portfolio pf.riskStocks
+  // Strategy: for each currently-speculative stock, add to riskStocks of every portfolio that
+  // holds shares of it. If no portfolio holds shares, add to all portfolios (preserves legacy
+  // global behavior; user can prune in Settings).
+  ["personal","nl"].forEach(pk=>{const pf=portfolios[pk];if(pf&&!pf.riskStocks)pf.riskStocks=[];});
+  Object.keys(stocks).forEach(t=>{
+    const s=stocks[t];if(s.status!=="speculative")return;
+    let placedAnywhere=false;
+    ["personal","nl"].forEach(pk=>{
+      const pf=portfolios[pk];if(!pf)return;
+      const pos=pf.positions?.[t];
+      const hasShares=pos&&posShares(pos)>0;
+      if(hasShares){
+        if(!pf.riskStocks.includes(t))pf.riskStocks.push(t);
+        placedAnywhere=true;
+      }
+    });
+    if(!placedAnywhere){
+      // No shares anywhere → add to all portfolios (legacy global behavior)
+      ["personal","nl"].forEach(pk=>{const pf=portfolios[pk];if(!pf)return;if(!pf.riskStocks.includes(t))pf.riskStocks.push(t);});
+    }
+    // Clear the legacy global flag — riskStocks is now the source of truth
+    s.status="watchlist";
+  });
+  // Clean up: remove riskStocks entries for deleted stocks; enforce mutual exclusion w/ grid
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf||!pf.riskStocks)return;
+    pf.riskStocks=pf.riskStocks.filter(t=>stocks[t]);
+    // Mutual exclusion: if a stock is in both grid and risk for the same portfolio, prefer grid (legacy preservation)
+    pf.riskStocks=pf.riskStocks.filter(t=>!pf.gridStocks.includes(t));
   });
   // Change status==="grid" to "watchlist" since grid membership is now per-portfolio
   Object.values(stocks).forEach(s=>{if(s.status==="grid")s.status="watchlist";});
@@ -1570,10 +1612,10 @@ function handleCSVImport(e){
       if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=cat==="buffett"?"buffett":undefined;}
       // Import notes (general stock comments)
       if(hdr.includes("notes")){const nv=(row.notes||"").trim();if(nv)s.notes=nv;else delete s.notes;}
-      // Import specReason (risk thesis). If non-empty, mark as speculative; if empty and currently spec, demote.
+      // Import specReason (risk thesis text). v3.31: text-only sync — risk-bucket membership
+      // is now per-portfolio and managed in Settings, not auto-toggled by CSV import.
       if(hdr.includes("specreason")){const sr=(row.specreason||"").trim();
-        if(sr){s.specReason=sr;if(s.status!=="speculative"){s.status="speculative";s.specDate=s.specDate||Date.now();}}
-        else{if(s.status==="speculative"){s.status="watchlist";delete s.specDate;}delete s.specReason;}}
+        if(sr)s.specReason=sr;else delete s.specReason;}
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calculate tenCap from OE
@@ -1599,10 +1641,11 @@ function exportExcel(){
   if(typeof XLSX==="undefined"){alert("SheetJS loading... try again in a second.");return;}
   const wb=XLSX.utils.book_new();
 
-  // Sheet 1: Stocks (derive status: grid if on any portfolio's grid)
+  // Sheet 1: Stocks (derive status: grid if on any portfolio's grid, risk if in any portfolio's risk bucket)
   const sRows=Object.entries(stocks).map(([t,s])=>{return{
-    ticker:t,name:s.name,currency:s.currency,moat:s.moat,status:isOnAnyGrid(t)?"grid":s.status,priority:s.priority||null,tdSymbol:s.tdSymbol,finnhubSymbol:s.finnhubSymbol||"",
+    ticker:t,name:s.name,currency:s.currency,moat:s.moat,status:isOnAnyGrid(t)?"grid":(isRiskAnywhere(t)?"speculative":(s.status||"watchlist")),priority:s.priority||null,tdSymbol:s.tdSymbol,finnhubSymbol:s.finnhubSymbol||"",
     gridPersonal:isOnGrid(t,"personal")?"Y":"",gridCaca:isOnGrid(t,"nl")?"Y":"",
+    riskPersonal:isRisk(t,"personal")?"Y":"",riskCaca:isRisk(t,"nl")?"Y":"",
     currentPrice:s.currentPrice,sticker:s.cons.sticker||null,mos:s.cons.mos,tenCap:s.cons.tenCap,
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
@@ -1647,7 +1690,9 @@ function exportExcel(){
     {key:"nlIndexEUShares",value:getIndexPos("nl","eu").shares||0},
     {key:"nlIndexEUAvgCost",value:getIndexPos("nl","eu").avgCost||0},
     {key:"gridStocks_personal",value:(portfolios.personal?.gridStocks||[]).join(",")},
-    {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")}];
+    {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")},
+    {key:"riskStocks_personal",value:(portfolios.personal?.riskStocks||[]).join(",")},
+    {key:"riskStocks_nl",value:(portfolios.nl?.riskStocks||[]).join(",")}];
   const ws3=XLSX.utils.json_to_sheet(stRows);ws3["!cols"]=[{wch:22},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws3,"Settings");
 
@@ -1818,6 +1863,8 @@ function handleExcelImport(e){
           if(k==="ibkrQueryNl"&&val!=null&&val!=="")settings.ibkrQueryNl=String(val);
           if(k==="gridStocks_personal"&&val!=null&&val!=="")portfolios.personal.gridStocks=String(val).split(",").filter(Boolean);
           if(k==="gridStocks_nl"&&val!=null&&val!=="")portfolios.nl.gridStocks=String(val).split(",").filter(Boolean);
+          if(k==="riskStocks_personal"&&val!=null){portfolios.personal.riskStocks=val===""?[]:String(val).split(",").filter(Boolean);}
+          if(k==="riskStocks_nl"&&val!=null){portfolios.nl.riskStocks=val===""?[]:String(val).split(",").filter(Boolean);}
           nSet++;
         });
       }
@@ -1905,7 +1952,7 @@ function checkAlerts(){
 
   // CRITICAL: 4M GATE FAIL — sell all (highest priority)
   Object.entries(stocks).forEach(([t,s])=>{
-    if(s.gate===false&&(isOnAnyGrid(t)||s.status==="speculative")){
+    if(s.gate===false&&(isOnAnyGrid(t)||isRiskAnywhere(t))){
       const k=`gate-fail-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"critical",icon:"🚫",
         html:`<strong>${s.flag} ${t}</strong> 4M GATE FAILED — SELL ALL tranches immediately!`});}
   });
@@ -1997,7 +2044,7 @@ function checkAlerts(){
       if(!buf&&c.mos&&p<=c.mos&&!isSnoozed(t,"mos"))fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
       if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
       if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
-      const isSpec=s.status==="speculative";const maxSigs=buf?2:3;
+      const isSpec=isRiskAnywhere(t);const maxSigs=buf?2:3;
       if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
         html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});}
     }
@@ -2370,7 +2417,7 @@ function checkNewSignals(){
     if(isOnAnyGrid(t))return; // already counted above
     const s=stocks[t];if(!s?.signals)return;
     const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
-    const tag=s.status==="speculative"?"spec":"wl";
+    const tag=isRiskAnywhere(t)?"spec":"wl";
     if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS",wl:true,tag});
     if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap",wl:true,tag});
     if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT",wl:true,tag});
@@ -2452,7 +2499,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Signal summary grid (compact lifecycle view)
   const _loCount=[...GRID,...getSpeculative()].reduce((n,t)=>n+stockLimitOrderCount(t),0);
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
-  [...GRID].filter(t=>stocks[t]?.status!=="speculative").sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
+  [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       // Buffett category: MOS column shows "—" (not applicable)
@@ -2483,7 +2530,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
   // Speculative stocks row(s) — shown in grid but not counted in totals
-  const SPEC=getSpeculative();
+  const SPEC=getSpeculative(currentPf);
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
     h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span></div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
@@ -2516,19 +2563,19 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(!window._stockColorMap){window._stockColorMap={};}
     // Rebuild color map from Personal portfolio sorted by value (largest first)
     const _pPersonal=portfolios.personal;const _pRef=[];
-    if(_pPersonal)Object.keys(_pPersonal.positions).forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(_pPersonal.positions[t]);if(sh<=0)return;
+    if(_pPersonal)Object.keys(_pPersonal.positions).forEach(t=>{const s=stocks[t];if(!s||isRisk(t,"personal"))return;const sh=posShares(_pPersonal.positions[t]);if(sh<=0)return;
       _pRef.push({t,valEUR:toEUR(sh*(s.currentPrice||0),s.currency)});});
     _pRef.sort((a,b)=>b.valEUR-a.valEUR);
     const _cMap={};let _ci=0;
     _pRef.forEach(p=>{_cMap[p.t]=_wPal[_ci%_wPal.length];_ci++;});
     // Add any stocks only in Caca (not in Personal) with next available colors
     const _pNl=portfolios.nl;
-    if(_pNl)Object.keys(_pNl.positions).forEach(t=>{if(_cMap[t])return;const s=stocks[t];if(!s||s.status==="speculative")return;const sh=posShares(_pNl.positions[t]);if(sh<=0)return;
+    if(_pNl)Object.keys(_pNl.positions).forEach(t=>{if(_cMap[t])return;const s=stocks[t];if(!s||isRisk(t,"nl"))return;const sh=posShares(_pNl.positions[t]);if(sh<=0)return;
       _cMap[t]=_wPal[_ci%_wPal.length];_ci++;});
 
     // Now render bar for current portfolio using the global color map (Pool 1 only — excludes speculative)
     const _wBase=pfBaseCcy(currentPf); // compute weights in portfolio's base currency
-    const _wTickers=Object.keys(pf.positions).filter(t=>stocks[t]?.status!=="speculative");
+    const _wTickers=Object.keys(pf.positions).filter(t=>!isRisk(t,currentPf));
     // Market value bar (top, primary)
     const _wSegs=[];let _wTotal=0;
     _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
@@ -2625,14 +2672,14 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   GRID.forEach(t=>{if(!_ownedSet.has(t))_allCardTickers.push(t);});
   SPEC.forEach(t=>{if(!_ownedSet.has(t)&&!GRID.includes(t))_allCardTickers.push(t);});
   // Sort: non-risk by moat priority (ascending) → speculative last
-  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=sa?.status==="speculative"?1:0,specB=sb?.status==="speculative"?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
+  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=isRisk(a,currentPf)?1:0,specB=isRisk(b,currentPf)?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
   if(!_allCardTickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
   const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
   _allCardTickers.forEach(ticker=>{
     const s=stocks[ticker];if(!s)return;
     const isOwned=_ownedSet.has(ticker);
     const pos=isOwned?pf.positions[ticker]:null;
-    const isSpec=s.status==="speculative";
+    const isSpec=isRisk(ticker,currentPf);
     const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.some(tr=>(tr.bought-tr.sold)>0));
     // Ghost card for grid stock not in this portfolio
     if(isGhost&&!isSpec&&(GRID.includes(ticker))){
@@ -2673,7 +2720,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const posVal=shares*(s.currentPrice||0);const pnl=avg&&s.currentPrice?((s.currentPrice-avg)/avg*100):0;
     const _isGrid=isOnGrid(ticker,currentPf);
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
-      s.status==="speculative"?`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
+      isRisk(ticker,currentPf)?`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
       _isGrid&&isBuffett(ticker)&&sig>0?`<span class="pos-badge" style="background:#1a2332;color:#38bdf8">BUFFETT ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&isBuffett(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">BUFFETT 0/${validTriggerSlots(ticker,currentPf)}</span>`:
@@ -2812,7 +2859,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     }
 
     // Speculative bucket info
-    if(s.status==="speculative"){
+    if(isRisk(ticker,currentPf)){
       const specAge=s.specDate?Math.round((Date.now()-s.specDate)/86400000):null;
       const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
       const costBasis=shares*avg;const costEUR=toEUR(costBasis,s.currency);const maxBudget=pfVal*0.15;const pctCost=maxBudget>0?(costEUR/maxBudget*100):0;
@@ -3016,7 +3063,7 @@ function renderAllocator(c){
       const resLabel=resRatio>=0.95?"✓":resRatio>=0.5?"▼":"⚠";
       const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
       // Determine if this stock's unlit tranches overflow to expansion
-      const isSpec=s.status==="speculative";const isBuf=isBuffett(t);
+      const isSpec=isRisk(t,currentPf);const isBuf=isBuffett(t);
       const unlitDest=isSpec||isBuf?"EXP":"DP";
       const unlitCol="#34d399";
       const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:`deploy`;
@@ -3038,7 +3085,7 @@ function renderAllocator(c){
     h+=`</div>`; // close alloc-waiting wrapper
 
     // === SPECULATIVE BUCKET ===
-    const specStocks=getSpeculative();
+    const specStocks=getSpeculative("personal");
     {
       const _rbi2=riskBucketInfo(currentPf);
       const _rbi2Pct=Math.round((_rbi2.capPct||0.15)*100);
@@ -3072,7 +3119,7 @@ function renderAllocator(c){
       const canAfford=entrySize>0&&dpAvailable>=entrySize;
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-      const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&stocks[t].status!=="speculative");
+      const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&!isRisk(t,"personal"));
       // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
@@ -3155,7 +3202,7 @@ function renderAllocator(c){
 
     // MOS reserves for NL: firing stocks with unlit valid triggers
     let nlMosReserved=0;
-    nlTickers.forEach(t=>{const s=stocks[t];if(!s||s.status==="speculative")return;const dc=deployCount(t,'nl');if(dc<=0)return;
+    nlTickers.forEach(t=>{const s=stocks[t];if(!s||isRisk(t,'nl'))return;const dc=deployCount(t,'nl');if(dc<=0)return;
       const slots=validTriggerSlots(t,'nl');const unlit=slots-dc;if(unlit<=0)return;
       const pos=nlPos[t];if(!pos)return;
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
@@ -3228,7 +3275,7 @@ function renderAllocator(c){
 
     // === RISK BUCKET (Caca) ===
     {
-      const _specStocks=getSpeculative();
+      const _specStocks=getSpeculative("nl");
       const _rbiNL=riskBucketInfo("nl");
       const _rbiNLPct=Math.round((_rbiNL.capPct||0.05)*100);
       const _specInPfNL=_specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
@@ -3254,7 +3301,7 @@ function renderAllocator(c){
 
     // === NEW ENTRY DEPLOYMENT (Caca ÷15 rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-    const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&stocks[t].status!=="speculative");
+    const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&!isRisk(t,"nl"));
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
       const buf=s.category==="buffett";
@@ -3407,7 +3454,7 @@ function editNotes(t){
 }
 
 function editSpecReason(t){
-  const s=stocks[t];if(s.status!=="speculative")return;
+  const s=stocks[t];if(!isRiskAnywhere(t))return;
   const cur=s.specReason||"";
   const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
   ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
@@ -3562,7 +3609,8 @@ function exportDeployLog(){
 
 // ============ SETTINGS ============
 function renderSettings(c){
-  const GRID_P=getGrid("personal"),GRID_N=getGrid("nl"),wl=getWatchlist(),SPEC=getSpeculative();
+  const GRID_P=getGrid("personal"),GRID_N=getGrid("nl"),wl=getWatchlist();
+  const RISK_P=getSpeculative("personal"),RISK_N=getSpeculative("nl");
   let h=`<div class="settings-section"><div style="font-size:16px;font-weight:700;margin-bottom:16px">Settings</div>
     <div class="settings-card"><div class="settings-title">🔔 Push Alerts</div>
       <div class="settings-desc">Cloudflare Worker checks prices every 15 min during market hours and sends push notifications even when the app is closed.</div>
@@ -3609,21 +3657,32 @@ function renderSettings(c){
       <span style="font-size:13px">${stocks[t].flag} ${t}</span>
       <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 8px" onclick="currentPf='personal';demoteFromGrid('${t}')">✕ Remove</span></div>`;});
   const _allStocks=Object.keys(stocks);
-  if(_allStocks.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="grid-add-p"><option value="">Add to Personal grid...</option>${_allStocks.filter(t=>!GRID_P.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
+  // v3.31: dropdown excludes stocks already in this portfolio's grid OR risk bucket
+  if(_allStocks.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="grid-add-p"><option value="">Add to Personal grid...</option>${_allStocks.filter(t=>!GRID_P.includes(t)&&!RISK_P.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
     <button class="settings-save" onclick="const v=document.getElementById('grid-add-p').value;if(v){currentPf='personal';promoteToGrid(v);}">Add</button></div>`;
   h+=`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div class="settings-title">🎯 Grid — 🧓 Caca (${GRID_N.filter(t=>sigCount(t)>0).length} firing / ${GRID_N.length} stocks)</div>`;
   GRID_N.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:13px">${stocks[t].flag} ${t}</span>
       <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 8px" onclick="currentPf='nl';demoteFromGrid('${t}')">✕ Remove</span></div>`;});
-  if(_allStocks.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="grid-add-n"><option value="">Add to Caca grid...</option>${_allStocks.filter(t=>!GRID_N.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
+  if(_allStocks.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="grid-add-n"><option value="">Add to Caca grid...</option>${_allStocks.filter(t=>!GRID_N.includes(t)&&!RISK_N.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
     <button class="settings-save" onclick="const v=document.getElementById('grid-add-n').value;if(v){currentPf='nl';promoteToGrid(v);}">Add</button></div>`;
   h+=`</div></div>
 
-    <div class="settings-card"><div class="settings-title" style="color:#d97706">⚡ Risk Bucket (${SPEC.length} position${SPEC.length!==1?"s":""})</div>`;
-  if(SPEC.length){SPEC.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-      <div><span style="font-size:13px">${stocks[t].flag} ${t}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${esc(stocks[t].specReason)||""}</span></div>
-      <div style="display:flex;gap:4px"><span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px" onclick="graduateToGrid('${t}')">✓ Graduate</span><span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px" onclick="demoteSpec('${t}')">✕ Remove</span></div></div>`;});}
-  else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions. Use → Risk on a watchlist stock to add one.</div>`;}
+    <div class="settings-card"><div class="settings-title" style="color:#d97706">⚡ Risk Bucket — 🧑 Personal (${RISK_P.length} position${RISK_P.length!==1?"s":""})</div>
+      <div class="settings-desc">Per-portfolio. A stock can be Risk in one portfolio and Grid/Watchlist in the other. Mutually exclusive with Grid within the same portfolio.</div>`;
+  if(RISK_P.length){RISK_P.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0"><span style="font-size:13px">${stocks[t].flag} ${t}</span>${stocks[t].specReason?`<span style="font-size:10px;color:var(--muted);margin-left:6px">${esc(stocks[t].specReason)}</span>`:""}</div>
+      <div style="display:flex;gap:4px;flex-shrink:0"><span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px" onclick="currentPf='personal';graduateToGrid('${t}')">✓ Graduate</span><span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px" onclick="currentPf='personal';demoteSpec('${t}')">✕ Remove</span></div></div>`;});}
+  else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions in Personal.</div>`;}
+  if(_allStocks.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="risk-add-p"><option value="">Add to Personal risk bucket...</option>${_allStocks.filter(t=>!GRID_P.includes(t)&&!RISK_P.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
+    <button class="settings-save" onclick="const v=document.getElementById('risk-add-p').value;if(v){currentPf='personal';promoteToSpec(v);}">Add</button></div>`;
+  h+=`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div class="settings-title" style="color:#d97706">⚡ Risk Bucket — 🧓 Caca (${RISK_N.length} position${RISK_N.length!==1?"s":""})</div>`;
+  if(RISK_N.length){RISK_N.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0"><span style="font-size:13px">${stocks[t].flag} ${t}</span>${stocks[t].specReason?`<span style="font-size:10px;color:var(--muted);margin-left:6px">${esc(stocks[t].specReason)}</span>`:""}</div>
+      <div style="display:flex;gap:4px;flex-shrink:0"><span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px" onclick="currentPf='nl';graduateToGrid('${t}')">✓ Graduate</span><span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px" onclick="currentPf='nl';demoteSpec('${t}')">✕ Remove</span></div></div>`;});}
+  else{h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions in Caca.</div>`;}
+  if(_allStocks.length)h+=`<div style="margin-top:8px"><select class="settings-input" id="risk-add-n"><option value="">Add to Caca risk bucket...</option>${_allStocks.filter(t=>!GRID_N.includes(t)&&!RISK_N.includes(t)).map(t=>`<option value="${t}">${t} — ${stocks[t].name}</option>`).join("")}</select>
+    <button class="settings-save" onclick="const v=document.getElementById('risk-add-n').value;if(v){currentPf='nl';promoteToSpec(v);}">Add</button></div>`;
   h+=`</div>
 
     <div class="settings-card"><div class="settings-title">📈 Index Allocation (XZMU + XZEU)</div>
@@ -3720,56 +3779,71 @@ function renderSettings(c){
 }
 
 // ============ STOCK MANAGEMENT ============
+// v3.31: Grid and Risk are both per-portfolio AND mutually exclusive within a portfolio.
+// promoteToGrid / promoteToSpec / graduateToGrid / demoteSpec / demoteFromGrid all operate
+// on currentPf only. Mutual exclusion: adding to one bucket removes from the other.
 function promoteToGrid(t){
-  // Add to both portfolios' grids (can be individually removed in Settings)
-  ["personal","nl"].forEach(pk=>{
-    const pf=portfolios[pk];
-    if(!pf)return;
-    if(!pf.gridStocks)pf.gridStocks=[];
-    if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
-  });
+  const pf=portfolios[currentPf];
+  if(!pf)return;
+  if(!pf.gridStocks)pf.gridStocks=[];
+  if(!pf.riskStocks)pf.riskStocks=[];
+  // Mutual exclusion: remove from currentPf risk bucket if present
+  pf.riskStocks=pf.riskStocks.filter(x=>x!==t);
+  if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
+  // If no portfolio still treats this as risk, clear thesis (intrinsic to risk status)
+  if(!isRiskAnywhere(t)){delete stocks[t].specReason;delete stocks[t].specDate;}
   updateSignals(t);save();
   currentTab="portfolio";render();
   window.scrollTo(0,0);
 }
 function promoteToSpec(t){
   const s=stocks[t];
-  const reason=prompt("Conviction thesis (optional):\ne.g. 'AI leader, IPO play, potential wide moat'","");
+  const pf=portfolios[currentPf];
+  if(!pf)return;
+  if(!pf.riskStocks)pf.riskStocks=[];
+  if(pf.riskStocks.includes(t)){save();render();return;}
+  const reason=prompt(`Conviction thesis for ${t} in ${pf.name} (optional):\ne.g. 'AI leader, IPO play, potential wide moat'`,s.specReason||"");
   if(reason===null)return;
-  s.status="speculative";
-  s.specReason=reason||"";
-  s.specDate=Date.now();
+  // Mutual exclusion: remove from currentPf grid if present
+  if(pf.gridStocks)pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
+  pf.riskStocks.push(t);
+  if(reason)s.specReason=reason;
+  s.specDate=s.specDate||Date.now();
   updateSignals(t);save();
   currentTab="portfolio";render();
   window.scrollTo(0,0);
 }
 function graduateToGrid(t){
-  if(!confirm(`Graduate ${t} to grid? This stock must now pass all 4Ms.`))return;
-  const s=stocks[t];s.status="watchlist";
-  delete s.specReason;delete s.specDate;
-  // Add to current portfolio's grid
   const pf=portfolios[currentPf];
+  if(!pf)return;
+  if(!confirm(`Graduate ${t} to ${pf.name} grid? This stock must now pass all 4Ms.`))return;
   if(!pf.gridStocks)pf.gridStocks=[];
+  if(!pf.riskStocks)pf.riskStocks=[];
+  pf.riskStocks=pf.riskStocks.filter(x=>x!==t);
   if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
+  if(!isRiskAnywhere(t)){delete stocks[t].specReason;delete stocks[t].specDate;}
   updateSignals(t);save();render();
 }
 function demoteSpec(t){
-  if(!confirm(`Move ${t} back to watchlist? (Position keeps tracking if shares held.)`))return;
-  const s=stocks[t];s.status="watchlist";
-  delete s.specReason;delete s.specDate;
+  const pf=portfolios[currentPf];
+  if(!pf)return;
+  if(!confirm(`Remove ${t} from ${pf.name}'s risk bucket? (Position keeps tracking if shares held. Other portfolios unaffected.)`))return;
+  if(pf.riskStocks)pf.riskStocks=pf.riskStocks.filter(x=>x!==t);
+  // Clear thesis only if no other portfolio still considers this risk
+  if(!isRiskAnywhere(t)){delete stocks[t].specReason;delete stocks[t].specDate;}
   save();render();
 }
 function demoteFromGrid(t){
-  const hasShares=["personal","nl"].some(pk=>{const pos=portfolios[pk]?.positions?.[t];return pos&&pos.tranches.some(tr=>(tr.bought-tr.sold)>0);});
-  if(hasShares){
-    if(!confirm(`${t} has shares held. Remove from ${portfolios[currentPf].name} grid? (Position keeps tracking.)`))return;
-  }else{
-    if(!confirm(`Remove ${t} from ${portfolios[currentPf].name} grid?`))return;
-    // Clean up empty position entries only when no shares
-    if(portfolios[currentPf]?.positions?.[t])delete portfolios[currentPf].positions[t];
-  }
-  // Remove from current portfolio's grid only
   const pf=portfolios[currentPf];
+  if(!pf)return;
+  const hasShares=pf.positions?.[t]&&pf.positions[t].tranches.some(tr=>(tr.bought-tr.sold)>0);
+  if(hasShares){
+    if(!confirm(`${t} has shares held in ${pf.name}. Remove from grid? (Position keeps tracking.)`))return;
+  }else{
+    if(!confirm(`Remove ${t} from ${pf.name} grid?`))return;
+    // Clean up empty position entries only when no shares
+    if(pf.positions?.[t])delete pf.positions[t];
+  }
   if(pf.gridStocks)pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
   save();render();
 }
@@ -3858,7 +3932,7 @@ function openEditStock(t){
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
     "— Category —",
-    {id:"es-cat",label:"Framework",val:s.status==="speculative"?"Risk":(s.category==="buffett"?"Buffett":"Phil Town"),select:["Phil Town","Buffett","Risk"]},
+    {id:"es-cat",label:"Framework",val:isRisk(t,currentPf)?"Risk":(s.category==="buffett"?"Buffett":"Phil Town"),select:["Phil Town","Buffett","Risk"]},
   ],()=>{
     s.name=gv("es-name")||s.name;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;
@@ -3886,24 +3960,29 @@ function openEditStock(t){
     }
     const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed))s.earningsDate=ed.getTime();}else{s.earningsDate=null;}
     s.gate=(gateVal==="FAIL")?false:true;
-    // Category — Phil Town / Buffett / Risk
+    // Category — Phil Town / Buffett / Risk (Risk is per-portfolio: applies to currentPf only)
     const catVal=gv("es-cat");
-    const wasSpec=s.status==="speculative";
+    const wasSpec=isRisk(t,currentPf);
     if(catVal==="Risk"){
       if(!wasSpec){
         const reason=prompt("Conviction thesis (optional):\ne.g. 'AI leader, IPO play, potential wide moat'","");
         if(reason===null){return false;}
-        s.status="speculative";
-        s.specReason=reason||"";
-        s.specDate=Date.now();
+        const _pf=portfolios[currentPf];
+        if(!_pf.riskStocks)_pf.riskStocks=[];
+        if(!_pf.riskStocks.includes(t))_pf.riskStocks.push(t);
+        // Mutual exclusion: remove from this portfolio's grid if present
+        if(_pf.gridStocks)_pf.gridStocks=_pf.gridStocks.filter(x=>x!==t);
+        if(reason)s.specReason=reason;
+        s.specDate=s.specDate||Date.now();
       }
       // category preserved (Risk can sit on top of Phil Town or Buffett underlying framework)
     }else{
       if(wasSpec){
-        if(!confirm(`Move ${t} from Risk back to ${catVal}? (Position keeps tracking if shares held.)`)){return false;}
-        s.status="watchlist";
-        delete s.specReason;
-        delete s.specDate;
+        if(!confirm(`Remove ${t} from ${portfolios[currentPf].name}'s risk bucket? (Position keeps tracking if shares held. Other portfolios unaffected.)`)){return false;}
+        const _pf=portfolios[currentPf];
+        if(_pf.riskStocks)_pf.riskStocks=_pf.riskStocks.filter(x=>x!==t);
+        // Clear thesis only if no portfolio still treats this as risk
+        if(!isRiskAnywhere(t)){delete s.specReason;delete s.specDate;}
       }
       s.category=catVal==="Buffett"?"buffett":undefined;
     }
