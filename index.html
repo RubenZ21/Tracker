@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.31</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.32</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -203,6 +203,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
   <button class="nav-btn" onclick="switchTab('settings')"><span class="nav-icon">⚙️</span><span class="nav-label" id="nav-settings">Settings</span></button>
 </div></nav>
 <input type="file" id="csv-import" accept=".csv" style="display:none" onchange="handleCSVImport(event)">
+<input type="file" id="holdings-csv-import" accept=".csv" style="display:none" onchange="handleHoldingsCSVImport(event)">
 <input type="file" id="xlsx-import" accept=".xlsx,.xls" style="display:none" onchange="handleExcelImport(event)">
 
 <script>
@@ -1631,6 +1632,311 @@ function handleCSVImport(e){
     // Auto-sync triggers to push worker if connected
     if(settings.pushSubscribed&&settings.pushWorkerUrl)syncTriggersToCloud();
     };r.readAsText(f);e.target.value="";
+}
+
+// ============ HOLDINGS CSV (import/export, separate from triggers CSV) ============
+// Format: portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes
+// portfolio: "personal" or "caca" (CSV) ↔ "personal" or "nl" (internal pfKey)
+// trancheType enum (CSV) ↔ tranche.signal (internal):
+//   initial ↔ "initial"        mos ↔ "MOS"
+//   tenCap/buffettTenCap ↔ "10Cap"   pbt/buffettPbt ↔ "PBT"
+//   trophy ↔ "trophy"          risk ↔ "risk" (also adds ticker to pf.riskStocks)
+//   index → writes to pf.indexPositions[us|eu] aggregate (shares/avgCost) — not as a tranche
+const HOLDINGS_TRANCHE_TYPES=["initial","mos","tenCap","pbt","buffettTenCap","buffettPbt","risk","trophy","index"];
+const _PF_CSV_TO_KEY={personal:"personal",caca:"nl"};
+const _PF_KEY_TO_CSV={personal:"personal",nl:"caca"};
+
+function _trancheTypeForExport(t,pfKey,signal){
+  // Index ETFs are emitted by a separate loop, so this is for stock tranches only.
+  if(isRisk(t,pfKey))return"risk";
+  if(signal==="trophy")return"trophy";
+  if(signal==="initial")return"initial";
+  if(signal==="risk")return"risk";
+  const buf=isBuffett(t);
+  if(signal==="MOS")return"mos";
+  if(signal==="10Cap")return buf?"buffettTenCap":"tenCap";
+  if(signal==="PBT")return buf?"buffettPbt":"pbt";
+  return"initial"; // unknown / fallback
+}
+function _trancheTypeToSignal(tt){
+  if(tt==="mos")return"MOS";
+  if(tt==="tenCap"||tt==="buffettTenCap")return"10Cap";
+  if(tt==="pbt"||tt==="buffettPbt")return"PBT";
+  if(tt==="trophy")return"trophy";
+  if(tt==="initial")return"initial";
+  if(tt==="risk")return"risk";
+  return null; // index handled separately
+}
+// Determine if a CSV ticker refers to one of the index ETF legs and which region it maps to.
+function _indexRegionForTicker(ticker,pfKey){
+  if(!ticker)return null;
+  const tup=ticker.toUpperCase();
+  // Match against configured tickers for this portfolio (full form, e.g. XZMU.L)
+  const us=indexTickerForPf(pfKey,"us").toUpperCase();
+  const eu=indexTickerForPf(pfKey,"eu").toUpperCase();
+  if(tup===us)return"us";
+  if(tup===eu)return"eu";
+  // Also match by short prefix (XZMU/XZEU/XZW0) for resilience to .L/.DE variations
+  const short=tup.replace(/\.(L|DE|AS|TO|T)$/,"");
+  if(short==="XZMU")return"us";
+  if(short==="XZEU")return"eu";
+  if(short==="XZW0")return"us"; // legacy world ticker → US slot
+  return null;
+}
+
+function exportHoldingsCSV(){
+  const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
+  const rows=[];
+  // 1. Stock tranches across both portfolios
+  Object.entries(portfolios).forEach(([pk,pf])=>{
+    const csvPf=_PF_KEY_TO_CSV[pk];if(!csvPf||!pf?.positions)return;
+    Object.entries(pf.positions).forEach(([t,pos])=>{
+      if(!pos?.tranches)return;
+      pos.tranches.forEach(tr=>{
+        const sh=(tr.bought||0)-(tr.sold||0);
+        if(sh<=0)return; // skip fully-sold tranches
+        const tt=_trancheTypeForExport(t,pk,tr.signal);
+        const buyDate=tr.buyDate?new Date(tr.buyDate).toISOString().slice(0,10):"";
+        const notes=tr.notes||"";
+        rows.push({portfolio:csvPf,ticker:t,trancheType:tt,shares:sh,buyPrice:tr.buyPrice||0,buyDate,notes});
+      });
+    });
+  });
+  // 2. Index ETF aggregate positions (one row per non-zero leg per portfolio)
+  Object.keys(portfolios).forEach(pk=>{
+    const csvPf=_PF_KEY_TO_CSV[pk];if(!csvPf)return;
+    ["us","eu"].forEach(region=>{
+      const ip=getIndexPos(pk,region);
+      if(!ip||!(ip.shares>0))return;
+      const ticker=indexTickerForPf(pk,region);
+      rows.push({portfolio:csvPf,ticker,trancheType:"index",shares:ip.shares,buyPrice:ip.avgCost||0,buyDate:"",notes:""});
+    });
+  });
+  // 3. Sort: portfolio asc, ticker asc, buyDate asc (empty last)
+  rows.sort((a,b)=>{
+    if(a.portfolio!==b.portfolio)return a.portfolio<b.portfolio?-1:1;
+    if(a.ticker!==b.ticker)return a.ticker<b.ticker?-1:1;
+    const ad=a.buyDate||"\uffff",bd=b.buyDate||"\uffff";
+    return ad<bd?-1:ad>bd?1:0;
+  });
+  // 4. Build CSV (no spaces after commas; quote notes only when needed)
+  let csv="portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes\n";
+  rows.forEach(r=>{
+    csv+=`${r.portfolio},${r.ticker},${r.trancheType},${r.shares},${r.buyPrice},${r.buyDate},${q(r.notes)}\n`;
+  });
+  dlFile("holdings_"+dateStr()+".csv",csv,"text/csv");
+}
+
+// Modal: validation errors (no partial import on failure)
+function showHoldingsErrorModal(errors){
+  const existing=document.getElementById("holdings-modal-overlay");
+  if(existing)existing.remove();
+  const overlay=document.createElement("div");
+  overlay.id="holdings-modal-overlay";
+  overlay.className="diff-overlay";
+  let body=`<div style="padding:14px 4px"><div style="font-size:13px;color:var(--red);margin-bottom:10px;line-height:1.45"><strong>${errors.length} validation error${errors.length!==1?"s":""}</strong> — no rows were imported. Fix the CSV and try again.</div>`;
+  errors.slice(0,40).forEach(err=>{
+    body+=`<div class="diff-stock"><div class="diff-stock-hdr"><span class="diff-stock-ticker">Line ${err.line}</span><span class="diff-stock-name">${esc(err.msg)}</span></div></div>`;
+  });
+  if(errors.length>40)body+=`<div style="font-size:11px;color:var(--muted);text-align:center;padding:8px">…and ${errors.length-40} more</div>`;
+  body+="</div>";
+  overlay.innerHTML=`<div class="diff-modal">
+    <div class="diff-modal-header"><h2>Holdings Import Failed</h2><span class="diff-summary">${errors.length} error${errors.length!==1?"s":""}</span></div>
+    <div class="diff-modal-body">${body}</div>
+    <button class="diff-dismiss" onclick="document.getElementById('holdings-modal-overlay').remove()">Close</button></div>`;
+  overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+// Modal: confirm replacement (callback runs only on confirm)
+function showHoldingsConfirmModal(existingCount,newCount,onConfirm){
+  const existing=document.getElementById("holdings-modal-overlay");
+  if(existing)existing.remove();
+  const overlay=document.createElement("div");
+  overlay.id="holdings-modal-overlay";
+  overlay.className="diff-overlay";
+  overlay.innerHTML=`<div class="diff-modal" style="max-width:440px">
+    <div class="diff-modal-header"><h2>Confirm Holdings Import</h2></div>
+    <div class="diff-modal-body" style="padding:18px 18px 6px">
+      <div style="font-size:13px;line-height:1.55;color:var(--text)">This will <strong style="color:var(--amber)">replace</strong> all <strong>${existingCount}</strong> existing tranche${existingCount!==1?"s":""} (across both portfolios, including index legs) with <strong>${newCount}</strong> from the CSV.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Grid/risk-bucket membership and stock trigger data are preserved. Historical sell data is discarded — each imported tranche is treated as fresh holdings.</div>
+    </div>
+    <div style="display:flex;border-top:1px solid var(--border)">
+      <button class="diff-dismiss" style="border-right:1px solid var(--border);color:var(--muted)" id="holdings-cancel-btn">Cancel</button>
+      <button class="diff-dismiss" style="color:var(--amber)" id="holdings-confirm-btn">Replace</button>
+    </div></div>`;
+  document.body.appendChild(overlay);
+  document.getElementById("holdings-cancel-btn").onclick=()=>overlay.remove();
+  document.getElementById("holdings-confirm-btn").onclick=()=>{overlay.remove();onConfirm();};
+  overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+}
+
+// Modal: success summary
+function showHoldingsSuccessModal(stats){
+  const existing=document.getElementById("holdings-modal-overlay");
+  if(existing)existing.remove();
+  const overlay=document.createElement("div");
+  overlay.id="holdings-modal-overlay";
+  overlay.className="diff-overlay";
+  const warns=stats.warnings||[];
+  let warnHTML="";
+  if(warns.length){
+    warnHTML=`<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:6px">Warnings (${warns.length})</div>`;
+    warns.slice(0,20).forEach(w=>{warnHTML+=`<div class="diff-chip" style="display:block;margin-bottom:3px"><span class="diff-field">Line ${w.line}:</span> ${esc(w.msg)}</div>`;});
+    if(warns.length>20)warnHTML+=`<div style="font-size:10px;color:var(--muted);margin-top:4px">…and ${warns.length-20} more</div>`;
+    warnHTML+=`</div>`;
+  }
+  overlay.innerHTML=`<div class="diff-modal" style="max-width:440px">
+    <div class="diff-modal-header"><h2>Holdings Imported</h2><span class="diff-summary">${stats.imported} tranche${stats.imported!==1?"s":""}</span></div>
+    <div class="diff-modal-body" style="padding:16px 18px">
+      <div style="font-size:13px;line-height:1.6">
+        <div>🧑 Personal: <strong>${stats.personal}</strong> stock tranche${stats.personal!==1?"s":""}${stats.personalIndex?` + ${stats.personalIndex} index leg${stats.personalIndex!==1?"s":""}`:""}</div>
+        <div>🧓 Caca: <strong>${stats.caca}</strong> stock tranche${stats.caca!==1?"s":""}${stats.cacaIndex?` + ${stats.cacaIndex} index leg${stats.cacaIndex!==1?"s":""}`:""}</div>
+      </div>
+      ${warnHTML}
+    </div>
+    <button class="diff-dismiss" onclick="document.getElementById('holdings-modal-overlay').remove()">Done</button></div>`;
+  overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+function handleHoldingsCSVImport(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=function(ev){
+    const text=ev.target.result;
+    const lines=text.split(/\r?\n/).filter(l=>l.trim().length>0);
+    if(lines.length<2){alert("Empty CSV — needs header row + at least one data row.");e.target.value="";return;}
+    // Reuse the same robust CSV line parser pattern as triggers import
+    const parseCSVLine=line=>{const out=[];let cur="",inQ=false;for(let i=0;i<line.length;i++){const c=line[i];
+      if(inQ){if(c==='"'){if(line[i+1]==='"'){cur+='"';i++;}else{inQ=false;}}else{cur+=c;}}
+      else{if(c===','){out.push(cur);cur="";}else if(c==='"'&&cur===""){inQ=true;}else{cur+=c;}}}
+      out.push(cur);return out.map(s=>s.trim());};
+    const REQUIRED=["portfolio","ticker","tranchetype","shares","buyprice"];
+    const hdr=parseCSVLine(lines[0]).map(h=>h.toLowerCase());
+    const missing=REQUIRED.filter(c=>!hdr.includes(c));
+    if(missing.length){
+      showHoldingsErrorModal([{line:1,msg:`Header missing required column${missing.length>1?"s":""}: ${missing.join(", ")}. Expected: portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes`}]);
+      e.target.value="";return;
+    }
+    const idx=name=>hdr.indexOf(name);
+    const iPf=idx("portfolio"),iTk=idx("ticker"),iTt=idx("tranchetype"),iSh=idx("shares"),iBp=idx("buyprice"),iBd=idx("buydate"),iNo=idx("notes");
+    const errors=[],warnings=[],parsed=[];
+    for(let i=1;i<lines.length;i++){
+      const cells=parseCSVLine(lines[i]);
+      const lineNo=i+1; // 1-indexed file line
+      const pfRaw=(cells[iPf]||"").toLowerCase();
+      const ticker=(cells[iTk]||"").toUpperCase();
+      const tt=cells[iTt]||"";
+      const shStr=cells[iSh]||"";
+      const bpStr=cells[iBp]||"";
+      const bdStr=iBd>=0?(cells[iBd]||""):"";
+      const notes=iNo>=0?(cells[iNo]||""):"";
+      // Validate portfolio
+      if(!_PF_CSV_TO_KEY[pfRaw]){errors.push({line:lineNo,msg:`Invalid portfolio "${pfRaw}" — must be "personal" or "caca"`});continue;}
+      // Validate ticker
+      if(!ticker){errors.push({line:lineNo,msg:"Missing ticker"});continue;}
+      // Validate trancheType
+      if(!HOLDINGS_TRANCHE_TYPES.includes(tt)){errors.push({line:lineNo,msg:`Invalid trancheType "${tt}" — must be one of: ${HOLDINGS_TRANCHE_TYPES.join(", ")}`});continue;}
+      // Validate shares
+      const shares=Number(shStr);
+      if(!isFinite(shares)||shares<=0){errors.push({line:lineNo,msg:`Invalid shares "${shStr}" — must be a positive number`});continue;}
+      // Validate buyPrice
+      const buyPrice=Number(bpStr);
+      if(!isFinite(buyPrice)||buyPrice<=0){errors.push({line:lineNo,msg:`Invalid buyPrice "${bpStr}" — must be a positive number`});continue;}
+      // Validate buyDate (optional)
+      let buyDate=null;
+      if(bdStr){
+        const d=new Date(bdStr);
+        if(isNaN(d)){errors.push({line:lineNo,msg:`Invalid buyDate "${bdStr}" — must be YYYY-MM-DD or empty`});continue;}
+        buyDate=d.getTime();
+      }
+      const pfKey=_PF_CSV_TO_KEY[pfRaw];
+      // Orphan ticker check (warn only, not for index rows since XZMU/XZEU aren't in stocks{})
+      if(tt!=="index"&&!stocks[ticker]){
+        warnings.push({line:lineNo,msg:`Ticker "${ticker}" not found in triggers data (orphan — kept anyway)`});
+      }
+      parsed.push({lineNo,pfKey,pfRaw,ticker,tt,shares,buyPrice,buyDate,notes});
+    }
+    if(errors.length){showHoldingsErrorModal(errors);e.target.value="";return;}
+    if(!parsed.length){showHoldingsErrorModal([{line:0,msg:"No valid rows found in CSV."}]);e.target.value="";return;}
+    // Count existing tranches (stock + non-zero index legs) for confirmation
+    let existingCount=0;
+    Object.values(portfolios).forEach(pf=>{
+      if(pf?.positions)Object.values(pf.positions).forEach(pos=>{if(pos?.tranches)pos.tranches.forEach(tr=>{if(((tr.bought||0)-(tr.sold||0))>0)existingCount++;});});
+    });
+    Object.keys(portfolios).forEach(pk=>{["us","eu"].forEach(r=>{const ip=getIndexPos(pk,r);if(ip&&ip.shares>0)existingCount++;});});
+
+    showHoldingsConfirmModal(existingCount,parsed.length,()=>{
+      _applyHoldingsImport(parsed,warnings);
+    });
+    e.target.value="";
+  };
+  r.readAsText(f);
+}
+
+// Apply parsed holdings import: replaces all positions across both portfolios with the imported set.
+// Index rows go to pf.indexPositions[us|eu] aggregates. Risk rows auto-add ticker to pf.riskStocks.
+function _applyHoldingsImport(parsed,warnings){
+  const stats={imported:parsed.length,personal:0,caca:0,personalIndex:0,cacaIndex:0,warnings:warnings||[]};
+  // 1. Wipe all existing stock positions and zero out index legs (preserve currency/currentPrice/lastUpdate metadata)
+  Object.keys(portfolios).forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    pf.positions={};
+    ["us","eu"].forEach(r=>{
+      const ip=getIndexPos(pk,r); // ensures it exists
+      ip.shares=0;ip.avgCost=0;
+      // keep currency, currentPrice, lastUpdate, priceSource, deployLog as-is
+    });
+  });
+  // 2. Pre-aggregate index rows by (pfKey, region) for weighted-average cost
+  // Stock tranches are appended directly.
+  const indexAgg={}; // key: pk+":"+region → {shares,costSum}
+  parsed.forEach(row=>{
+    const {pfKey,ticker,tt,shares,buyPrice,buyDate,notes}=row;
+    const pf=portfolios[pfKey];if(!pf)return;
+    const csvPf=_PF_KEY_TO_CSV[pfKey];
+    if(tt==="index"){
+      const region=_indexRegionForTicker(ticker,pfKey);
+      if(!region){
+        warnings.push({line:row.lineNo,msg:`Index ticker "${ticker}" did not match a configured index leg — row skipped`});
+        return;
+      }
+      const key=pfKey+":"+region;
+      if(!indexAgg[key])indexAgg[key]={shares:0,costSum:0};
+      indexAgg[key].shares+=shares;
+      indexAgg[key].costSum+=shares*buyPrice;
+      if(csvPf==="personal")stats.personalIndex++;else stats.cacaIndex++;
+      return;
+    }
+    // Stock tranche
+    if(!pf.positions[ticker])pf.positions[ticker]={tranches:[]};
+    const sig=_trancheTypeToSignal(tt);
+    const tr={signal:sig,bought:shares,sold:0,buyPrice,state:"accumulating"};
+    if(buyDate)tr.buyDate=buyDate;
+    if(notes)tr.notes=notes;
+    pf.positions[ticker].tranches.push(tr);
+    // For "risk" trancheType, ensure ticker is in pf.riskStocks (auto-add)
+    if(tt==="risk"){
+      if(!pf.riskStocks)pf.riskStocks=[];
+      if(!pf.riskStocks.includes(ticker))pf.riskStocks.push(ticker);
+      // Risk and grid are mutually exclusive within a portfolio (v3.31 invariant)
+      if(pf.gridStocks&&pf.gridStocks.includes(ticker))pf.gridStocks=pf.gridStocks.filter(x=>x!==ticker);
+    }
+    if(csvPf==="personal")stats.personal++;else stats.caca++;
+  });
+  // 3. Apply aggregated index legs (weighted-avg cost across all rows for that leg)
+  Object.entries(indexAgg).forEach(([key,agg])=>{
+    const [pk,region]=key.split(":");
+    const ip=getIndexPos(pk,region);
+    ip.shares=agg.shares;
+    ip.avgCost=agg.shares>0?+(agg.costSum/agg.shares).toFixed(4):0;
+  });
+  // 4. Refresh signals for all imported tickers (so trigger states reflect current price)
+  Object.keys(stocks).forEach(t=>updateSignals(t));
+  // 5. Persist + re-render
+  save();render();
+  showHoldingsSuccessModal(stats);
 }
 
 // ============ EXCEL EXPORT/IMPORT (SheetJS) ============
@@ -3646,6 +3952,11 @@ function renderSettings(c){
       <div class="settings-desc">Triggers only — quick update after earnings.</div>
       <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportCSV()">↓ Export CSV</button>
         <button class="settings-save" onclick="document.getElementById('csv-import').click()">↑ Import CSV</button></div></div>
+
+    <div class="settings-card"><div class="settings-title">📦 Holdings CSV</div>
+      <div class="settings-desc">Positions only — share counts, buy prices, tranche types per portfolio. Use to reconstruct holdings from an IBKR screenshot when API sync fails. Import replaces all existing tranches in both portfolios.</div>
+      <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportHoldingsCSV()">↓ Export Holdings CSV</button>
+        <button class="settings-save" onclick="document.getElementById('holdings-csv-import').click()">↑ Import Holdings CSV</button></div></div>
 
     <div class="settings-card"><div class="settings-title">📊 Full Backup (Excel)</div>
       <div class="settings-desc">All stocks, positions, tranches, settings. Edit in Excel and re-import.</div>
