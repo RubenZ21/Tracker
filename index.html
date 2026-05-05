@@ -176,13 +176,23 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .diff-dismiss{width:100%;padding:13px;background:var(--bg);color:var(--accent);border:none;border-top:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font)}
 .diff-dismiss:active{opacity:.6}
 .diff-no-changes{text-align:center;padding:24px;color:var(--muted);font-size:13px}
+.diff-stock-badge.removed{background:#f8717120;color:var(--red)}
+.diff-stock.diff-removed{border-color:#f8717140;opacity:.85}
+.diff-tranche-list{font-family:var(--mono);font-size:10px;line-height:1.55;margin-top:4px;padding:6px 8px;background:var(--card);border-radius:4px;border:1px solid var(--border)}
+.diff-tranche-line{display:flex;justify-content:space-between;gap:8px;padding:1px 0}
+.diff-tranche-line.added{color:var(--green)}
+.diff-tranche-line.removed{color:var(--red);text-decoration:line-through;opacity:.75}
+.diff-tranche-line.same{color:var(--muted)}
+.diff-tranche-summary{font-size:10px;color:var(--muted);margin:6px 0 2px;font-family:var(--mono)}
+.diff-section-hdr{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:14px 4px 6px;padding-top:4px;border-top:1px solid var(--border)}
+.diff-section-hdr:first-child{margin-top:4px;padding-top:0;border-top:none}
 </style>
 </head>
 <body>
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.33</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.34</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1761,26 +1771,179 @@ function showHoldingsErrorModal(errors){
   document.body.appendChild(overlay);
 }
 
-// Modal: confirm replacement (callback runs only on confirm)
-function showHoldingsConfirmModal(existingCount,newCount,onConfirm){
+// Compact cash formatter (uses currency code, not GBp pence convention)
+function _fmtCash(v,ccy){
+  if(v==null)return"—";
+  const n=Number(v);
+  if(ccy==="EUR")return"€"+n.toLocaleString("en",{maximumFractionDigits:0});
+  if(ccy==="GBP")return"£"+n.toLocaleString("en",{maximumFractionDigits:0});
+  if(ccy==="CAD")return"C$"+n.toLocaleString("en",{maximumFractionDigits:0});
+  if(ccy==="JPY")return"¥"+n.toLocaleString("en",{maximumFractionDigits:0});
+  return"$"+n.toLocaleString("en",{maximumFractionDigits:0});
+}
+
+// Compute holdings diff: compares current state vs proposed (parsed) state.
+// Returns {diff:{stocks,index,cash}, totals:{stocks,index,cash,total}}.
+function _computeHoldingsDiff(parsed){
+  const after={personal:{stocks:{},index:{us:null,eu:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null},cash:{}}};
+  Object.keys(after).forEach(pk=>HOLDINGS_CASH_CCYS.forEach(c=>after[pk].cash[c]=0));
+  const indexAgg={};
+  parsed.forEach(row=>{
+    const {pfKey,ticker,tt,shares,buyPrice,buyDate,notes}=row;
+    if(!after[pfKey])return;
+    const a=after[pfKey];
+    if(tt==="index"){
+      const region=_indexRegionForTicker(ticker,pfKey);
+      if(!region)return;
+      const k=pfKey+":"+region;
+      if(!indexAgg[k])indexAgg[k]={shares:0,costSum:0};
+      indexAgg[k].shares+=shares;
+      indexAgg[k].costSum+=shares*buyPrice;
+      return;
+    }
+    if(tt==="cash"){a.cash[ticker]=(a.cash[ticker]||0)+shares;return;}
+    const sig=_trancheTypeToSignal(tt);
+    if(!a.stocks[ticker])a.stocks[ticker]=[];
+    a.stocks[ticker].push({signal:sig,shares,buyPrice,buyDate:buyDate||null,notes:notes||""});
+  });
+  Object.entries(indexAgg).forEach(([k,agg])=>{
+    const [pk,r]=k.split(":");
+    after[pk].index[r]={shares:agg.shares,avgCost:agg.shares>0?+(agg.costSum/agg.shares).toFixed(4):0};
+  });
+  // Build "before" snapshot from current portfolios
+  const before={personal:{stocks:{},index:{us:null,eu:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null},cash:{}}};
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    HOLDINGS_CASH_CCYS.forEach(c=>before[pk].cash[c]=pf["dp"+c]||0);
+    Object.entries(pf.positions||{}).forEach(([t,pos])=>{
+      const trs=(pos.tranches||[]).filter(tr=>((tr.bought||0)-(tr.sold||0))>0);
+      if(trs.length)before[pk].stocks[t]=trs.map(tr=>({signal:tr.signal,shares:(tr.bought||0)-(tr.sold||0),buyPrice:tr.buyPrice,buyDate:tr.buyDate||null,notes:tr.notes||""}));
+    });
+    ["us","eu"].forEach(r=>{const ip=getIndexPos(pk,r);if(ip&&ip.shares>0)before[pk].index[r]={shares:ip.shares,avgCost:ip.avgCost};});
+  });
+  // Compute diff per portfolio
+  const out={stocks:{personal:[],nl:[]},index:{personal:[],nl:[]},cash:{personal:[],nl:[]}};
+  ["personal","nl"].forEach(pk=>{
+    const tickers=new Set([...Object.keys(before[pk].stocks),...Object.keys(after[pk].stocks)]);
+    [...tickers].sort().forEach(t=>{
+      const b=before[pk].stocks[t]||null;
+      const a=after[pk].stocks[t]||null;
+      if(!b&&a)out.stocks[pk].push({ticker:t,kind:"new",before:null,after:a});
+      else if(b&&!a)out.stocks[pk].push({ticker:t,kind:"removed",before:b,after:null});
+      else{
+        // Canonical key (sorted) for tranche-list equality
+        const key=trs=>trs.slice().map(tr=>`${tr.signal}|${(+tr.shares).toFixed(6)}|${(+tr.buyPrice).toFixed(6)}|${tr.buyDate||""}|${tr.notes||""}`).sort().join(";");
+        if(key(b)!==key(a))out.stocks[pk].push({ticker:t,kind:"changed",before:b,after:a});
+      }
+    });
+    ["us","eu"].forEach(r=>{
+      const b=before[pk].index[r],a=after[pk].index[r];
+      if(!b&&a)out.index[pk].push({region:r,kind:"new",before:null,after:a});
+      else if(b&&!a)out.index[pk].push({region:r,kind:"removed",before:b,after:null});
+      else if(b&&a){
+        const ds=Math.abs(b.shares-a.shares),dc=Math.abs((b.avgCost||0)-(a.avgCost||0));
+        if(ds>0.0001||dc>0.005)out.index[pk].push({region:r,kind:"changed",before:b,after:a});
+      }
+    });
+    HOLDINGS_CASH_CCYS.forEach(c=>{
+      const bv=before[pk].cash[c]||0,av=after[pk].cash[c]||0;
+      if(Math.abs(bv-av)>0.005)out.cash[pk].push({ccy:c,before:bv,after:av,kind:bv===0?"new":(av===0?"removed":"changed")});
+    });
+  });
+  let s=0,ix=0,csh=0;
+  ["personal","nl"].forEach(pk=>{s+=out.stocks[pk].length;ix+=out.index[pk].length;csh+=out.cash[pk].length;});
+  return{diff:out,totals:{stocks:s,index:ix,cash:csh,total:s+ix+csh}};
+}
+
+// Diff preview modal (replaces simple confirm modal). User reviews changes, then Apply or Cancel.
+function showHoldingsDiffModal(parsed,warnings,applyFn){
   const existing=document.getElementById("holdings-modal-overlay");
   if(existing)existing.remove();
+  const {diff,totals}=_computeHoldingsDiff(parsed);
   const overlay=document.createElement("div");
   overlay.id="holdings-modal-overlay";
   overlay.className="diff-overlay";
-  overlay.innerHTML=`<div class="diff-modal" style="max-width:440px">
-    <div class="diff-modal-header"><h2>Confirm Holdings Import</h2></div>
-    <div class="diff-modal-body" style="padding:18px 18px 6px">
-      <div style="font-size:13px;line-height:1.55;color:var(--text)">This will <strong style="color:var(--amber)">replace</strong> all <strong>${existingCount}</strong> existing tranche${existingCount!==1?"s":""} (across both portfolios, including index legs) with <strong>${newCount}</strong> from the CSV.</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Grid/risk-bucket membership and stock trigger data are preserved. Historical sell data is discarded — each imported tranche is treated as fresh holdings.</div>
-    </div>
-    <div style="display:flex;border-top:1px solid var(--border)">
+  // Header summary line
+  const sumParts=[];
+  if(totals.stocks)sumParts.push(`${totals.stocks} stock${totals.stocks!==1?"s":""}`);
+  if(totals.index)sumParts.push(`${totals.index} index`);
+  if(totals.cash)sumParts.push(`${totals.cash} cash`);
+  const summary=totals.total>0?sumParts.join(" · ")+" change"+(totals.total!==1?"s":""):"No changes";
+  // Body: per-portfolio sections
+  let body="";
+  ["personal","nl"].forEach(pk=>{
+    const pfLabel=pk==="personal"?"🧑 Personal":"🧓 Caca";
+    const stockChanges=diff.stocks[pk],indexChanges=diff.index[pk],cashChanges=diff.cash[pk];
+    if(!stockChanges.length&&!indexChanges.length&&!cashChanges.length)return;
+    body+=`<div class="diff-section-hdr">${pfLabel}</div>`;
+    // Stock-level changes
+    stockChanges.forEach(c=>{
+      const s=stocks[c.ticker];
+      const ccy=s?.currency||"USD";
+      const flag=s?.flag||"";
+      const badge=c.kind==="new"?`<span class="diff-stock-badge new">NEW</span>`:c.kind==="removed"?`<span class="diff-stock-badge removed">REMOVED</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
+      const cardClass=c.kind==="new"?"diff-new":(c.kind==="removed"?"diff-removed":"");
+      // Build canonical keys to mark unchanged tranche lines
+      const trKey=tr=>`${tr.signal}|${(+tr.shares).toFixed(6)}|${(+tr.buyPrice).toFixed(6)}|${tr.buyDate||""}|${tr.notes||""}`;
+      const beforeKeys=new Set((c.before||[]).map(trKey));
+      const afterKeys=new Set((c.after||[]).map(trKey));
+      const fmtTr=(tr,cls)=>`<div class="diff-tranche-line ${cls}">${cls==="added"?"+ ":cls==="removed"?"− ":"  "}${esc(tr.signal)} · ${fmtSh(tr.shares)} × ${fmt(tr.buyPrice,ccy)}${tr.notes?` · <span style="opacity:.7">${esc(tr.notes)}</span>`:""}</div>`;
+      const sumLine=(lbl,trs)=>{const totSh=trs.reduce((s,tr)=>s+tr.shares,0);const totCost=trs.reduce((s,tr)=>s+tr.shares*tr.buyPrice,0);return `<div class="diff-tranche-summary">${lbl}: ${trs.length} tranche${trs.length!==1?"s":""} · ${fmtSh(totSh)} sh · ${fmt(totCost,ccy)}</div>`;};
+      let tHTML="";
+      if(c.kind==="new"){
+        tHTML+=sumLine("New",c.after);
+        tHTML+=`<div class="diff-tranche-list">${c.after.map(tr=>fmtTr(tr,"added")).join("")}</div>`;
+      }else if(c.kind==="removed"){
+        tHTML+=sumLine("Removed",c.before);
+        tHTML+=`<div class="diff-tranche-list">${c.before.map(tr=>fmtTr(tr,"removed")).join("")}</div>`;
+      }else{
+        // Changed: show before list with unchanged in muted, removed in red
+        tHTML+=sumLine("Before",c.before);
+        tHTML+=`<div class="diff-tranche-list">${c.before.map(tr=>fmtTr(tr,afterKeys.has(trKey(tr))?"same":"removed")).join("")}</div>`;
+        tHTML+=sumLine("After",c.after);
+        tHTML+=`<div class="diff-tranche-list">${c.after.map(tr=>fmtTr(tr,beforeKeys.has(trKey(tr))?"same":"added")).join("")}</div>`;
+      }
+      body+=`<div class="diff-stock ${cardClass}"><div class="diff-stock-hdr"><span class="diff-stock-ticker">${flag} ${c.ticker}</span><span class="diff-stock-name">${esc(s?.name||c.ticker)}</span>${badge}</div>${tHTML}</div>`;
+    });
+    // Index-leg changes
+    indexChanges.forEach(c=>{
+      const region=c.region.toUpperCase();
+      const ticker=indexTickerForPf(pk,c.region);
+      const ccy=c.region==="us"?"USD":"EUR";
+      const beforeStr=c.before?`${fmtSh(c.before.shares)} sh @ ${fmt(c.before.avgCost,ccy)}`:"—";
+      const afterStr=c.after?`${fmtSh(c.after.shares)} sh @ ${fmt(c.after.avgCost,ccy)}`:"—";
+      const badge=c.kind==="new"?`<span class="diff-stock-badge new">NEW</span>`:c.kind==="removed"?`<span class="diff-stock-badge removed">REMOVED</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
+      body+=`<div class="diff-stock"><div class="diff-stock-hdr"><span class="diff-stock-ticker">🌍 ${ticker}</span><span class="diff-stock-name">Index ${region}</span>${badge}</div><div class="diff-changes"><span class="diff-chip"><span class="diff-old">${beforeStr}</span><span class="diff-arrow">→</span><span class="diff-new-val">${afterStr}</span></span></div></div>`;
+    });
+    // Cash-leg changes (grouped into single card per portfolio)
+    if(cashChanges.length){
+      let chips="";
+      cashChanges.forEach(c=>{chips+=`<span class="diff-chip"><span class="diff-field">${c.ccy}:</span><span class="diff-old">${_fmtCash(c.before,c.ccy)}</span><span class="diff-arrow">→</span><span class="diff-new-val">${_fmtCash(c.after,c.ccy)}</span></span>`;});
+      body+=`<div class="diff-stock"><div class="diff-stock-hdr"><span class="diff-stock-ticker">💵 Cash</span><span class="diff-stock-name">Dry powder per currency</span><span class="diff-stock-badge changed">CHANGED</span></div><div class="diff-changes">${chips}</div></div>`;
+    }
+  });
+  if(!body)body=`<div class="diff-no-changes">No changes detected — imported CSV matches current state exactly.</div>`;
+  // Warnings panel (orphan tickers, unmatched index legs, etc.)
+  let warnHTML="";
+  if(warnings&&warnings.length){
+    warnHTML=`<div class="diff-section-hdr" style="color:var(--amber);border-top:1px solid var(--border);padding-top:10px;margin-top:14px">⚠ Warnings (${warnings.length})</div>`;
+    warnings.slice(0,15).forEach(w=>{warnHTML+=`<div class="diff-chip" style="display:block;margin:3px 0;background:var(--bg)"><span class="diff-field">Line ${w.line}:</span> ${esc(w.msg)}</div>`;});
+    if(warnings.length>15)warnHTML+=`<div style="font-size:10px;color:var(--muted);margin-top:4px;padding-left:4px">…and ${warnings.length-15} more</div>`;
+  }
+  const footer=totals.total>0?
+    `<div style="display:flex;border-top:1px solid var(--border)">
       <button class="diff-dismiss" style="border-right:1px solid var(--border);color:var(--muted)" id="holdings-cancel-btn">Cancel</button>
-      <button class="diff-dismiss" style="color:var(--amber)" id="holdings-confirm-btn">Replace</button>
-    </div></div>`;
+      <button class="diff-dismiss" style="color:var(--amber)" id="holdings-apply-btn">Apply Changes</button>
+    </div>`:
+    `<button class="diff-dismiss" id="holdings-cancel-btn">Close</button>`;
+  overlay.innerHTML=`<div class="diff-modal">
+    <div class="diff-modal-header"><h2>Holdings Import Preview</h2><span class="diff-summary">${summary}</span></div>
+    <div class="diff-modal-body">${body}${warnHTML}</div>
+    ${footer}</div>`;
   document.body.appendChild(overlay);
   document.getElementById("holdings-cancel-btn").onclick=()=>overlay.remove();
-  document.getElementById("holdings-confirm-btn").onclick=()=>{overlay.remove();onConfirm();};
+  const applyBtn=document.getElementById("holdings-apply-btn");
+  if(applyBtn)applyBtn.onclick=()=>{overlay.remove();applyFn();};
   overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
 }
 
@@ -1883,15 +2046,7 @@ function handleHoldingsCSVImport(e){
     }
     if(errors.length){showHoldingsErrorModal(errors);e.target.value="";return;}
     if(!parsed.length){showHoldingsErrorModal([{line:0,msg:"No valid rows found in CSV."}]);e.target.value="";return;}
-    // Count existing tranches (stock + non-zero index legs + non-zero cash legs) for confirmation
-    let existingCount=0;
-    Object.values(portfolios).forEach(pf=>{
-      if(pf?.positions)Object.values(pf.positions).forEach(pos=>{if(pos?.tranches)pos.tranches.forEach(tr=>{if(((tr.bought||0)-(tr.sold||0))>0)existingCount++;});});
-    });
-    Object.keys(portfolios).forEach(pk=>{["us","eu"].forEach(r=>{const ip=getIndexPos(pk,r);if(ip&&ip.shares>0)existingCount++;});});
-    Object.values(portfolios).forEach(pf=>{HOLDINGS_CASH_CCYS.forEach(ccy=>{if((pf["dp"+ccy]||0)>0)existingCount++;});});
-
-    showHoldingsConfirmModal(existingCount,parsed.length,()=>{
+    showHoldingsDiffModal(parsed,warnings,()=>{
       _applyHoldingsImport(parsed,warnings);
     });
     e.target.value="";
