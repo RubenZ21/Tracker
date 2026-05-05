@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.28</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.30</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1382,13 +1382,15 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category\n";
+  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason\n";
+  // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
+  const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="buffett"?"buffett":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${s.name||t},${cat}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -1504,9 +1506,14 @@ function handleCSVImport(e){
   const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=function(ev){
     const lines=ev.target.result.split("\n").filter(l=>l.trim());if(lines.length<2)return alert("Empty CSV");
-    const hdr=lines[0].split(",").map(h=>h.trim().toLowerCase());let nUpd=0,nNew=0;
+    // Proper CSV line parser: handles quoted fields with embedded commas, quotes ("" → "), and trims
+    const parseCSVLine=line=>{const out=[];let cur="",inQ=false;for(let i=0;i<line.length;i++){const c=line[i];
+      if(inQ){if(c==='"'){if(line[i+1]==='"'){cur+='"';i++;}else{inQ=false;}}else{cur+=c;}}
+      else{if(c===','){out.push(cur.trim());cur="";}else if(c==='"'&&cur===""){inQ=true;}else{cur+=c;}}}
+      out.push(cur.trim());return out;};
+    const hdr=parseCSVLine(lines[0]).map(h=>h.trim().toLowerCase());let nUpd=0,nNew=0;
     const beforeSnap=snapshotStocks();
-    for(let i=1;i<lines.length;i++){const v=lines[i].split(",").map(x=>x.trim());const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
+    for(let i=1;i<lines.length;i++){const v=parseCSVLine(lines[i]);const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
       const t=(row.ticker||"").toUpperCase();if(!t)continue;
       // Auto-create stock if ticker doesn't exist yet
       if(!stocks[t]){
@@ -1561,6 +1568,12 @@ function handleCSVImport(e){
       if(hdr.includes("earningsdate")&&row.earningsdate){const d=new Date(row.earningsdate);s.earningsDate=isNaN(d)?null:d.getTime();}
       // Import category (buffett or philtown/empty)
       if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=cat==="buffett"?"buffett":undefined;}
+      // Import notes (general stock comments)
+      if(hdr.includes("notes")){const nv=(row.notes||"").trim();if(nv)s.notes=nv;else delete s.notes;}
+      // Import specReason (risk thesis). If non-empty, mark as speculative; if empty and currently spec, demote.
+      if(hdr.includes("specreason")){const sr=(row.specreason||"").trim();
+        if(sr){s.specReason=sr;if(s.status!=="speculative"){s.status="speculative";s.specDate=s.specDate||Date.now();}}
+        else{if(s.status==="speculative"){s.status="watchlist";delete s.specDate;}delete s.specReason;}}
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calculate tenCap from OE
@@ -3845,7 +3858,7 @@ function openEditStock(t){
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
     "— Category —",
-    {id:"es-cat",label:"Framework",val:s.category==="buffett"?"Buffett":"Phil Town",select:["Phil Town","Buffett"]},
+    {id:"es-cat",label:"Framework",val:s.status==="speculative"?"Risk":(s.category==="buffett"?"Buffett":"Phil Town"),select:["Phil Town","Buffett","Risk"]},
   ],()=>{
     s.name=gv("es-name")||s.name;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;
@@ -3873,8 +3886,27 @@ function openEditStock(t){
     }
     const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed))s.earningsDate=ed.getTime();}else{s.earningsDate=null;}
     s.gate=(gateVal==="FAIL")?false:true;
-    // Category
-    const catVal=gv("es-cat");s.category=catVal==="Buffett"?"buffett":undefined;
+    // Category — Phil Town / Buffett / Risk
+    const catVal=gv("es-cat");
+    const wasSpec=s.status==="speculative";
+    if(catVal==="Risk"){
+      if(!wasSpec){
+        const reason=prompt("Conviction thesis (optional):\ne.g. 'AI leader, IPO play, potential wide moat'","");
+        if(reason===null){return false;}
+        s.status="speculative";
+        s.specReason=reason||"";
+        s.specDate=Date.now();
+      }
+      // category preserved (Risk can sit on top of Phil Town or Buffett underlying framework)
+    }else{
+      if(wasSpec){
+        if(!confirm(`Move ${t} from Risk back to ${catVal}? (Position keeps tracking if shares held.)`)){return false;}
+        s.status="watchlist";
+        delete s.specReason;
+        delete s.specDate;
+      }
+      s.category=catVal==="Buffett"?"buffett":undefined;
+    }
     // Mark triggers as freshly calculated
     s.lastCalcDate=Date.now();
     updateSignals(t);save();
