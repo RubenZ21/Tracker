@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.24</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.28</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -589,8 +589,9 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   const sig=sigCount(ticker);
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
-// Risk bucket cap: 15% of Pool1+Pool3 combined cost basis
-function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const cap=(p1cost+p3cost)*0.15;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0};}
+// Risk bucket cap: 15% Personal, 5% Caca (more conservative for closed retiree fund) of Pool1+Pool3 combined cost basis
+function riskBucketCapPct(pfKey){return pfKey==="nl"?0.05:0.15;}
+function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const capPct=riskBucketCapPct(pfKey);const cap=(p1cost+p3cost)*capPct;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0,capPct};}
 // 5% initial entry size from Pool 1 market value
 function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
 // Per-stock position cap: 15% Pool 1 MV for Phil Town, 10% for Buffett Category.
@@ -2468,8 +2469,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const statusCol=hasSell?"var(--red)":dc===vSlots?"var(--green)":dc?"var(--accent)":hasWarn?"var(--amber)":hasMuted?"#d97706":"var(--muted)";
     const statusTxt=hasSell?"SELL":dc?`${dc}/${vSlots}`:`0/${vSlots}`;
     h+=`<div style="text-align:center;font-size:${hasSell?11:14}px;font-weight:700;font-family:var(--mono);color:${statusCol}">${statusTxt}</div></div>`;});
-  // Speculative stocks row(s) — shown in grid but not counted in totals (hidden for Caca)
-  const SPEC=currentPf==="nl"?[]:getSpeculative();
+  // Speculative stocks row(s) — shown in grid but not counted in totals
+  const SPEC=getSpeculative();
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
     h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span></div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
@@ -2619,8 +2620,6 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const isOwned=_ownedSet.has(ticker);
     const pos=isOwned?pf.positions[ticker]:null;
     const isSpec=s.status==="speculative";
-    // Caca bans speculative positions — hide cards entirely
-    if(isSpec&&currentPf==="nl")return;
     const isGhost=!isOwned||(isOwned&&posShares(pos)<=0&&!pos.tranches.some(tr=>(tr.bought-tr.sold)>0));
     // Ghost card for grid stock not in this portfolio
     if(isGhost&&!isSpec&&(GRID.includes(ticker))){
@@ -2644,7 +2643,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
-        <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max 15%)</div>
+        <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max ${Math.round(riskBucketCapPct(currentPf)*100)}%)</div>
         ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;opacity:0.5" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
         ${s.notes?`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editNotes('${ticker}')">${esc(s.notes)}</div>`:""}
         <div class="btn-row">
@@ -3029,15 +3028,16 @@ function renderAllocator(c){
     const specStocks=getSpeculative();
     {
       const _rbi2=riskBucketInfo(currentPf);
+      const _rbi2Pct=Math.round((_rbi2.capPct||0.15)*100);
       const specInPf=specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
       const specValBase=specInPf.reduce((v,t)=>{const s=stocks[t];const pos=pf.positions[t];return v+fromEUR(toEUR(posShares(pos)*posAvgPrice(pos),s.currency),_bc);},0);
       if(specStocks.length||specInPf.length){
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Bucket</span>
-            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">15% of Pool 1+3 cost</span></div>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_rbi2Pct}% of Pool 1+3 cost</span></div>
           <div style="display:flex;gap:8px;margin-bottom:8px">
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">15% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_rbi2.cap).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">${_rbi2Pct}% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_rbi2.cap).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbi2.used>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(_rbi2.used).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${_bs}${Math.round(_rbi2.available).toLocaleString()}</div></div></div>`;
         specInPf.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
@@ -3212,6 +3212,32 @@ function renderAllocator(c){
         <div><span style="font-size:13px;font-weight:600">${stocks[t2.ticker]?.flag||""} ${t2.ticker}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">+${t2.gap}% above sticker</span></div>
         <span style="font-size:12px;font-family:var(--mono);color:var(--amber)">€${Math.round(t2.available).toLocaleString()} available</span></div>`;});}
     h+=`</div>`;
+
+    // === RISK BUCKET (Caca) ===
+    {
+      const _specStocks=getSpeculative();
+      const _rbiNL=riskBucketInfo("nl");
+      const _rbiNLPct=Math.round((_rbiNL.capPct||0.05)*100);
+      const _specInPfNL=_specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
+      if(_specStocks.length||_specInPfNL.length){
+        h+=`<div class="alloc-card" style="margin-bottom:12px;border:1px solid #d9770633">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Bucket</span>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_rbiNLPct}% of Pool 1+3 cost</span></div>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">${_rbiNLPct}% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(_rbiNL.cap).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbiNL.used>0?"#d97706":"var(--muted)"}">€${Math.round(_rbiNL.used).toLocaleString()}</div></div>
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(_rbiNL.available).toLocaleString()}</div></div></div>`;
+        _specInPfNL.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
+          h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t,"nl")} signals</span></div>
+              <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(costVal),s.currency)} · ${fmtSh(sh)} sh</span></div>
+            ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
+        if(!_specInPfNL.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions in Caca. Use → Risk on a watchlist stock to add one.</div>`;}
+        h+=`</div>`;
+      }
+    }
 
     // === NEW ENTRY DEPLOYMENT (Caca ÷15 rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
