@@ -182,7 +182,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.32</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.33</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1642,7 +1642,8 @@ function handleCSVImport(e){
 //   tenCap/buffettTenCap ↔ "10Cap"   pbt/buffettPbt ↔ "PBT"
 //   trophy ↔ "trophy"          risk ↔ "risk" (also adds ticker to pf.riskStocks)
 //   index → writes to pf.indexPositions[us|eu] aggregate (shares/avgCost) — not as a tranche
-const HOLDINGS_TRANCHE_TYPES=["initial","mos","tenCap","pbt","buffettTenCap","buffettPbt","risk","trophy","index"];
+const HOLDINGS_TRANCHE_TYPES=["initial","mos","tenCap","pbt","buffettTenCap","buffettPbt","risk","trophy","index","cash"];
+const HOLDINGS_CASH_CCYS=["USD","EUR","GBP","JPY","CAD"];
 const _PF_CSV_TO_KEY={personal:"personal",caca:"nl"};
 const _PF_KEY_TO_CSV={personal:"personal",nl:"caca"};
 
@@ -1712,14 +1713,26 @@ function exportHoldingsCSV(){
       rows.push({portfolio:csvPf,ticker,trancheType:"index",shares:ip.shares,buyPrice:ip.avgCost||0,buyDate:"",notes:""});
     });
   });
-  // 3. Sort: portfolio asc, ticker asc, buyDate asc (empty last)
+  // 3. Cash (dry powder) per currency per portfolio (one row per non-zero leg)
+  Object.entries(portfolios).forEach(([pk,pf])=>{
+    const csvPf=_PF_KEY_TO_CSV[pk];if(!csvPf||!pf)return;
+    HOLDINGS_CASH_CCYS.forEach(ccy=>{
+      const amt=pf["dp"+ccy];
+      if(amt==null||amt<=0)return;
+      rows.push({portfolio:csvPf,ticker:ccy,trancheType:"cash",shares:amt,buyPrice:1,buyDate:"",notes:""});
+    });
+  });
+  // 4. Sort: portfolio asc, then ordering class (positions/index < cash), then ticker asc, then buyDate asc (empty last)
+  const _classOf=tt=>tt==="cash"?2:1;
   rows.sort((a,b)=>{
     if(a.portfolio!==b.portfolio)return a.portfolio<b.portfolio?-1:1;
+    const ca=_classOf(a.trancheType),cb=_classOf(b.trancheType);
+    if(ca!==cb)return ca-cb;
     if(a.ticker!==b.ticker)return a.ticker<b.ticker?-1:1;
     const ad=a.buyDate||"\uffff",bd=b.buyDate||"\uffff";
     return ad<bd?-1:ad>bd?1:0;
   });
-  // 4. Build CSV (no spaces after commas; quote notes only when needed)
+  // 5. Build CSV (no spaces after commas; quote notes only when needed)
   let csv="portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes\n";
   rows.forEach(r=>{
     csv+=`${r.portfolio},${r.ticker},${r.trancheType},${r.shares},${r.buyPrice},${r.buyDate},${q(r.notes)}\n`;
@@ -1790,8 +1803,8 @@ function showHoldingsSuccessModal(stats){
     <div class="diff-modal-header"><h2>Holdings Imported</h2><span class="diff-summary">${stats.imported} tranche${stats.imported!==1?"s":""}</span></div>
     <div class="diff-modal-body" style="padding:16px 18px">
       <div style="font-size:13px;line-height:1.6">
-        <div>🧑 Personal: <strong>${stats.personal}</strong> stock tranche${stats.personal!==1?"s":""}${stats.personalIndex?` + ${stats.personalIndex} index leg${stats.personalIndex!==1?"s":""}`:""}</div>
-        <div>🧓 Caca: <strong>${stats.caca}</strong> stock tranche${stats.caca!==1?"s":""}${stats.cacaIndex?` + ${stats.cacaIndex} index leg${stats.cacaIndex!==1?"s":""}`:""}</div>
+        <div>🧑 Personal: <strong>${stats.personal}</strong> stock tranche${stats.personal!==1?"s":""}${stats.personalIndex?` + ${stats.personalIndex} index leg${stats.personalIndex!==1?"s":""}`:""}${stats.personalCash?` + ${stats.personalCash} cash leg${stats.personalCash!==1?"s":""}`:""}</div>
+        <div>🧓 Caca: <strong>${stats.caca}</strong> stock tranche${stats.caca!==1?"s":""}${stats.cacaIndex?` + ${stats.cacaIndex} index leg${stats.cacaIndex!==1?"s":""}`:""}${stats.cacaCash?` + ${stats.cacaCash} cash leg${stats.cacaCash!==1?"s":""}`:""}</div>
       </div>
       ${warnHTML}
     </div>
@@ -1841,9 +1854,19 @@ function handleHoldingsCSVImport(e){
       // Validate shares
       const shares=Number(shStr);
       if(!isFinite(shares)||shares<=0){errors.push({line:lineNo,msg:`Invalid shares "${shStr}" — must be a positive number`});continue;}
-      // Validate buyPrice
-      const buyPrice=Number(bpStr);
-      if(!isFinite(buyPrice)||buyPrice<=0){errors.push({line:lineNo,msg:`Invalid buyPrice "${bpStr}" — must be a positive number`});continue;}
+      // Validate buyPrice — required > 0 for everything except cash (where it's a placeholder; empty/0/1 all accepted)
+      let buyPrice;
+      if(tt==="cash"){
+        buyPrice=bpStr===""?1:Number(bpStr);
+        if(!isFinite(buyPrice))buyPrice=1; // tolerate garbage in placeholder column for cash rows
+      }else{
+        buyPrice=Number(bpStr);
+        if(!isFinite(buyPrice)||buyPrice<=0){errors.push({line:lineNo,msg:`Invalid buyPrice "${bpStr}" — must be a positive number`});continue;}
+      }
+      // Cash rows: ticker must be a supported currency code
+      if(tt==="cash"&&!HOLDINGS_CASH_CCYS.includes(ticker)){
+        errors.push({line:lineNo,msg:`Invalid cash currency "${ticker}" — must be one of: ${HOLDINGS_CASH_CCYS.join(", ")}`});continue;
+      }
       // Validate buyDate (optional)
       let buyDate=null;
       if(bdStr){
@@ -1852,20 +1875,21 @@ function handleHoldingsCSVImport(e){
         buyDate=d.getTime();
       }
       const pfKey=_PF_CSV_TO_KEY[pfRaw];
-      // Orphan ticker check (warn only, not for index rows since XZMU/XZEU aren't in stocks{})
-      if(tt!=="index"&&!stocks[ticker]){
+      // Orphan ticker check (warn only; skip for index + cash rows since their tickers aren't in stocks{})
+      if(tt!=="index"&&tt!=="cash"&&!stocks[ticker]){
         warnings.push({line:lineNo,msg:`Ticker "${ticker}" not found in triggers data (orphan — kept anyway)`});
       }
       parsed.push({lineNo,pfKey,pfRaw,ticker,tt,shares,buyPrice,buyDate,notes});
     }
     if(errors.length){showHoldingsErrorModal(errors);e.target.value="";return;}
     if(!parsed.length){showHoldingsErrorModal([{line:0,msg:"No valid rows found in CSV."}]);e.target.value="";return;}
-    // Count existing tranches (stock + non-zero index legs) for confirmation
+    // Count existing tranches (stock + non-zero index legs + non-zero cash legs) for confirmation
     let existingCount=0;
     Object.values(portfolios).forEach(pf=>{
       if(pf?.positions)Object.values(pf.positions).forEach(pos=>{if(pos?.tranches)pos.tranches.forEach(tr=>{if(((tr.bought||0)-(tr.sold||0))>0)existingCount++;});});
     });
     Object.keys(portfolios).forEach(pk=>{["us","eu"].forEach(r=>{const ip=getIndexPos(pk,r);if(ip&&ip.shares>0)existingCount++;});});
+    Object.values(portfolios).forEach(pf=>{HOLDINGS_CASH_CCYS.forEach(ccy=>{if((pf["dp"+ccy]||0)>0)existingCount++;});});
 
     showHoldingsConfirmModal(existingCount,parsed.length,()=>{
       _applyHoldingsImport(parsed,warnings);
@@ -1878,18 +1902,19 @@ function handleHoldingsCSVImport(e){
 // Apply parsed holdings import: replaces all positions across both portfolios with the imported set.
 // Index rows go to pf.indexPositions[us|eu] aggregates. Risk rows auto-add ticker to pf.riskStocks.
 function _applyHoldingsImport(parsed,warnings){
-  const stats={imported:parsed.length,personal:0,caca:0,personalIndex:0,cacaIndex:0,warnings:warnings||[]};
-  // 1. Wipe all existing stock positions and zero out index legs (preserve currency/currentPrice/lastUpdate metadata)
+  const stats={imported:parsed.length,personal:0,caca:0,personalIndex:0,cacaIndex:0,personalCash:0,cacaCash:0,warnings:warnings||[]};
+  // 1. Wipe all existing stock positions, zero out index legs, zero per-currency dry powder
+  //    (preserve currency/currentPrice/lastUpdate metadata on index legs)
   Object.keys(portfolios).forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
     pf.positions={};
     ["us","eu"].forEach(r=>{
       const ip=getIndexPos(pk,r); // ensures it exists
       ip.shares=0;ip.avgCost=0;
-      // keep currency, currentPrice, lastUpdate, priceSource, deployLog as-is
     });
+    HOLDINGS_CASH_CCYS.forEach(ccy=>{pf["dp"+ccy]=0;});
   });
-  // 2. Pre-aggregate index rows by (pfKey, region) for weighted-average cost
+  // 2. Pre-aggregate index rows by (pfKey, region) for weighted-average cost; cash rows accumulate per (pfKey, ccy)
   // Stock tranches are appended directly.
   const indexAgg={}; // key: pk+":"+region → {shares,costSum}
   parsed.forEach(row=>{
@@ -1907,6 +1932,12 @@ function _applyHoldingsImport(parsed,warnings){
       indexAgg[key].shares+=shares;
       indexAgg[key].costSum+=shares*buyPrice;
       if(csvPf==="personal")stats.personalIndex++;else stats.cacaIndex++;
+      return;
+    }
+    if(tt==="cash"){
+      // ticker is the currency code (validated earlier). Multiple cash rows for same ccy accumulate.
+      pf["dp"+ticker]=(pf["dp"+ticker]||0)+shares;
+      if(csvPf==="personal")stats.personalCash++;else stats.cacaCash++;
       return;
     }
     // Stock tranche
@@ -1932,9 +1963,11 @@ function _applyHoldingsImport(parsed,warnings){
     ip.shares=agg.shares;
     ip.avgCost=agg.shares>0?+(agg.costSum/agg.shares).toFixed(4):0;
   });
-  // 4. Refresh signals for all imported tickers (so trigger states reflect current price)
+  // 4. Recalculate aggregate dryPowder from per-currency values (uses current FX rates)
+  ["personal","nl"].forEach(pk=>{if(typeof recalcDP==="function")recalcDP(pk);});
+  // 5. Refresh signals for all imported tickers (so trigger states reflect current price)
   Object.keys(stocks).forEach(t=>updateSignals(t));
-  // 5. Persist + re-render
+  // 6. Persist + re-render
   save();render();
   showHoldingsSuccessModal(stats);
 }
