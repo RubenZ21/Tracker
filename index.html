@@ -54,6 +54,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .sig-ind.warn{background:#fbbf24;box-shadow:0 0 8px #fbbf2450}
 .sig-ind.sell{background:#f87171;box-shadow:0 0 8px #f8717150;animation:sigPulse 1.5s ease-in-out infinite}
 .sig-ind.none{background:transparent;border:2px solid #333}
+.sig-ind.filled{background:transparent;border:1.5px solid #888;color:#888;font-size:11px;font-weight:700}
 @keyframes sigPulse{0%,100%{box-shadow:0 0 8px #f8717150}50%{box-shadow:0 0 16px #f87171aa}}
 .sig-sub{font-size:8px;color:var(--muted);font-family:var(--mono);text-align:center;line-height:1.2}
 .sig-sub.buy-sub{color:#34d399}.sig-sub.track-sub{color:#60a5fa}.sig-sub.warn-sub{color:#fbbf24}.sig-sub.sell-sub{color:#f87171}
@@ -192,7 +193,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.34</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.35</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -394,6 +395,22 @@ function validTriggerSlots(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===fals
   // Caca: MOS is a double slot
   if(pfKey==="nl"&&s.cons?.mos!=null)n++;
   return n;}
+
+// Tranche-ownership check — true when the user already holds shares in a tranche for this signal.
+// Used to suppress buy badges and push notifications mid-month so they only appear for signals
+// where capital has not yet been deployed. Monthly allocation (deployCount) is intentionally NOT
+// gated by this — salary day still tops up existing tranches when their signal is firing.
+// Tranche.signal uses canonical labels "MOS"/"10Cap"/"PBT"; sigKey uses lowercase "mos"/"tenCap"/"pbt".
+function hasTrancheForSignal(ticker,sigKey,pfKey){
+  const sigName=sigKey==="mos"?"MOS":sigKey==="tenCap"?"10Cap":sigKey==="pbt"?"PBT":null;
+  if(!sigName)return false;
+  const pfsToCheck=pfKey?[pfKey]:["personal","nl"];
+  return pfsToCheck.some(pk=>{
+    const pos=portfolios[pk]?.positions?.[ticker];
+    if(!pos?.tranches)return false;
+    return pos.tranches.some(tr=>tr.signal===sigName&&(tr.bought-tr.sold)>0);
+  });
+}
 
 // Snooze: suppress a stock's signals until end of month
 function endOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,999).getTime();}
@@ -2772,12 +2789,22 @@ function sigCellStatus(ticker, sigKey, pfKey){
   const trigger=s.cons?.[sigKey];
   if(!trigger||!p)return{cls:"none",label:"",sub:fmt(trigger,s.currency)||"—"};
   const muted=isTriggerMuted(s,sigKey);
-  // PIGGYBACK: muted trigger but price below it AND a valid signal is also firing — deploys
-  if(p<=trigger&&muted&&sigCount(ticker)>0)return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub",topSub:"piggyback"};
-  // MUTED: price reached trigger but no valid signal firing — cannot deploy alone
+  const owned=hasTrancheForSignal(ticker,sigKey,pfKey);
+  // PIGGYBACK: muted trigger but price below it AND a valid signal is also firing — would deploy.
+  // If tranche already owned, downgrade to "filled" (no buy badge, no notification path) but
+  // still show the trigger price so the grid stays informative.
+  if(p<=trigger&&muted&&sigCount(ticker)>0){
+    if(owned)return{cls:"filled",label:"✓",sub:fmt(trigger,s.currency),subCls:"",topSub:"owned"};
+    return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub",topSub:"piggyback"};
+  }
+  // MUTED: price reached trigger but no valid signal firing — cannot deploy alone.
+  // Not gated by ownership because the muted state itself is the reason no action is suggested.
   if(p<=trigger&&muted)return{cls:"muted",label:"C",sub:fmt(trigger,s.currency),subCls:"",topSub:"≥ sticker"};
-  // BUY: signal firing AND not muted — valid buy signal
-  if(p<=trigger)return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub"};
+  // BUY: signal firing AND not muted — valid buy signal. Suppress badge if tranche already owned.
+  if(p<=trigger){
+    if(owned)return{cls:"filled",label:"✓",sub:fmt(trigger,s.currency),subCls:"",topSub:"owned"};
+    return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub"};
+  }
   // Above trigger: check if tranche has shares
   const sigName=sigKey==="mos"?"MOS":sigKey==="tenCap"?"10Cap":"PBT";
   let hasShares=false,worst="hold",maxDD=0;
@@ -2902,9 +2929,10 @@ function checkNewSignals(){
   GRID.forEach(t=>{
     const s=stocks[t];if(!s?.signals)return;
     const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
-    if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS"});
-    if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap"});
-    if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT"});
+    // Suppress celebration if a tranche for this signal is already owned — the action is done.
+    if(s.signals.mos&&!prev.mos&&!hasTrancheForSignal(t,"mos"))newFires.push({ticker:t,signal:"MOS"});
+    if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:"Ten Cap"});
+    if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:"PBT"});
   });
   // Also check watchlist + speculative for new fires
   [...getWatchlist(),...getSpeculative()].forEach(t=>{
@@ -2912,9 +2940,10 @@ function checkNewSignals(){
     const s=stocks[t];if(!s?.signals)return;
     const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
     const tag=isRiskAnywhere(t)?"spec":"wl";
-    if(s.signals.mos&&!prev.mos)newFires.push({ticker:t,signal:"MOS",wl:true,tag});
-    if(s.signals.tenCap&&!prev.tenCap)newFires.push({ticker:t,signal:"Ten Cap",wl:true,tag});
-    if(s.signals.pbt&&!prev.pbt)newFires.push({ticker:t,signal:"PBT",wl:true,tag});
+    // Same ownership gate — risk-bucket positions like LULU/CSU also have tranche records.
+    if(s.signals.mos&&!prev.mos&&!hasTrancheForSignal(t,"mos"))newFires.push({ticker:t,signal:"MOS",wl:true,tag});
+    if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:"Ten Cap",wl:true,tag});
+    if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:"PBT",wl:true,tag});
   });
   // Save current state
   Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
@@ -3005,6 +3034,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="muted")indStyle=`background:#92400e30;border:1.5px dashed #d97706;color:#d97706;font-weight:700`;
       else if(st.cls==="hold")indStyle=`background:${sigCol}15;border:1px solid ${sigCol}30;border-radius:6px;padding:2px 4px;color:${sigCol};font-weight:700`;
+      else if(st.cls==="filled")indStyle=`background:${sigCol}15;border:1.5px solid ${sigCol}90;color:${sigCol};font-weight:700`;
       else if(st.cls==="track")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       // sell and warn keep their CSS class colors (red/amber)
@@ -3035,6 +3065,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="muted")indStyle=`background:#92400e30;border:1.5px dashed #d97706;color:#d97706;font-weight:700`;
       else if(st.cls==="hold")indStyle=`background:${sigCol}15;border:1px solid ${sigCol}30;border-radius:6px;padding:2px 4px;color:${sigCol};font-weight:700`;
+      else if(st.cls==="filled")indStyle=`background:${sigCol}15;border:1.5px solid ${sigCol}90;color:${sigCol};font-weight:700`;
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
       const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":"";
@@ -4672,7 +4703,11 @@ async function syncTriggersToCloud(){
         category:s.category||"philtown",
         sticker:s.category==="buffett"?null:(s.cons.mos?s.cons.mos*2:null),
         triggers:{mos:s.category==="buffett"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
-        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt}
+        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt},
+        // Per-signal ownership snapshot — worker uses this to suppress mid-month notifications
+        // for tranches that have already been bought. Re-synced every time save() runs, so the
+        // worker's view stays current as soon as a buy is recorded in the app.
+        owned:{mos:hasTrancheForSignal(t,"mos"),tenCap:hasTrancheForSignal(t,"tenCap"),pbt:hasTrancheForSignal(t,"pbt")}
       });
     });
     const resp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
