@@ -193,7 +193,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.36</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.37</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4778,7 +4778,9 @@ async function resetWorkerSignals(){
         currency:s.currency,priceMult:s.priceMult||1,
         sticker:s.cons.mos?s.cons.mos*2:null,
         triggers:{mos:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
-        signals:{mos:false,tenCap:false,pbt:false}
+        signals:{mos:false,tenCap:false,pbt:false},
+        // Include owned flags so the reset+check flow exercises the same gating logic as cron.
+        owned:{mos:hasTrancheForSignal(t,"mos"),tenCap:hasTrancheForSignal(t,"tenCap"),pbt:hasTrancheForSignal(t,"pbt")}
       });
     });
     const syncResp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
