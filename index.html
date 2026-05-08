@@ -193,7 +193,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.35</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.36</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -978,7 +978,17 @@ function load(){
     });
   });
 }
-function save(){recalcDP("personal");recalcDP("nl");localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));}
+// Debounce timer for auto-sync to push worker after save().
+let _autoSyncTimer=null;
+function save(){recalcDP("personal");recalcDP("nl");localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));
+  // Auto-sync to push worker when enabled. This keeps the worker's view of tranche ownership
+  // current so notifications correctly skip already-bought signals. Debounced 500ms so that
+  // bursty save calls (e.g. during CSV import) coalesce into a single network request.
+  if(settings.pushSubscribed&&settings.pushWorkerUrl){
+    clearTimeout(_autoSyncTimer);
+    _autoSyncTimer=setTimeout(()=>{syncTriggersToCloud().catch(()=>{});},500);
+  }
+}
 
 async function fetchPrices(){
   if(!settings.ibkrWorker){document.getElementById("refresh-status").textContent="⚠ Set Worker URL in Settings";return;}
