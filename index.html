@@ -193,7 +193,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.37</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.38</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -978,16 +978,18 @@ function load(){
     });
   });
 }
-// Debounce timer for auto-sync to push worker after save().
-let _autoSyncTimer=null;
-function save(){recalcDP("personal");recalcDP("nl");localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));
-  // Auto-sync to push worker when enabled. This keeps the worker's view of tranche ownership
-  // current so notifications correctly skip already-bought signals. Debounced 500ms so that
-  // bursty save calls (e.g. during CSV import) coalesce into a single network request.
-  if(settings.pushSubscribed&&settings.pushWorkerUrl){
-    clearTimeout(_autoSyncTimer);
-    _autoSyncTimer=setTimeout(()=>{syncTriggersToCloud().catch(()=>{});},500);
-  }
+function save(){recalcDP("personal");recalcDP("nl");localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));}
+
+// Debounced trigger sync — call this from any code path that mutates tranches so the worker's
+// view of ownership stays current. Debounce coalesces rapid mutations (e.g. CSV imports) into
+// a single network request 500ms after the last call. NEVER call this from save() itself —
+// syncTriggersToCloud() updates lastPushSync and calls save() internally, which would create
+// an infinite loop.
+let _trancheSyncTimer=null;
+function scheduleTrancheSync(){
+  if(!settings.pushSubscribed||!settings.pushWorkerUrl)return;
+  clearTimeout(_trancheSyncTimer);
+  _trancheSyncTimer=setTimeout(()=>{syncTriggersToCloud().catch(()=>{});},500);
 }
 
 async function fetchPrices(){
@@ -1457,7 +1459,7 @@ async function autoSyncAll(){
   let ok=0;
   if(await autoSyncIBKR("personal"))ok++;
   if(await autoSyncIBKR("nl"))ok++;
-  if(ok>0){settings.lastIbkrSync=Date.now();save();render();}
+  if(ok>0){settings.lastIbkrSync=Date.now();save();scheduleTrancheSync();render();}
   return ok;
 }
 
@@ -2150,7 +2152,7 @@ function _applyHoldingsImport(parsed,warnings){
   // 5. Refresh signals for all imported tickers (so trigger states reflect current price)
   Object.keys(stocks).forEach(t=>updateSignals(t));
   // 6. Persist + re-render
-  save();render();
+  save();scheduleTrancheSync();render();
   showHoldingsSuccessModal(stats);
 }
 
@@ -2440,7 +2442,7 @@ function handleExcelImport(e){
       // Normalize: change status==="grid" to "watchlist" since grid is now per-portfolio
       Object.values(stocks).forEach(s=>{if(s.status==="grid")s.status="watchlist";});
 
-      save();render();
+      save();scheduleTrancheSync();render();
       const changes=diffStocks(beforeSnap);
       showImportDiffModal(changes,nStocks,changes.filter(c=>c.isNew).length);
     }catch(err){alert("Import error: "+err.message);}
@@ -4607,8 +4609,8 @@ function openTrEdit(pk,t,i){
   ],()=>{const prevSold=tr.sold;const newSold=nv("ed-s")||0;tr.bought=nv("ed-b")||0;tr.sold=newSold;tr.buyPrice=nv("ed-p")||0;tr.signal=gv("ed-l")||"avg";const a=nv("ed-ath");tr.ath=a||undefined;tr.state=gv("ed-st")||"accumulating";
     // Log sell if sold count increased
     if(newSold>prevSold){const s=stocks[t];logDeploy({ticker:t,action:"sell",signal:tr.signal,shares:+(newSold-prevSold).toFixed(2),price:s?.currentPrice||tr.buyPrice,currency:s?.currency||"USD",portfolio:pk});}
-    save();},
-  ()=>{if(!confirm("Delete tranche?"))return false;portfolios[pk].positions[t].tranches.splice(i,1);if(!portfolios[pk].positions[t].tranches.length)delete portfolios[pk].positions[t];save();return true;});
+    save();scheduleTrancheSync();},
+  ()=>{if(!confirm("Delete tranche?"))return false;portfolios[pk].positions[t].tranches.splice(i,1);if(!portfolios[pk].positions[t].tranches.length)delete portfolios[pk].positions[t];save();scheduleTrancheSync();return true;});
 }
 function openAddTranche(pk,t){
   const s=stocks[t];
@@ -4622,7 +4624,7 @@ function openAddTranche(pk,t){
     // Auto-log the buy (skip zero-share entries)
     const trigMap={MOS:s.cons?.mos,"10Cap":s.cons?.tenCap,PBT:s.cons?.pbt};
     if(sh>0)logDeploy({ticker:t,action:"buy",signal:sig,shares:sh,price:bp,currency:s.currency,portfolio:pk,triggerPrice:trigMap[sig]||null});
-    save();});
+    save();scheduleTrancheSync();});
 }
 
 // ============ GENERIC MODAL ============
