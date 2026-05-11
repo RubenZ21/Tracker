@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.41</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.42</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4968,6 +4968,11 @@ function renderSettings(c){
       <div class="settings-desc">Triggers only — quick update after earnings.</div>
       <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportCSV()">↓ Export CSV</button>
         <button class="settings-save" onclick="document.getElementById('csv-import').click()">↑ Import CSV</button></div></div>
+
+    <div class="settings-card"><div class="settings-title">🎯 Risklist CSV</div>
+      <div class="settings-desc">Speculative Pool 3 entries — three pre-committed buy prices, rationale, fired-tranche state. Personal portfolio only.</div>
+      <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportRisklistCSV()">↓ Export CSV</button>
+        <button class="settings-save" onclick="document.getElementById('risklist-csv-import').click()">↑ Import CSV</button></div></div>
 
     <div class="settings-card"><div class="settings-title">📦 Holdings CSV</div>
       <div class="settings-desc">Positions only — share counts, buy prices, tranche types per portfolio. Use to reconstruct holdings from an IBKR screenshot when API sync fails. Import replaces all existing tranches in both portfolios.</div>
