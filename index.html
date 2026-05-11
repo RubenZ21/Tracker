@@ -187,13 +187,74 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .diff-tranche-summary{font-size:10px;color:var(--muted);margin:6px 0 2px;font-family:var(--mono)}
 .diff-section-hdr{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:14px 4px 6px;padding-top:4px;border-top:1px solid var(--border)}
 .diff-section-hdr:first-child{margin-top:4px;padding-top:0;border-top:none}
+/* ============ RISKLIST ============ */
+/* Pool 3 speculative positions with pre-committed buy prices. Personal portfolio only. */
+.rl-cap-bar{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.rl-cap-bar.warn{border-color:#d97706}
+.rl-cap-row{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:var(--muted);margin-bottom:6px}
+.rl-cap-row .rl-cap-val{font-family:var(--mono);font-weight:600;color:var(--text)}
+.rl-cap-row .rl-cap-val.warn{color:#d97706}
+.rl-cap-row .rl-cap-val.over{color:var(--red)}
+.rl-cap-track{height:6px;background:var(--bg);border-radius:3px;overflow:hidden}
+.rl-cap-fill{height:100%;background:#d97706;transition:width .3s}
+.rl-cap-fill.under{background:var(--green)}
+.rl-cap-fill.over{background:var(--red)}
+.rl-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;overflow:hidden}
+.rl-card.eligible{border-color:#34d399;box-shadow:0 0 12px #34d39920}
+.rl-card-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px}
+.rl-card-l{flex:1;min-width:0}
+.rl-card-ticker{font-size:15px;font-weight:700}
+.rl-card-name{font-size:11px;color:var(--muted);margin-top:1px}
+.rl-card-pri{display:inline-block;font-size:10px;font-weight:700;font-family:var(--mono);color:var(--purple);background:#a78bfa15;border:1px solid #a78bfa33;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
+.rl-card-r{text-align:right;flex-shrink:0}
+.rl-card-price{font-size:15px;font-weight:600;font-family:var(--mono)}
+.rl-card-price-sub{font-size:9px;color:var(--muted)}
+.rl-tranches{display:flex;gap:4px;margin-bottom:10px}
+.rl-tr{flex:1;background:var(--bg);border-radius:6px;padding:6px 4px;text-align:center;min-width:0;border:1px solid var(--border)}
+.rl-tr.eligible{border-color:#34d399;background:#0d332033}
+.rl-tr.fired{background:#1e3a5f33;border-color:#60a5fa55}
+.rl-tr.blocked{opacity:.4}
+.rl-tr-label{font-size:9px;color:var(--muted);font-family:var(--mono);text-transform:uppercase}
+.rl-tr-trigger{font-size:11px;font-family:var(--mono);font-weight:600;margin-top:2px}
+.rl-tr-size{font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:1px}
+.rl-tr-state{font-size:9px;font-family:var(--mono);margin-top:3px}
+.rl-tr-state.fired{color:var(--accent)}
+.rl-tr-state.blocked{color:var(--muted)}
+.rl-tr-buy{display:block;width:100%;margin-top:4px;padding:4px;background:#34d399;color:#000;border:none;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font)}
+.rl-tr-buy:active{opacity:.7}
+.rl-rationale{background:var(--bg);border-radius:6px;padding:8px 10px;font-size:11px;color:var(--muted);margin-bottom:8px;cursor:pointer}
+.rl-rationale-hdr{display:flex;justify-content:space-between;align-items:center;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.rl-rationale-body{font-size:12px;color:var(--text);line-height:1.45;margin-top:6px;white-space:pre-wrap;word-wrap:break-word}
+.rl-footer{display:flex;justify-content:space-between;gap:8px;font-size:10px;font-family:var(--mono);color:var(--muted);padding-top:8px;border-top:1px solid var(--border)}
+.rl-footer-row{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
+.rl-footer-row .rl-foot-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.rl-footer-row .rl-foot-val{font-size:11px;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rl-card-actions{display:flex;gap:6px;margin-top:8px}
+.rl-empty{text-align:center;padding:32px 20px;color:var(--muted)}
+.rl-empty-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px}
+.rl-empty-text{font-size:12px;line-height:1.5;margin-bottom:16px}
+.rl-empty-btn{display:inline-block;padding:10px 20px;background:var(--blue-bg);color:var(--accent);border:1px solid var(--accent);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)}
+.rl-warn-banner{background:#332d0d33;border:1px solid #d97706;color:#fbbf24;border-radius:6px;padding:8px 10px;font-size:11px;margin-bottom:10px}
+.rl-confirm-modal{width:90%;max-width:420px;border-radius:16px;padding:20px;background:var(--card);border:2px solid #34d399;box-shadow:0 0 32px #34d39933;max-height:90vh;overflow-y:auto}
+.rl-confirm-title{font-size:18px;font-weight:700;color:#34d399;text-align:center;margin-bottom:4px}
+.rl-confirm-sub{font-size:12px;color:var(--muted);text-align:center;margin-bottom:14px}
+.rl-confirm-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.rl-confirm-row:last-of-type{border-bottom:none}
+.rl-confirm-row .rl-c-l{color:var(--muted);font-size:11px}
+.rl-confirm-row .rl-c-r{font-family:var(--mono);font-weight:600;text-align:right}
+.rl-rationale-box{background:var(--bg);border-left:3px solid #34d399;padding:10px 12px;margin:12px 0;font-size:12px;line-height:1.5;white-space:pre-wrap;max-height:200px;overflow-y:auto}
+.rl-edit-trigger-row{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px}
+.rl-edit-trigger-row .rl-edit-label{font-size:11px;color:var(--muted);font-family:var(--mono);font-weight:600}
+.rl-edit-trigger-row input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:var(--mono);font-size:13px;box-sizing:border-box}
+.rl-edit-size-display{font-size:10px;color:var(--muted);font-family:var(--mono);grid-column:2/4;margin-top:-4px;margin-bottom:6px}
+.rl-validation-err{background:#3b111133;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:10px}
 </style>
 </head>
 <body>
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.40</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.41</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -216,6 +277,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <input type="file" id="csv-import" accept=".csv" style="display:none" onchange="handleCSVImport(event)">
 <input type="file" id="holdings-csv-import" accept=".csv" style="display:none" onchange="handleHoldingsCSVImport(event)">
 <input type="file" id="xlsx-import" accept=".xlsx,.xls" style="display:none" onchange="handleExcelImport(event)">
+<input type="file" id="risklist-csv-import" accept=".csv" style="display:none" onchange="handleRisklistCSVImport(event)">
 
 <script>
 const STOCK_DEFAULTS={
@@ -294,6 +356,8 @@ const PF_DEFAULTS={
 
 let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
+// watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
+let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
@@ -317,7 +381,7 @@ function isOnGrid(t,pfKey){return portfolios[pfKey]?.gridStocks?.includes(t)||fa
 function isRisk(t,pfKey){return portfolios[pfKey]?.riskStocks?.includes(t)||false;}
 function isRiskAnywhere(t){return Object.values(portfolios).some(pf=>pf.riskStocks&&pf.riskStocks.includes(t));}
 // Watchlist: stocks not on any portfolio's grid and not in any portfolio's risk bucket
-function getWatchlist(){return Object.keys(stocks).filter(t=>!isOnAnyGrid(t)&&!isRiskAnywhere(t));}
+function getWatchlist(){return Object.keys(stocks).filter(t=>!isOnAnyGrid(t)&&!isRiskAnywhere(t)&&stocks[t]?.status!=="risklist");}
 // Speculative stocks for a given portfolio (or union if no key supplied — caller should always pass a key for portfolio-scoped renders)
 function getSpeculative(pfKey){
   if(pfKey){const pf=portfolios[pfKey];if(!pf||!pf.riskStocks)return[];return pf.riskStocks.filter(t=>stocks[t]);}
@@ -628,7 +692,97 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
 // Risk bucket cap: 15% Personal, 5% Caca (more conservative for closed retiree fund) of Pool1+Pool3 combined cost basis
 function riskBucketCapPct(pfKey){return pfKey==="nl"?0.05:0.15;}
-function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const capPct=riskBucketCapPct(pfKey);const cap=(p1cost+p3cost)*capPct;const used=p3cost;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0,capPct};}
+// riskBucketInfo now includes fired Risklist tranches in the used total so both
+// the existing risk-bucket cards and the Risklist tab cap indicator agree on the number.
+function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const rlCost=pfKey==="personal"?risklistFiredCostBasis():0;const used=p3cost+rlCost;const capPct=riskBucketCapPct(pfKey);const cap=(p1cost+used)*capPct;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0,capPct,p3legacy:p3cost,p3risklist:rlCost};}
+
+// ============ RISKLIST (Pool 3 speculative — Personal only) ============
+// Risklist entries are speculative positions with three pre-committed buy prices.
+// Stored independently from Pool 1 stocks/portfolios so a corrupted Risklist can't
+// break the main grid. Personal portfolio only (Caca is a closed retiree fund).
+let risklist=[];
+function loadRisklist(){
+  try{const raw=localStorage.getItem("r1-risklist");risklist=raw?JSON.parse(raw):[];if(!Array.isArray(risklist))risklist=[];}
+  catch(e){risklist=[];}
+}
+function saveRisklist(){localStorage.setItem("r1-risklist",JSON.stringify(risklist));}
+function getRisklist(){return risklist;}
+function findRisklistEntry(ticker){return risklist.find(e=>e.ticker===ticker);}
+
+// Sum the cost basis of all fired Risklist tranches in Personal's base currency.
+// Each tranche cost = firedShares × firedPrice in the stock's local currency, converted.
+function risklistFiredCostBasis(){
+  const base=pfBaseCcy("personal");let total=0;
+  risklist.forEach(e=>{
+    for(let i=1;i<=3;i++){
+      if(e["fired"+i]&&e["firedShares"+i]&&e["firedPrice"+i]){
+        total+=fromEUR(toEUR(e["firedShares"+i]*e["firedPrice"+i],e.currency),base);
+      }
+    }
+  });
+  return total;
+}
+// Cost basis for one Risklist entry — used for per-stock 5% cap check.
+function risklistEntryCostBasis(entry){
+  const base=pfBaseCcy("personal");let total=0;
+  for(let i=1;i<=3;i++){
+    if(entry["fired"+i]&&entry["firedShares"+i]&&entry["firedPrice"+i]){
+      total+=fromEUR(toEUR(entry["firedShares"+i]*entry["firedPrice"+i],entry.currency),base);
+    }
+  }
+  return total;
+}
+// Current price for a Risklist ticker: reuse stocks[t].currentPrice if the ticker
+// exists in the Pool 1 universe, else null. fetchPrices() will populate via the stub.
+function risklistCurrentPrice(ticker){return stocks[ticker]?.currentPrice||null;}
+
+// Sequential firing rule: tranche N is eligible iff (N-1) already fired AND
+// currentPrice <= trigger N. Tranche 1 has no predecessor, so condition (a) is auto-true.
+function risklistTrancheEligible(entry,n){
+  if(n<1||n>3)return false;
+  if(entry["fired"+n])return false;
+  if(n>1&&!entry["fired"+(n-1)])return false;
+  const trig=entry["trigger"+n];
+  const price=risklistCurrentPrice(entry.ticker);
+  if(!trig||!price)return false;
+  return price<=trig;
+}
+function risklistAnyEligible(entry){return [1,2,3].some(n=>risklistTrancheEligible(entry,n));}
+
+// Compute the deployment $ amount for a tranche at current Pool 1 cost basis.
+// Spec: size% × pool1 cost basis with a USD 1,000 floor per tranche.
+// Returns amount in Personal's base currency.
+function risklistTrancheAmount(entry,n){
+  const base=pfBaseCcy("personal");
+  const p1=pool1CostBasis("personal");
+  const sizePct=entry["size"+n]||0;
+  let amt=p1*(sizePct/100);
+  // USD 1,000 floor — convert to base currency for comparison
+  const floorBase=fromEUR(toEUR(1000,"USD"),base);
+  if(amt<floorBase)amt=floorBase;
+  return amt;
+}
+// Same as above but in the stock's native currency, for the Buy modal display.
+function risklistTrancheAmountLocal(entry,n){
+  const base=pfBaseCcy("personal");
+  const amtBase=risklistTrancheAmount(entry,n);
+  return fromEUR(toEUR(amtBase,base),entry.currency);
+}
+
+// Ensure a minimal stocks{} stub exists for every Risklist ticker so the existing
+// price-fetch pipeline picks them up. Called on load and after every Risklist mutation.
+function syncRisklistStockStubs(){
+  const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+  risklist.forEach(e=>{
+    if(!stocks[e.ticker]){
+      // Create a price-only stub. Status "risklist" keeps it out of watchlist/grid views.
+      // No cons/signals — Risklist has no formula-based triggers.
+      stocks[e.ticker]={name:e.name||e.ticker,currency:e.currency||"USD",moat:"",sector:"",flag:flags[e.currency]||"🌍",
+        status:"risklist",finnhubSymbol:e.currency==="GBp"?e.ticker+".L":e.currency==="CAD"?e.ticker+".TO":e.currency==="JPY"?e.ticker+".T":e.ticker,
+        priceMult:1,currentPrice:0,gate:true,cons:null,phil:null,signals:null};
+    }
+  });
+}
 // 5% initial entry size from Pool 1 market value
 function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
 // Per-stock position cap: 15% Pool 1 MV for Phil Town, 10% for Buffett Category.
@@ -977,6 +1131,9 @@ function load(){
       });
     });
   });
+  // Load Risklist and ensure every Risklist ticker has a stocks{} stub so fetchPrices picks them up.
+  loadRisklist();
+  syncRisklistStockStubs();
 }
 function save(){recalcDP("personal");recalcDP("nl");localStorage.setItem("r1-version",String(DATA_VERSION));localStorage.setItem("r1-stocks",JSON.stringify(stocks));localStorage.setItem("r1-portfolios",JSON.stringify(portfolios));localStorage.setItem("r1-settings",JSON.stringify(settings));localStorage.setItem("r1-deployLog",JSON.stringify(deployLog));}
 
@@ -1096,6 +1253,9 @@ async function fetchPrices(){
     setTimeout(()=>showSignalCelebration(newFires),500);
     sendTriggerNotification(newFires); // Also push OS notification
   }
+  // Risklist: detect newly-eligible tranches and notify. Same-day duplicates suppressed.
+  const rlFires=checkNewRisklistFires();
+  if(rlFires.length)sendRisklistNotification(rlFires);
   showBuyModals();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
   const parts=[];
@@ -4012,7 +4172,21 @@ function renderAllocator(c){
 }
 
 // ============ WATCHLIST ============
+// renderWatchlist is the entry point for the Watch tab. It renders a top-level
+// Watchlist | Risklist sub-toggle and then dispatches to the appropriate view.
 function renderWatchlist(c){
+  // Top-level sub-toggle. Risklist is Personal-only by data model; the toggle is
+  // always visible (changing portfolios doesn't change Risklist contents).
+  const subToggle=`<div class="section-pad" style="padding-bottom:0">
+    <div class="pf-toggle" style="margin:0 0 8px">
+      <button class="${watchMode==="watchlist"?"active":"inactive"}" onclick="watchMode='watchlist';localStorage.setItem('r1-watchMode','watchlist');render()">👁 Watchlist</button>
+      <button class="${watchMode==="risklist"?"active":"inactive"}" onclick="watchMode='risklist';localStorage.setItem('r1-watchMode','risklist');render()">🎯 Risklist</button>
+    </div></div>`;
+  if(watchMode==="risklist"){
+    c.innerHTML=subToggle;
+    renderRisklistInto(c);
+    return;
+  }
   let wl=getWatchlist();
   if(wlView==="priority"){
     wl.sort((a,b)=>{const pa=stocks[a].priority??999,pb=stocks[b].priority??999;return pa!==pb?pa-pb:(gapPct(a)??999)-(gapPct(b)??999);});
@@ -4021,7 +4195,7 @@ function renderWatchlist(c){
   }else{
     wl.sort((a,b)=>(gapPct(a)??999)-(gapPct(b)??999));
   }
-  let h=`<div class="section-pad"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+  let h=subToggle+`<div class="section-pad" style="padding-top:0"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700">Watchlist</div>
     <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>
   <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Moat</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button></div>`;
@@ -4072,6 +4246,514 @@ function renderWatchlist(c){
     }
     h+=`</div>`;});
   h+=`</div></div>`;c.innerHTML=h;
+}
+
+// ============ RISKLIST RENDER & ACTIONS ============
+// renderRisklistInto: render the Risklist view into the container c. Called from
+// renderWatchlist when watchMode==="risklist". Container already has the sub-toggle prepended.
+function renderRisklistInto(c){
+  const entries=getRisklist();
+  // Pool 3 cap indicator — combines existing risk-bucket positions and fired Risklist tranches.
+  // riskBucketInfo("personal") returns cap/used/pct that already include both. This keeps
+  // the Risklist tab and the existing Risk pf cards aligned on the same number.
+  const rbi=riskBucketInfo("personal");
+  const base=pfBaseCcy("personal");const baseSym=base==="USD"?"$":"€";
+  const capWarn=rbi.pct>100;const capFillCls=rbi.pct>100?"over":rbi.pct>80?"":"under";
+  const fillPct=Math.min(100,rbi.pct);
+  const dp=portfolios.personal?.dryPowder||0;
+  let h=`<div class="section-pad" style="padding-top:6px">
+    <div class="rl-cap-bar${capWarn?' warn':''}">
+      <div class="rl-cap-row">
+        <span>Pool 3 cap (15% of Pool 1 cost basis)</span>
+        <span class="rl-cap-val${capWarn?' over':rbi.pct>80?' warn':''}">${baseSym}${Math.round(rbi.used).toLocaleString()} / ${baseSym}${Math.round(rbi.cap).toLocaleString()} · ${rbi.pct.toFixed(1)}%</span>
+      </div>
+      <div class="rl-cap-track"><div class="rl-cap-fill ${capFillCls}" style="width:${fillPct}%"></div></div>
+      <div class="rl-cap-row" style="margin-top:6px;margin-bottom:0">
+        <span>Legacy Pool 3: ${baseSym}${Math.round(rbi.p3legacy).toLocaleString()} · Risklist fired: ${baseSym}${Math.round(rbi.p3risklist).toLocaleString()}</span>
+        <span>DP: ${baseSym}${Math.round(dp).toLocaleString()}</span>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">
+      <div style="font-size:16px;font-weight:700">Risklist</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn-sm" onclick="document.getElementById('risklist-csv-import').click()" title="Import CSV">⬆</button>
+        <button class="btn-sm" onclick="exportRisklistCSV()" title="Export CSV">⬇</button>
+        <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openRisklistAdd()">+ Add</button>
+      </div>
+    </div>`;
+  if(!entries.length){
+    h+=`<div class="rl-empty">
+      <div class="rl-empty-title">🎯 Risklist is empty</div>
+      <div class="rl-empty-text">Risklist is for speculative positions that don't fit the Phil Town framework. Add a stock with three pre-committed buy prices and the reasoning behind them. The app will notify you when prices hit, and you can review your own rationale before deploying.</div>
+      <button class="rl-empty-btn" onclick="openRisklistAdd()">+ Add Stock</button>
+    </div></div>`;
+    c.innerHTML+=h;return;
+  }
+  // Sort: cards with any eligible-to-fire tranche first (by priority), then the rest (by priority).
+  const sorted=entries.slice().sort((a,b)=>{
+    const ea=risklistAnyEligible(a)?0:1;const eb=risklistAnyEligible(b)?0:1;
+    if(ea!==eb)return ea-eb;
+    return (a.priority??999)-(b.priority??999);
+  });
+  sorted.forEach(e=>{h+=renderRisklistCard(e);});
+  h+=`</div>`;
+  c.innerHTML+=h;
+}
+
+// Render a single Risklist card. Pulled out so renderRisklistInto stays scannable.
+function renderRisklistCard(e){
+  const s=stocks[e.ticker];const price=risklistCurrentPrice(e.ticker);
+  const base=pfBaseCcy("personal");const baseSym=base==="USD"?"$":"€";
+  const anyElig=risklistAnyEligible(e);
+  const flag=s?.flag||"🌍";
+  // Footer aggregates from fired tranches only.
+  let totalShares=0,totalCostLocal=0;
+  for(let i=1;i<=3;i++){
+    if(e["fired"+i]&&e["firedShares"+i]&&e["firedPrice"+i]){
+      totalShares+=e["firedShares"+i];
+      totalCostLocal+=e["firedShares"+i]*e["firedPrice"+i];
+    }
+  }
+  const avgPrice=totalShares>0?totalCostLocal/totalShares:0;
+  const mvLocal=totalShares*(price||0);
+  const pnlLocal=mvLocal-totalCostLocal;
+  const pnlPct=totalCostLocal>0?(pnlLocal/totalCostLocal*100):0;
+  const pnlCol=pnlLocal>=0?"var(--green)":"var(--red)";
+  const rationaleId="rl-rat-"+e.ticker.replace(/[^A-Z0-9]/gi,"");
+  let h=`<div class="rl-card${anyElig?' eligible':''}" id="rl-card-${e.ticker}">
+    <div class="rl-card-hdr">
+      <div class="rl-card-l">
+        <div><span class="rl-card-ticker">${flag} ${esc(e.ticker)}</span><span class="rl-card-pri">#${e.priority??"—"}</span></div>
+        <div class="rl-card-name">${esc(e.name||e.ticker)}</div>
+      </div>
+      <div class="rl-card-r">
+        <div class="rl-card-price">${price?fmt(price,e.currency):"—"}</div>
+        <div class="rl-card-price-sub">${s?.lastUpdate?timeAgo(s.lastUpdate):"no price"}</div>
+      </div>
+    </div>
+    <div class="rl-tranches">`;
+  for(let i=1;i<=3;i++){
+    const fired=!!e["fired"+i];
+    const elig=risklistTrancheEligible(e,i);
+    const blocked=!fired&&!elig;
+    const cls=fired?"fired":elig?"eligible":"blocked";
+    const trig=e["trigger"+i];
+    const sizePctVal=e["size"+i]||0;
+    const sizeAmt=risklistTrancheAmount(e,i); // base currency
+    const sizeAmtLocal=risklistTrancheAmountLocal(e,i);
+    h+=`<div class="rl-tr ${cls}">
+      <div class="rl-tr-label">T${i}</div>
+      <div class="rl-tr-trigger">${trig?fmt(trig,e.currency):"—"}</div>
+      <div class="rl-tr-size">${sizePctVal.toFixed(2)}% · ${baseSym}${Math.round(sizeAmt).toLocaleString()}</div>`;
+    if(fired){
+      h+=`<div class="rl-tr-state fired">✓ ${fmt(e["firedPrice"+i],e.currency)}<br>${e["firedShares"+i]} sh</div>`;
+    }else if(elig){
+      h+=`<button class="rl-tr-buy" onclick="openRisklistBuyModal('${e.ticker}',${i})">BUY</button>`;
+    }else{
+      // Sequential-rule reason: previous tranche unfired, or price hasn't hit trigger
+      const reason=!e["fired"+(i-1)]&&i>1?"locked":(price&&trig&&price>trig?"above":"—");
+      h+=`<div class="rl-tr-state blocked">${reason}</div>`;
+    }
+    h+=`</div>`;
+  }
+  h+=`</div>`;
+  // Rationale section (collapsible). Default collapsed once content exists.
+  if(e.reasoning){
+    h+=`<details class="rl-rationale" style="padding:8px 10px" id="${rationaleId}">
+      <summary class="rl-rationale-hdr"><span>📝 Rationale</span><span style="opacity:.5">tap to expand</span></summary>
+      <div class="rl-rationale-body">${esc(e.reasoning)}</div>
+    </details>`;
+  }
+  if(e.notes){
+    h+=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 10px;background:var(--bg);border-radius:6px"><span style="font-weight:600">Notes:</span> ${esc(e.notes)}</div>`;
+  }
+  // Footer: cost basis, shares, avg, P&L. P&L informational only — no actions tied to it.
+  h+=`<div class="rl-footer">
+    <div class="rl-footer-row"><span class="rl-foot-label">Cost</span><span class="rl-foot-val">${totalShares?fmt(totalCostLocal,e.currency):"—"}</span></div>
+    <div class="rl-footer-row"><span class="rl-foot-label">Shares</span><span class="rl-foot-val">${totalShares||"—"}</span></div>
+    <div class="rl-footer-row"><span class="rl-foot-label">Avg</span><span class="rl-foot-val">${totalShares?fmt(avgPrice,e.currency):"—"}</span></div>
+    <div class="rl-footer-row"><span class="rl-foot-label">P&amp;L</span><span class="rl-foot-val" style="color:${totalShares?pnlCol:"var(--muted)"}">${totalShares&&price?(pnlLocal>=0?"+":"")+pnlPct.toFixed(1)+"%":"—"}</span></div>
+  </div>
+  <div class="rl-card-actions">
+    <button class="btn-sm btn-accent" style="flex:1" onclick="openRisklistEdit('${e.ticker}')">✏ Edit</button>
+    <button class="btn-sm btn-red" style="flex:0 0 auto" onclick="deleteRisklistEntry('${e.ticker}')">✕</button>
+  </div></div>`;
+  return h;
+}
+
+// ============ RISKLIST: ADD / EDIT MODAL ============
+// Builds a custom modal with the 3-row trigger/size grid, validation, and the required
+// reasoning textarea. Used for both add (entry=null) and edit (entry=existing).
+function openRisklistAdd(){openRisklistAddEditModal(null);}
+function openRisklistEdit(ticker){
+  const e=findRisklistEntry(ticker);
+  if(!e){alert("Entry not found: "+ticker);return;}
+  openRisklistAddEditModal(e);
+}
+function openRisklistAddEditModal(entry){
+  const isEdit=!!entry;
+  const e=entry||{ticker:"",name:"",currency:"USD",priority:null,
+    trigger1:null,trigger2:null,trigger3:null,size1:1.0,size2:1.0,size3:1.0,
+    reasoning:"",notes:"",fired1:false,fired2:false,fired3:false};
+  const base=pfBaseCcy("personal");const baseSym=base==="USD"?"$":"€";
+  const p1=pool1CostBasis("personal");
+  // Pre-compute size display rows — these update live via input handler below.
+  const sizeRow=(i)=>{
+    const sz=e["size"+i]||1.0;
+    let amt=p1*(sz/100);
+    const floorBase=fromEUR(toEUR(1000,"USD"),base);
+    if(amt<floorBase)amt=floorBase;
+    return `${baseSym}${Math.round(amt).toLocaleString()} (${sz<floorBase/p1*100?"min $1k floor":sz.toFixed(2)+"% of P1 cost"})`;
+  };
+  const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=ev=>{if(ev.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-title">🎯 ${isEdit?"Edit":"Add"} Risklist Entry</div>
+    <div id="rl-edit-err" style="display:none"></div>
+    <div class="modal-field"><label>Ticker *</label><input type="text" id="rl-ticker" value="${esc(e.ticker)}" ${isEdit?"disabled":""} placeholder="IONQ" style="text-transform:uppercase"></div>
+    <div class="modal-field"><label>Name *</label><input type="text" id="rl-name" value="${esc(e.name)}" placeholder="IonQ Inc"></div>
+    <div class="modal-field"><label>Currency *</label><select id="rl-ccy">
+      ${["USD","EUR","GBp","CAD","JPY"].map(c=>`<option value="${c}" ${c===e.currency?"selected":""}>${c}</option>`).join("")}
+    </select></div>
+    <div class="modal-field"><label>Priority * (lower = higher conviction, decimals OK)</label><input type="number" step="any" id="rl-pri" value="${e.priority??""}" placeholder="1.5"></div>
+    <div class="modal-field"><label>Triggers & Sizes (T1 ≥ T2 ≥ T3, total size ≤ 5%)</label>
+      <div class="rl-edit-trigger-row">
+        <div class="rl-edit-label">T1</div>
+        <input type="number" step="any" id="rl-trig1" value="${e.trigger1??""}" placeholder="price" oninput="rlRecomputeSizeRows()">
+        <input type="number" step="any" id="rl-size1" value="${e.size1??1.0}" placeholder="1.0" oninput="rlRecomputeSizeRows()">
+      </div>
+      <div class="rl-edit-size-display" id="rl-sz-disp-1">${sizeRow(1)}</div>
+      <div class="rl-edit-trigger-row">
+        <div class="rl-edit-label">T2</div>
+        <input type="number" step="any" id="rl-trig2" value="${e.trigger2??""}" placeholder="price" oninput="rlRecomputeSizeRows()">
+        <input type="number" step="any" id="rl-size2" value="${e.size2??1.0}" placeholder="1.0" oninput="rlRecomputeSizeRows()">
+      </div>
+      <div class="rl-edit-size-display" id="rl-sz-disp-2">${sizeRow(2)}</div>
+      <div class="rl-edit-trigger-row">
+        <div class="rl-edit-label">T3</div>
+        <input type="number" step="any" id="rl-trig3" value="${e.trigger3??""}" placeholder="price" oninput="rlRecomputeSizeRows()">
+        <input type="number" step="any" id="rl-size3" value="${e.size3??1.0}" placeholder="1.0" oninput="rlRecomputeSizeRows()">
+      </div>
+      <div class="rl-edit-size-display" id="rl-sz-disp-3">${sizeRow(3)}</div>
+      <div class="rl-edit-size-display" id="rl-sz-disp-total" style="margin-top:4px;font-weight:600"></div>
+    </div>
+    <div class="modal-field"><label>Reasoning * (required — your rationale for these three prices)</label>
+      <textarea id="rl-reasoning" placeholder="Why these three prices? What does each tranche represent?" style="width:100%;min-height:140px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-family:inherit;line-height:1.5;resize:vertical;box-sizing:border-box">${esc(e.reasoning||"")}</textarea>
+    </div>
+    <div class="modal-field"><label>Notes (optional)</label>
+      <textarea id="rl-notes" placeholder="Any side notes" style="width:100%;min-height:60px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-family:inherit;line-height:1.5;resize:vertical;box-sizing:border-box">${esc(e.notes||"")}</textarea>
+    </div>
+    ${isEdit?renderFiredTrancheControls(e):""}
+    <button class="modal-done" id="rl-save-btn">Save</button>
+  </div>`;
+  document.body.appendChild(ov);
+  rlRecomputeSizeRows();
+  document.getElementById("rl-save-btn").onclick=()=>{rlHandleSave(isEdit?entry:null,ov);};
+}
+
+// Recompute the size$-amount display rows live as the user types.
+function rlRecomputeSizeRows(){
+  const base=pfBaseCcy("personal");const baseSym=base==="USD"?"$":"€";
+  const p1=pool1CostBasis("personal");
+  const floorBase=fromEUR(toEUR(1000,"USD"),base);
+  let total=0;
+  for(let i=1;i<=3;i++){
+    const sz=parseFloat(document.getElementById("rl-size"+i)?.value)||0;
+    total+=sz;
+    let amt=p1*(sz/100);
+    let isFloor=false;
+    if(amt<floorBase){amt=floorBase;isFloor=true;}
+    const disp=document.getElementById("rl-sz-disp-"+i);
+    if(disp)disp.textContent=`${baseSym}${Math.round(amt).toLocaleString()}${isFloor?" (USD $1k floor applied)":""}`;
+  }
+  const tdisp=document.getElementById("rl-sz-disp-total");
+  if(tdisp){
+    const over=total>5.0;
+    tdisp.style.color=over?"var(--red)":"var(--muted)";
+    tdisp.textContent=`Total: ${total.toFixed(2)}% / 5.0% max${over?" — OVER LIMIT":""}`;
+  }
+}
+
+// Render controls for unwinding fired tranches when editing.
+function renderFiredTrancheControls(e){
+  const firedN=[1,2,3].filter(i=>e["fired"+i]);
+  if(!firedN.length)return "";
+  let h=`<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Fired Tranches</div>`;
+  firedN.forEach(i=>{
+    h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px">
+      <span>T${i}: ${e["firedShares"+i]} sh @ ${fmt(e["firedPrice"+i],e.currency)} on ${e["firedDate"+i]||"?"}</span>
+      <button class="btn-sm btn-red" onclick="resetRisklistTranche('${e.ticker}',${i})">Reset</button>
+    </div>`;
+  });
+  h+=`</div>`;
+  return h;
+}
+
+// Validate and save the Add/Edit modal contents. Returns nothing — closes modal on success.
+function rlHandleSave(originalEntry,ov){
+  const errBox=document.getElementById("rl-edit-err");
+  const showErr=(msg)=>{errBox.className="rl-validation-err";errBox.style.display="block";errBox.textContent=msg;};
+  const ticker=(document.getElementById("rl-ticker").value||"").trim().toUpperCase();
+  const name=(document.getElementById("rl-name").value||"").trim();
+  const currency=document.getElementById("rl-ccy").value;
+  const priority=parseFloat(document.getElementById("rl-pri").value);
+  const reasoning=(document.getElementById("rl-reasoning").value||"").trim();
+  const notes=(document.getElementById("rl-notes").value||"").trim();
+  if(!ticker){showErr("Ticker is required.");return;}
+  if(!name){showErr("Name is required.");return;}
+  if(isNaN(priority)){showErr("Priority is required (decimal allowed).");return;}
+  if(!reasoning){showErr("Reasoning is required — explain why these three prices are correct.");return;}
+  const t1=parseFloat(document.getElementById("rl-trig1").value);
+  const t2=parseFloat(document.getElementById("rl-trig2").value);
+  const t3=parseFloat(document.getElementById("rl-trig3").value);
+  if(isNaN(t1)||isNaN(t2)||isNaN(t3)){showErr("All three trigger prices are required.");return;}
+  if(t1<t2){showErr("Trigger 1 must be ≥ Trigger 2.");return;}
+  if(t2<t3){showErr("Trigger 2 must be ≥ Trigger 3.");return;}
+  const s1=parseFloat(document.getElementById("rl-size1").value)||0;
+  const s2=parseFloat(document.getElementById("rl-size2").value)||0;
+  const s3=parseFloat(document.getElementById("rl-size3").value)||0;
+  if(s1<=0||s2<=0||s3<=0){showErr("All three tranche sizes must be > 0.");return;}
+  if(s1+s2+s3>5.0){showErr("Total size ("+(s1+s2+s3).toFixed(2)+"%) exceeds 5% cap.");return;}
+  // For edits: if a fired tranche's trigger is being changed, confirm.
+  if(originalEntry){
+    for(let i=1;i<=3;i++){
+      const newTrig=[t1,t2,t3][i-1];
+      if(originalEntry["fired"+i]&&originalEntry["trigger"+i]!==newTrig){
+        if(!confirm(`Tranche ${i} fired at ${fmt(originalEntry["firedPrice"+i],currency)} on ${originalEntry["firedDate"+i]}. Are you sure you want to change its trigger price from ${fmt(originalEntry["trigger"+i],currency)} to ${fmt(newTrig,currency)}?`))return;
+      }
+    }
+  }
+  // Build/update entry. Preserve fired metadata on edit.
+  if(originalEntry){
+    Object.assign(originalEntry,{name,currency,priority,trigger1:t1,trigger2:t2,trigger3:t3,size1:s1,size2:s2,size3:s3,reasoning,notes});
+  }else{
+    // Duplicate-ticker check on add
+    if(findRisklistEntry(ticker)){showErr(ticker+" already exists in Risklist.");return;}
+    risklist.push({ticker,name,currency,priority,trigger1:t1,trigger2:t2,trigger3:t3,size1:s1,size2:s2,size3:s3,reasoning,notes,
+      fired1:false,fired2:false,fired3:false,firedDate1:null,firedDate2:null,firedDate3:null,
+      firedPrice1:null,firedPrice2:null,firedPrice3:null,firedShares1:null,firedShares2:null,firedShares3:null,
+      dateAdded:new Date().toISOString().slice(0,10)});
+  }
+  saveRisklist();
+  syncRisklistStockStubs();save(); // save() to persist any stub additions to stocks{}
+  ov.remove();render();
+}
+
+// ============ RISKLIST: BUY CONFIRMATION MODAL ============
+// Opens when an eligible tranche's Buy button is tapped. Requires the user to enter
+// the actual fill price (which can differ from trigger due to slippage) and shares.
+// Displays the full rationale prominently — re-reading own rationale at moment of buy
+// is the key behavioural guardrail.
+function openRisklistBuyModal(ticker,n){
+  const e=findRisklistEntry(ticker);if(!e)return;
+  if(!risklistTrancheEligible(e,n)){alert("Tranche "+n+" is not eligible to fire.");return;}
+  const s=stocks[ticker];const price=risklistCurrentPrice(ticker);
+  const base=pfBaseCcy("personal");const baseSym=base==="USD"?"$":"€";
+  const sizePct=e["size"+n];
+  const amtBase=risklistTrancheAmount(e,n);
+  const amtLocal=risklistTrancheAmountLocal(e,n);
+  const trig=e["trigger"+n];
+  const dp=portfolios.personal?.dryPowder||0;
+  // Cap warnings — informational, do not block.
+  const rbi=riskBucketInfo("personal");
+  const projectedTotal=rbi.used+amtBase;
+  const projectedPct=rbi.cap>0?(projectedTotal/rbi.cap*100):0;
+  const overPool3=projectedTotal>rbi.cap;
+  // Per-stock 5% cap (against same Pool1+Pool3 denominator)
+  const thisStockCost=risklistEntryCostBasis(e);
+  const perStockCap=(pool1CostBasis("personal")+rbi.used)*0.05;
+  const overPerStock=(thisStockCost+amtBase)>perStockCap;
+  // Default shares: amtLocal/trigger. User can adjust.
+  const defaultShares=trig>0?Math.floor((amtLocal/trig)*100)/100:0;
+  let warnHTML="";
+  if(overPool3)warnHTML+=`<div class="rl-warn-banner">⚠ This fire would push Pool 3 to ${projectedPct.toFixed(1)}% (cap is 100%). You'll be over the 15% limit.</div>`;
+  if(overPerStock)warnHTML+=`<div class="rl-warn-banner">⚠ This fire would push ${ticker}'s position to ${baseSym}${Math.round(thisStockCost+amtBase).toLocaleString()}, over the 5% per-stock cap (${baseSym}${Math.round(perStockCap).toLocaleString()}).</div>`;
+  if(amtLocal>(base===e.currency?dp:fromEUR(toEUR(dp,base),e.currency)))warnHTML+=`<div class="rl-warn-banner">⚠ Tranche size (${fmt(amtLocal,e.currency)}) may exceed available DP (${baseSym}${Math.round(dp).toLocaleString()}).</div>`;
+  const ov=document.createElement("div");ov.className="modal-overlay";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:200";
+  ov.onclick=ev=>{if(ev.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="rl-confirm-modal" onclick="event.stopPropagation()">
+    <div class="rl-confirm-title">🎯 Fire Tranche ${n}</div>
+    <div class="rl-confirm-sub">${s?.flag||""} ${esc(ticker)} — ${esc(e.name||ticker)}</div>
+    ${warnHTML}
+    <div class="rl-confirm-row"><span class="rl-c-l">Trigger</span><span class="rl-c-r">${fmt(trig,e.currency)}</span></div>
+    <div class="rl-confirm-row"><span class="rl-c-l">Current price</span><span class="rl-c-r">${fmt(price,e.currency)}</span></div>
+    <div class="rl-confirm-row"><span class="rl-c-l">Tranche size</span><span class="rl-c-r">${sizePct.toFixed(2)}% · ${baseSym}${Math.round(amtBase).toLocaleString()} · ${fmt(amtLocal,e.currency)}</span></div>
+    <div class="rl-confirm-row"><span class="rl-c-l">Available DP</span><span class="rl-c-r">${baseSym}${Math.round(dp).toLocaleString()}</span></div>
+    <div class="rl-rationale-box">${esc(e.reasoning||"(No rationale recorded)")}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <div style="flex:1"><label style="font-size:10px;color:var(--muted)">Fill price (${e.currency})</label>
+        <input type="number" step="any" id="rl-fill-price" value="${price||trig}" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:var(--mono);box-sizing:border-box"></div>
+      <div style="flex:1"><label style="font-size:10px;color:var(--muted)">Shares</label>
+        <input type="number" step="any" id="rl-fill-shares" value="${defaultShares}" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:var(--mono);box-sizing:border-box"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="modal-done" style="flex:1;background:#34d39920;color:#34d399;border:2px solid #34d39960" id="rl-confirm-fire">Confirm Buy</button>
+      <button class="modal-done" style="flex:0;background:var(--bg);color:var(--muted)" id="rl-cancel-fire">Cancel</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  document.getElementById("rl-confirm-fire").onclick=()=>{
+    const fp=parseFloat(document.getElementById("rl-fill-price").value);
+    const sh=parseFloat(document.getElementById("rl-fill-shares").value);
+    if(isNaN(fp)||fp<=0){alert("Enter a valid fill price.");return;}
+    if(isNaN(sh)||sh<=0){alert("Enter a valid share count.");return;}
+    confirmRisklistFire(ticker,n,fp,sh);
+    ov.remove();
+  };
+  document.getElementById("rl-cancel-fire").onclick=()=>ov.remove();
+}
+
+// Record a tranche firing: mark fired, decrement DP from the matching currency bucket
+// (recalcDP recomputes pf.dryPowder afterward). Does NOT touch pf.positions — Risklist
+// tranches are tracked separately so they don't enter the Pool 1 monthly allocator math.
+function confirmRisklistFire(ticker,n,fillPrice,shares){
+  const e=findRisklistEntry(ticker);if(!e)return;
+  if(!risklistTrancheEligible(e,n)){alert("No longer eligible.");return;}
+  e["fired"+n]=true;
+  e["firedDate"+n]=new Date().toISOString().slice(0,10);
+  e["firedPrice"+n]=fillPrice;
+  e["firedShares"+n]=shares;
+  saveRisklist();
+  // Decrement DP from the matching currency bucket. GBp prices are in pence, but DP is GBP.
+  const pf=portfolios.personal;
+  let localCost=fillPrice*shares;
+  let bucket=e.currency;
+  if(e.currency==="GBp"){localCost=localCost/100;bucket="GBP";}
+  const dpKey="dp"+bucket;
+  if(pf[dpKey]==null)pf[dpKey]=0;
+  pf[dpKey]-=localCost; // may go negative — user manages funding
+  recalcDP("personal");
+  pf.dpManual=true; // mark as user-edited so IBKR sync warns before overwrite
+  save();render();
+}
+
+// Reset a fired tranche to unfired. Used from the Edit modal. Confirms first.
+function resetRisklistTranche(ticker,n){
+  const e=findRisklistEntry(ticker);if(!e||!e["fired"+n])return;
+  if(!confirm(`Reset T${n} of ${ticker}? This will clear the fired state and the fill record — DP will not be auto-restored.`))return;
+  e["fired"+n]=false;e["firedDate"+n]=null;e["firedPrice"+n]=null;e["firedShares"+n]=null;
+  saveRisklist();
+  // Re-render the modal so the controls update. Close and reopen as the simplest approach.
+  const ov=document.querySelector(".modal-overlay");if(ov)ov.remove();
+  openRisklistEdit(ticker);
+  render();
+}
+
+// Delete a Risklist entry. Confirms first. Does not affect brokerage holdings.
+function deleteRisklistEntry(ticker){
+  const e=findRisklistEntry(ticker);if(!e)return;
+  const fired=[1,2,3].some(i=>e["fired"+i]);
+  const msg=fired
+    ?`Delete ${ticker} from Risklist?\n\nThis stock has fired tranches — the tracking will be removed but your actual brokerage holdings are not affected. The Pool 3 cap calculation will drop accordingly.`
+    :`Delete ${ticker} from Risklist?`;
+  if(!confirm(msg))return;
+  risklist=risklist.filter(x=>x.ticker!==ticker);
+  saveRisklist();render();
+}
+
+// ============ RISKLIST: CSV IMPORT/EXPORT ============
+// Separate CSV from the Pool 1 triggers CSV. Filename: risklist_YYYY-MM-DD.csv.
+// Includes all fields from the data model. Field names match the model exactly.
+function exportRisklistCSV(){
+  const fields=["ticker","name","currency","priority","trigger1","size1","fired1","firedDate1","firedPrice1","firedShares1",
+    "trigger2","size2","fired2","firedDate2","firedPrice2","firedShares2",
+    "trigger3","size3","fired3","firedDate3","firedPrice3","firedShares3",
+    "reasoning","notes","dateAdded"];
+  // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline.
+  const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
+  let csv=fields.join(",")+"\n";
+  risklist.forEach(e=>{csv+=fields.map(f=>q(e[f])).join(",")+"\n";});
+  dlFile("risklist_"+dateStr()+".csv",csv,"text/csv");
+}
+
+function handleRisklistCSVImport(ev){
+  const f=ev.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=evt=>{
+    const lines=evt.target.result.split("\n").filter(l=>l.trim());
+    if(lines.length<2){alert("Empty CSV");return;}
+    // CSV line parser handling quoted fields with embedded commas/quotes
+    const parseLine=line=>{const out=[];let cur="",inQ=false;for(let i=0;i<line.length;i++){const c=line[i];
+      if(c==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
+      else if(c===","&&!inQ){out.push(cur);cur="";}
+      else cur+=c;}out.push(cur);return out;};
+    const hdr=parseLine(lines[0]).map(h=>h.trim());
+    const idx=(name)=>hdr.indexOf(name);
+    let added=0,updated=0,skipped=0;
+    for(let i=1;i<lines.length;i++){
+      const row=parseLine(lines[i]);
+      const ticker=(row[idx("ticker")]||"").trim().toUpperCase();
+      if(!ticker)continue;
+      const num=(name)=>{const v=row[idx(name)];if(v==null||v==="")return null;const n=parseFloat(v);return isNaN(n)?null:n;};
+      const bool=(name)=>{const v=row[idx(name)];return v==="true"||v==="TRUE"||v==="1";};
+      const str=(name)=>{const v=row[idx(name)];return v==null?"":String(v).trim();};
+      const entry={ticker,
+        name:str("name"),currency:str("currency")||"USD",priority:num("priority"),
+        trigger1:num("trigger1"),size1:num("size1")??1.0,
+        trigger2:num("trigger2"),size2:num("size2")??1.0,
+        trigger3:num("trigger3"),size3:num("size3")??1.0,
+        fired1:bool("fired1"),firedDate1:str("firedDate1")||null,firedPrice1:num("firedPrice1"),firedShares1:num("firedShares1"),
+        fired2:bool("fired2"),firedDate2:str("firedDate2")||null,firedPrice2:num("firedPrice2"),firedShares2:num("firedShares2"),
+        fired3:bool("fired3"),firedDate3:str("firedDate3")||null,firedPrice3:num("firedPrice3"),firedShares3:num("firedShares3"),
+        reasoning:str("reasoning"),notes:str("notes"),
+        dateAdded:str("dateAdded")||new Date().toISOString().slice(0,10)};
+      const existing=findRisklistEntry(ticker);
+      if(existing){
+        if(confirm(`${ticker} exists in Risklist. Overwrite?`)){
+          Object.assign(existing,entry);updated++;
+        }else skipped++;
+      }else{risklist.push(entry);added++;}
+    }
+    saveRisklist();syncRisklistStockStubs();save();render();
+    alert(`Risklist import: ${added} added, ${updated} updated, ${skipped} skipped.`);
+    ev.target.value="";
+  };
+  r.readAsText(f);
+}
+
+// ============ RISKLIST: FOREGROUND NOTIFICATIONS ============
+// Foreground-only push: when fetchPrices runs and a tranche becomes newly eligible
+// (was not eligible last tick, now is), fire a notification via the service worker.
+// Suppress duplicates within the same day via the lastNotifiedDate map.
+let prevRisklistEligible={}; // {"TICKER-N": true} — eligibility on the prior tick
+function checkNewRisklistFires(){
+  const fires=[];
+  risklist.forEach(e=>{
+    for(let n=1;n<=3;n++){
+      const key=e.ticker+"-"+n;
+      const eligNow=risklistTrancheEligible(e,n);
+      const eligPrev=!!prevRisklistEligible[key];
+      if(eligNow&&!eligPrev){
+        fires.push({entry:e,n,price:risklistCurrentPrice(e.ticker)});
+      }
+      prevRisklistEligible[key]=eligNow;
+    }
+  });
+  return fires;
+}
+function sendRisklistNotification(fires){
+  if(!fires.length)return;
+  if(typeof Notification==="undefined"||Notification.permission!=="granted")return;
+  // Suppress same-day duplicates via localStorage map
+  const today=new Date().toISOString().slice(0,10);
+  const shown=JSON.parse(localStorage.getItem("r1-rlNotifShown")||"{}");
+  navigator.serviceWorker.ready.then(reg=>{
+    fires.forEach(f=>{
+      const key=f.entry.ticker+"-"+f.n;
+      if(shown[key]===today)return; // already notified today for this tranche
+      const price=fmt(f.price,f.entry.currency);const trig=fmt(f.entry["trigger"+f.n],f.entry.currency);
+      reg.showNotification(`🎯 Risk: ${f.entry.ticker} T${f.n} at ${price}`,{
+        body:`${f.entry.name||f.entry.ticker} hit ${trig} trigger — review rationale before deploying.`,
+        tag:`ttt-risk-${f.entry.ticker}-${f.n}`,
+        renotify:true,
+        requireInteraction:true,
+        data:{url:`./#risklist:${f.entry.ticker}`}
+      }).catch(()=>{});
+      shown[key]=today;
+    });
+    localStorage.setItem("r1-rlNotifShown",JSON.stringify(shown));
+  });
 }
 function setPriority(t){
   const cur=stocks[t].priority;const v=prompt("Moat strength for "+t+" (1 = strongest, empty to clear):",cur||"");
@@ -4963,9 +5645,35 @@ function startRefreshTimer(){
 load();render();
 // Snapshot current signals so first fetch doesn't false-celebrate
 Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
+// Seed prevRisklistEligible so first fetch doesn't false-notify Risklist tranches
+// that were already eligible when the app started.
+risklist.forEach(e=>{for(let n=1;n<=3;n++)prevRisklistEligible[e.ticker+"-"+n]=risklistTrancheEligible(e,n);});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
 fetchPrices();
 startRefreshTimer();
+
+// Deeplink handler: a Risklist push notification carries url=./#risklist:TICKER. The SW
+// posts a message to the focused client; the app then switches to the Watch tab in
+// Risklist mode and scrolls to the card.
+function handleRisklistDeeplink(hash){
+  const m=hash.match(/^#risklist:(.+)$/);if(!m)return;
+  const ticker=m[1].toUpperCase();
+  currentTab="watchlist";localStorage.setItem("r1-tab","watchlist");
+  watchMode="risklist";localStorage.setItem("r1-watchMode","risklist");
+  render();
+  // Scroll after render flush
+  setTimeout(()=>{const card=document.getElementById("rl-card-"+ticker);if(card)card.scrollIntoView({behavior:"smooth",block:"start"});},100);
+  // Clear hash so refresh doesn't re-trigger
+  history.replaceState(null,"",location.pathname+location.search);
+}
+if(location.hash)handleRisklistDeeplink(location.hash);
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('message',ev=>{
+    if(ev.data&&ev.data.type==='deeplink'&&ev.data.url){
+      const hash=ev.data.url.split('#')[1];if(hash)handleRisklistDeeplink('#'+hash);
+    }
+  });
+}
 
 // Catch up when app regains focus (Android suspends background timers)
 document.addEventListener('visibilitychange', ()=>{

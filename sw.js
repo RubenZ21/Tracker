@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ttt-v3.40';
+const CACHE_NAME = 'ttt-v3.41';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', e => {
@@ -44,13 +44,23 @@ self.addEventListener('push', e => {
   e.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Open the app when tapping a notification
+// Open the app when tapping a notification.
+// Risklist notifications attach data.url with a deeplink hash (#risklist:TICKER) so the
+// app can route directly to the relevant card. Pool 1 notifications carry no url and
+// just focus the existing window.
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const targetUrl = (e.notification.data && e.notification.data.url) || './';
   e.waitUntil(
     self.clients.matchAll({ type: 'window' }).then(clients => {
-      if (clients.length) { clients[0].focus(); return; }
-      return self.clients.openWindow('./');
+      if (clients.length) {
+        const c = clients[0];
+        c.focus();
+        // Pass the deeplink to the focused client; the app listens for it.
+        if (targetUrl !== './') c.postMessage({ type: 'deeplink', url: targetUrl });
+        return;
+      }
+      return self.clients.openWindow(targetUrl);
     })
   );
 });
