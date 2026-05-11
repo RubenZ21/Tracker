@@ -193,7 +193,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.38</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.40</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2173,6 +2173,8 @@ function exportExcel(){
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
+    category:s.category==="buffett"?"buffett":"",
+    sector:s.sector||"",
     specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws1,"Stocks");
@@ -2181,9 +2183,17 @@ function exportExcel(){
   const pRows=[];
   Object.entries(portfolios).forEach(([pk,pf])=>{
     Object.entries(pf.positions).forEach(([t,pos])=>{
-      pos.tranches.forEach((tr,i)=>{pRows.push({portfolio:pk,portfolioName:pf.name,ticker:t,
-        tranche:i+1,signal:tr.signal,bought:tr.bought,sold:tr.sold,buyPrice:tr.buyPrice,
-        remaining:tr.bought-tr.sold,ath:tr.ath||null,state:tr.state||"accumulating",mosReserve:i===0&&pos.mosReserve!=null?pos.mosReserve:null});});});});
+      if(pos.tranches&&pos.tranches.length){
+        pos.tranches.forEach((tr,i)=>{pRows.push({portfolio:pk,portfolioName:pf.name,ticker:t,
+          tranche:i+1,signal:tr.signal,bought:tr.bought,sold:tr.sold,buyPrice:tr.buyPrice,
+          remaining:tr.bought-tr.sold,ath:tr.ath||null,state:tr.state||"accumulating",mosReserve:i===0&&pos.mosReserve!=null?pos.mosReserve:null});});
+      }else if(pos.mosReserve!=null){
+        // Reserve-only position (MOS accumulated but no tranches yet) — synthesize a placeholder row so reserve survives roundtrip
+        pRows.push({portfolio:pk,portfolioName:pf.name,ticker:t,
+          tranche:0,signal:"",bought:0,sold:0,buyPrice:0,remaining:0,ath:null,state:"reserve-only",mosReserve:pos.mosReserve});
+      }
+    });
+  });
   const ws2=XLSX.utils.json_to_sheet(pRows);ws2["!cols"]=[{wch:10},{wch:12},{wch:8},{wch:8},{wch:8},{wch:10},{wch:8},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws2,"Positions");
 
@@ -2215,7 +2225,19 @@ function exportExcel(){
     {key:"gridStocks_personal",value:(portfolios.personal?.gridStocks||[]).join(",")},
     {key:"gridStocks_nl",value:(portfolios.nl?.gridStocks||[]).join(",")},
     {key:"riskStocks_personal",value:(portfolios.personal?.riskStocks||[]).join(",")},
-    {key:"riskStocks_nl",value:(portfolios.nl?.riskStocks||[]).join(",")}];
+    {key:"riskStocks_nl",value:(portfolios.nl?.riskStocks||[]).join(",")},
+    // v3.40: roundtrip the remaining persistent settings so a wipe-and-restore is lossless
+    {key:"indexTickerUS",value:settings.indexTickerUS||""},
+    {key:"indexTickerEU",value:settings.indexTickerEU||""},
+    {key:"nlIndexTickerUS",value:settings.nlIndexTickerUS||""},
+    {key:"nlIndexTickerEU",value:settings.nlIndexTickerEU||""},
+    {key:"nlIndexCap",value:settings.nlIndexCap??10},
+    {key:"nlIndexTranche",value:settings.nlIndexTranche??1000},
+    {key:"nlIndexMaxTranches",value:settings.nlIndexMaxTranches??4},
+    {key:"dpSlider",value:settings.dpSlider??40},
+    {key:"dpSliderCaca",value:settings.dpSliderCaca??50},
+    {key:"monthlyStep",value:settings.monthlyStep||0},
+    {key:"monthlyStepMonth",value:settings.monthlyStepMonth||""}];
   const ws3=XLSX.utils.json_to_sheet(stRows);ws3["!cols"]=[{wch:22},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws3,"Settings");
 
@@ -2230,6 +2252,24 @@ function exportExcel(){
     const ws4=XLSX.utils.json_to_sheet(logRows);
     ws4["!cols"]=[{wch:12},{wch:8},{wch:6},{wch:8},{wch:8},{wch:10},{wch:6},{wch:10},{wch:10},{wch:30}];
     XLSX.utils.book_append_sheet(wb,ws4,"DeployLog");
+  }
+
+  // Sheet 5: Index Log — per-region per-portfolio DCA history (v3.40)
+  const ixRows=[];
+  ["personal","nl"].forEach(pk=>{
+    ["us","eu"].forEach(region=>{
+      const ip=getIndexPos(pk,region);
+      (ip.deployLog||[]).forEach(entry=>{
+        ixRows.push({portfolio:pk,region,date:entry.date,
+          shares:entry.shares,price:entry.price,amount:entry.amount,
+          currency:ip.currency||(region==="us"?"USD":"EUR")});
+      });
+    });
+  });
+  if(ixRows.length){
+    const ws5=XLSX.utils.json_to_sheet(ixRows);
+    ws5["!cols"]=[{wch:10},{wch:6},{wch:22},{wch:10},{wch:10},{wch:10},{wch:6}];
+    XLSX.utils.book_append_sheet(wb,ws5,"IndexLog");
   }
 
   XLSX.writeFile(wb,"r1_backup_"+dateStr()+".xlsx");
@@ -2251,6 +2291,11 @@ function handleExcelImport(e){
       // Sheet 1: Stocks — update or create
       if(wb.SheetNames.includes("Stocks")){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets["Stocks"]);
+        // Detect whether the sheet has a "category" column at all by reading the header row directly.
+        // sheet_to_json drops empty cells, so we can't infer column presence from the row objects when
+        // every row's category cell is blank. Read row 1 with header:1 → array of header names.
+        const _hdr=XLSX.utils.sheet_to_json(wb.Sheets["Stocks"],{header:1,range:0})[0]||[];
+        const hasCategoryCol=_hdr.map(h=>String(h||"").toLowerCase()).includes("category");
         rows.forEach(row=>{
           const t=String(row.ticker||"").toUpperCase().trim();if(!t)return;
           if(stocks[t]){
@@ -2280,10 +2325,14 @@ function handleExcelImport(e){
             if(row.specDate!=null)s.specDate=vn(row.specDate);
             if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
             if(row.priority!=null)s.priority=vn(row.priority);
-            // Trigger freshness: read from sheet or mark as updated now
+            // Category: "buffett" → set; empty cell in present column → clear; column absent → preserve
+            if(hasCategoryCol){const cat=String(row.category||"").trim().toLowerCase();if(cat==="buffett")s.category="buffett";else delete s.category;}
+            if(row.sector!=null&&row.sector!=="")s.sector=String(row.sector);
+            // Trigger freshness: read lastCalcDate from sheet, default to now if absent
             if(row.lastCalcDate){const d=new Date(row.lastCalcDate);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
-            if(row.earningsDate){const d=new Date(row.earningsDate);s.earningsDate=isNaN(d)?null:d.getTime();}
             else{s.lastCalcDate=Date.now();}
+            // Earnings date: read from sheet (independent of lastCalcDate)
+            if(row.earningsDate){const d=new Date(row.earningsDate);s.earningsDate=isNaN(d)?null:d.getTime();}
             if(row.philSticker!=null||row.philGR!=null){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
@@ -2293,15 +2342,19 @@ function handleExcelImport(e){
             const rc=recalcSticker(eps,gr,pe);if(rc)mos=rc.mos;
             let tc=vn(row.tenCap);const oe=vn(row.oe);if(oe!=null)tc=+(oe*10).toFixed(2);
             let pbt=vn(row.pbt);const fcf=vn(row.fcf);if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
-            stocks[t]={name:String(row.name||t),currency:ccy,moat:String(row.moat||"Wide"),sector:"",
+            const catRaw=row.category!=null?String(row.category).trim().toLowerCase():"";
+            stocks[t]={name:String(row.name||t),currency:ccy,moat:String(row.moat||"Wide"),sector:String(row.sector||""),
               flag:flags[ccy]||"🌍",status:String(row.status||"watchlist"),tdSymbol:String(row.tdSymbol||t),
               finnhubSymbol:row.finnhubSymbol?String(row.finnhubSymbol):undefined,
-              priceMult:1,currentPrice:vn(row.currentPrice)||0,gate:row.gate==="FAIL"?false:true,
+              priceMult:1,currentPrice:vn(row.currentPrice)||0,gate:String(row.gate||"")==="FAIL"?false:true,
               cons:{sticker:rc?rc.sticker:(mos?mos*2:(vn(row.sticker)||null)),mos:mos,tenCap:tc,pbt:pbt,pbtYrs:vn(row.pbtYrs),gr:gr,oe:oe,fcf:fcf,eps:eps,pe:pe,prevSticker:vn(row.prevSticker)||null},
               phil:null,signals:{mos:false,tenCap:false,pbt:false},
               specReason:row.specReason?String(row.specReason):undefined,specDate:vn(row.specDate)||undefined,
-              notes:row.notes?String(row.notes):undefined,lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now(),
+              notes:row.notes?String(row.notes):undefined,
+              lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now(),
+              earningsDate:row.earningsDate?(isNaN(new Date(row.earningsDate))?null:new Date(row.earningsDate).getTime()):null,
               priority:vn(row.priority)||null};
+            if(catRaw==="buffett")stocks[t].category="buffett";
             // Restore Phil (Toolbox) data for new stocks
             if(row.philSticker!=null||row.philGR!=null){
               stocks[t].phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
@@ -2321,8 +2374,10 @@ function handleExcelImport(e){
             const pk=String(row.portfolio||"personal");const t=String(row.ticker||"").toUpperCase().trim();
             if(!t||!newPos[pk])return;
             if(!newPos[pk][t])newPos[pk][t]={tranches:[]};
-            // Read mosReserve override (stored on first tranche row)
+            // Read mosReserve override (stored on first tranche row, or alone on reserve-only placeholder)
             if(row.mosReserve!=null&&row.mosReserve!=="")newPos[pk][t].mosReserve=Number(row.mosReserve);
+            // Skip reserve-only placeholder rows (synthesized when position has mosReserve but no real tranches)
+            if(String(row.state||"")==="reserve-only"||(Number(row.tranche)===0&&!row.signal&&!Number(row.bought)))return;
             newPos[pk][t].tranches.push({
               signal:String(row.signal||"PBT"),bought:Number(row.bought)||0,
               sold:Number(row.sold)||0,buyPrice:Number(row.buyPrice)||0,
@@ -2335,59 +2390,77 @@ function handleExcelImport(e){
       }
 
       // Sheet 3: Settings
+      const gridKeysSeen={personal:false,nl:false};
       if(wb.SheetNames.includes("Settings")){
-        const rows=XLSX.utils.sheet_to_json(wb.Sheets["Settings"]);
+        // defval:"" ensures empty cells (e.g. cleared grid arrays) come back as "" not undefined,
+        // so we can distinguish "key present but value empty" from "key absent".
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets["Settings"],{defval:""});
+        const empty=v=>v==null||v===""; // treat null, undefined and "" as empty
         rows.forEach(row=>{
           const k=String(row.key||""),val=row.value;
-          if(k==="fxRate"&&val!=null)settings.fxRate=Number(val);
-          if(k==="fxGBP"&&val!=null)settings.fxGBP=Number(val);
-          if(k==="fxCAD"&&val!=null)settings.fxCAD=Number(val);
-          if(k==="fxJPY"&&val!=null)settings.fxJPY=Number(val);
-          if(k==="monthlyIncome"&&val!=null)settings.monthlyIncome=Number(val);
-          if(k==="monthlyIncomeUSD"&&val!=null)settings.monthlyIncomeUSD=Number(val);
-          if(k==="dpDivisor"&&val!=null)settings.dpDivisor=Number(val);
-          if(k==="dpFloor"&&val!=null)settings.dpFloor=Number(val);
-          if(k==="dryPowder_personal"&&val!=null)portfolios.personal.dryPowder=Number(val);
-          if(k==="dryPowder_nl"&&val!=null)portfolios.nl.dryPowder=Number(val);
-          if(k==="dpUSD_personal"&&val!=null)portfolios.personal.dpUSD=Number(val);
-          if(k==="dpEUR_personal"&&val!=null)portfolios.personal.dpEUR=Number(val);
-          if(k==="dpGBP_personal"&&val!=null)portfolios.personal.dpGBP=Number(val);
-          if(k==="dpJPY_personal"&&val!=null)portfolios.personal.dpJPY=Number(val);
-          if(k==="dpCAD_personal"&&val!=null)portfolios.personal.dpCAD=Number(val);
-          if(k==="dpUSD_nl"&&val!=null)portfolios.nl.dpUSD=Number(val);
-          if(k==="dpEUR_nl"&&val!=null)portfolios.nl.dpEUR=Number(val);
-          if(k==="dpGBP_nl"&&val!=null)portfolios.nl.dpGBP=Number(val);
-          if(k==="dpJPY_nl"&&val!=null)portfolios.nl.dpJPY=Number(val);
-          if(k==="dpCAD_nl"&&val!=null)portfolios.nl.dpCAD=Number(val);
-          if(k==="expansionSlots"&&val!=null)settings.expansionSlots=Number(val);
-          if(k==="nlCapAtPersonal"&&val!=null)settings.nlCapAtPersonal=Number(val)===1;
-          if(k==="nlTranches"&&val!=null)settings.nlTranches=Math.max(1,Number(val));
-          if(k==="marr"&&val!=null)settings.marr=Math.max(1,Math.min(30,Number(val)));
-          if(k==="pushWorkerUrl"&&val!=null&&val!=="")settings.pushWorkerUrl=String(val);
-          if(k==="indexAllocation"&&val!=null)settings.indexAllocation=Math.max(0,Number(val));
-          if(k==="indexAllocationPct"&&val!=null)settings.indexAllocationPct=Math.max(0,Math.min(100,Number(val)));
-          if(k==="indexUSShares"&&val!=null){getIndexPos("personal","us").shares=Number(val);}
-          if(k==="indexUSAvgCost"&&val!=null){getIndexPos("personal","us").avgCost=Number(val);}
-          if(k==="indexEUShares"&&val!=null){getIndexPos("personal","eu").shares=Number(val);}
-          if(k==="indexEUAvgCost"&&val!=null){getIndexPos("personal","eu").avgCost=Number(val);}
-          if(k==="nlIndexUSShares"&&val!=null){getIndexPos("nl","us").shares=Number(val);}
-          if(k==="nlIndexUSAvgCost"&&val!=null){getIndexPos("nl","us").avgCost=Number(val);}
-          if(k==="nlIndexEUShares"&&val!=null){getIndexPos("nl","eu").shares=Number(val);}
-          if(k==="nlIndexEUAvgCost"&&val!=null){getIndexPos("nl","eu").avgCost=Number(val);}
+          if(k==="gridStocks_personal")gridKeysSeen.personal=true;
+          if(k==="gridStocks_nl")gridKeysSeen.nl=true;
+          if(k==="fxRate"&&!empty(val))settings.fxRate=Number(val);
+          if(k==="fxGBP"&&!empty(val))settings.fxGBP=Number(val);
+          if(k==="fxCAD"&&!empty(val))settings.fxCAD=Number(val);
+          if(k==="fxJPY"&&!empty(val))settings.fxJPY=Number(val);
+          if(k==="monthlyIncome"&&!empty(val))settings.monthlyIncome=Number(val);
+          if(k==="monthlyIncomeUSD"&&!empty(val))settings.monthlyIncomeUSD=Number(val);
+          if(k==="dpDivisor"&&!empty(val))settings.dpDivisor=Number(val);
+          if(k==="dpFloor"&&!empty(val))settings.dpFloor=Number(val);
+          if(k==="dryPowder_personal"&&!empty(val))portfolios.personal.dryPowder=Number(val);
+          if(k==="dryPowder_nl"&&!empty(val))portfolios.nl.dryPowder=Number(val);
+          if(k==="dpUSD_personal"&&!empty(val))portfolios.personal.dpUSD=Number(val);
+          if(k==="dpEUR_personal"&&!empty(val))portfolios.personal.dpEUR=Number(val);
+          if(k==="dpGBP_personal"&&!empty(val))portfolios.personal.dpGBP=Number(val);
+          if(k==="dpJPY_personal"&&!empty(val))portfolios.personal.dpJPY=Number(val);
+          if(k==="dpCAD_personal"&&!empty(val))portfolios.personal.dpCAD=Number(val);
+          if(k==="dpUSD_nl"&&!empty(val))portfolios.nl.dpUSD=Number(val);
+          if(k==="dpEUR_nl"&&!empty(val))portfolios.nl.dpEUR=Number(val);
+          if(k==="dpGBP_nl"&&!empty(val))portfolios.nl.dpGBP=Number(val);
+          if(k==="dpJPY_nl"&&!empty(val))portfolios.nl.dpJPY=Number(val);
+          if(k==="dpCAD_nl"&&!empty(val))portfolios.nl.dpCAD=Number(val);
+          if(k==="expansionSlots"&&!empty(val))settings.expansionSlots=Number(val);
+          if(k==="nlCapAtPersonal"&&!empty(val))settings.nlCapAtPersonal=Number(val)===1;
+          if(k==="nlTranches"&&!empty(val))settings.nlTranches=Math.max(1,Number(val));
+          if(k==="marr"&&!empty(val))settings.marr=Math.max(1,Math.min(30,Number(val)));
+          if(k==="pushWorkerUrl"&&!empty(val))settings.pushWorkerUrl=String(val);
+          if(k==="indexAllocation"&&!empty(val))settings.indexAllocation=Math.max(0,Number(val));
+          if(k==="indexAllocationPct"&&!empty(val))settings.indexAllocationPct=Math.max(0,Math.min(100,Number(val)));
+          if(k==="indexUSShares"&&!empty(val)){getIndexPos("personal","us").shares=Number(val);}
+          if(k==="indexUSAvgCost"&&!empty(val)){getIndexPos("personal","us").avgCost=Number(val);}
+          if(k==="indexEUShares"&&!empty(val)){getIndexPos("personal","eu").shares=Number(val);}
+          if(k==="indexEUAvgCost"&&!empty(val)){getIndexPos("personal","eu").avgCost=Number(val);}
+          if(k==="nlIndexUSShares"&&!empty(val)){getIndexPos("nl","us").shares=Number(val);}
+          if(k==="nlIndexUSAvgCost"&&!empty(val)){getIndexPos("nl","us").avgCost=Number(val);}
+          if(k==="nlIndexEUShares"&&!empty(val)){getIndexPos("nl","eu").shares=Number(val);}
+          if(k==="nlIndexEUAvgCost"&&!empty(val)){getIndexPos("nl","eu").avgCost=Number(val);}
           // Legacy single-position import (backward compat)
-          if(k==="indexShares"&&val!=null){getIndexPos("personal","us").shares=Number(val);}
-          if(k==="indexAvgCost"&&val!=null){getIndexPos("personal","us").avgCost=Number(val);}
-          if(k==="nlIndexShares"&&val!=null){getIndexPos("nl","us").shares=Number(val);}
-          if(k==="nlIndexAvgCost"&&val!=null){getIndexPos("nl","us").avgCost=Number(val);}
-          if(k==="ibkrWorker"&&val!=null&&val!=="")settings.ibkrWorker=String(val);
-          if(k==="ibkrTokenPersonal"&&val!=null&&val!=="")settings.ibkrTokenPersonal=String(val);
-          if(k==="ibkrQueryPersonal"&&val!=null&&val!=="")settings.ibkrQueryPersonal=String(val);
-          if(k==="ibkrTokenNl"&&val!=null&&val!=="")settings.ibkrTokenNl=String(val);
-          if(k==="ibkrQueryNl"&&val!=null&&val!=="")settings.ibkrQueryNl=String(val);
-          if(k==="gridStocks_personal"&&val!=null&&val!=="")portfolios.personal.gridStocks=String(val).split(",").filter(Boolean);
-          if(k==="gridStocks_nl"&&val!=null&&val!=="")portfolios.nl.gridStocks=String(val).split(",").filter(Boolean);
-          if(k==="riskStocks_personal"&&val!=null){portfolios.personal.riskStocks=val===""?[]:String(val).split(",").filter(Boolean);}
-          if(k==="riskStocks_nl"&&val!=null){portfolios.nl.riskStocks=val===""?[]:String(val).split(",").filter(Boolean);}
+          if(k==="indexShares"&&!empty(val)){getIndexPos("personal","us").shares=Number(val);}
+          if(k==="indexAvgCost"&&!empty(val)){getIndexPos("personal","us").avgCost=Number(val);}
+          if(k==="nlIndexShares"&&!empty(val)){getIndexPos("nl","us").shares=Number(val);}
+          if(k==="nlIndexAvgCost"&&!empty(val)){getIndexPos("nl","us").avgCost=Number(val);}
+          if(k==="ibkrWorker"&&!empty(val))settings.ibkrWorker=String(val);
+          if(k==="ibkrTokenPersonal"&&!empty(val))settings.ibkrTokenPersonal=String(val);
+          if(k==="ibkrQueryPersonal"&&!empty(val))settings.ibkrQueryPersonal=String(val);
+          if(k==="ibkrTokenNl"&&!empty(val))settings.ibkrTokenNl=String(val);
+          if(k==="ibkrQueryNl"&&!empty(val))settings.ibkrQueryNl=String(val);
+          // v3.40: previously-missing settings now roundtrip. Empty value → clear to []/default.
+          if(k==="gridStocks_personal"){portfolios.personal.gridStocks=empty(val)?[]:String(val).split(",").filter(Boolean);}
+          if(k==="gridStocks_nl"){portfolios.nl.gridStocks=empty(val)?[]:String(val).split(",").filter(Boolean);}
+          if(k==="riskStocks_personal"){portfolios.personal.riskStocks=empty(val)?[]:String(val).split(",").filter(Boolean);}
+          if(k==="riskStocks_nl"){portfolios.nl.riskStocks=empty(val)?[]:String(val).split(",").filter(Boolean);}
+          if(k==="indexTickerUS"&&!empty(val))settings.indexTickerUS=String(val);
+          if(k==="indexTickerEU"&&!empty(val))settings.indexTickerEU=String(val);
+          if(k==="nlIndexTickerUS"&&!empty(val))settings.nlIndexTickerUS=String(val);
+          if(k==="nlIndexTickerEU"&&!empty(val))settings.nlIndexTickerEU=String(val);
+          if(k==="nlIndexCap"&&!empty(val))settings.nlIndexCap=Math.max(0,Math.min(100,Number(val)));
+          if(k==="nlIndexTranche"&&!empty(val))settings.nlIndexTranche=Math.max(0,Number(val));
+          if(k==="nlIndexMaxTranches"&&!empty(val))settings.nlIndexMaxTranches=Math.max(1,Number(val));
+          if(k==="dpSlider"&&!empty(val))settings.dpSlider=Math.max(0,Math.min(100,Number(val)));
+          if(k==="dpSliderCaca"&&!empty(val))settings.dpSliderCaca=Math.max(0,Math.min(100,Number(val)));
+          if(k==="monthlyStep"&&!empty(val))settings.monthlyStep=Number(val);
+          if(k==="monthlyStepMonth"&&!empty(val))settings.monthlyStepMonth=String(val);
           nSet++;
         });
       }
@@ -2425,8 +2498,38 @@ function handleExcelImport(e){
         }
       }
 
-      // Backward compat: if gridStocks not imported, derive from status==="grid" or gridPersonal/gridCaca columns
+      // Sheet 5: Index Log (v3.40) — restore per-region per-portfolio DCA history
+      if(wb.SheetNames.includes("IndexLog")){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets["IndexLog"]);
+        // Build per-(portfolio,region) sets of existing keys so we can merge without duplicates
+        const seen={};
+        ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+          const ip=getIndexPos(pk,rg);if(!ip.deployLog)ip.deployLog=[];
+          seen[pk+"|"+rg]=new Set(ip.deployLog.map(e=>(e.date||"")+"|"+(e.shares||0)+"|"+(e.price||0)));
+        });});
+        rows.forEach(row=>{
+          const pk=String(row.portfolio||"personal");const rg=String(row.region||"us");
+          if(!portfolios[pk]||(rg!=="us"&&rg!=="eu"))return;
+          const ip=getIndexPos(pk,rg);
+          const key=(row.date||"")+"|"+(Number(row.shares)||0)+"|"+(Number(row.price)||0);
+          if(seen[pk+"|"+rg].has(key))return;
+          ip.deployLog.push({
+            date:row.date?String(row.date):new Date().toISOString(),
+            shares:Number(row.shares)||0,
+            price:Number(row.price)||0,
+            amount:Number(row.amount)||0});
+          seen[pk+"|"+rg].add(key);
+        });
+        // Sort each log oldest-first to match in-app push order
+        ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+          const ip=getIndexPos(pk,rg);if(ip.deployLog)ip.deployLog.sort((a,b)=>new Date(a.date)-new Date(b.date));
+        });});
+      }
+
+      // Backward compat: only derive when Settings sheet did NOT supply gridStocks_* (legacy exports).
+      // If a new-format export provided gridStocks_* explicitly (even as empty ""), that is authoritative.
       ["personal","nl"].forEach(pk=>{
+        if(gridKeysSeen[pk])return; // authoritative empty/populated grid already applied
         if(!portfolios[pk].gridStocks||!portfolios[pk].gridStocks.length){
           // Check if Stocks sheet had gridPersonal/gridCaca columns
           const colKey=pk==="personal"?"gridPersonal":"gridCaca";
