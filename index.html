@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.42</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.43</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5389,11 +5389,17 @@ function openAddPosition(pk){
 // ============ TRANCHE MODALS ============
 function openTrEdit(pk,t,i){
   const tr=portfolios[pk].positions[t].tranches[i];const s=stocks[t];
+  // Build signal dropdown options. Standard set matches openAddTranche; we also include
+  // "risk" and "initial" so legacy tranches edit cleanly. If the current signal is something
+  // outside the standard list (e.g. "avg" or a typo), prepend it so the dropdown shows the
+  // current value as selected and the user can switch away from it without losing it by accident.
+  const sigOptsStd=["MOS","10Cap","PBT","hold","trophy","risk","initial"];
+  const sigOpts=sigOptsStd.includes(tr.signal)?sigOptsStd:[tr.signal,...sigOptsStd];
   showModal(`${t} — ${tr.signal}`,[
     {id:"ed-b",label:"Bought",val:tr.bought,type:"number"},
     {id:"ed-s",label:"Sold",val:tr.sold,type:"number"},
     {id:"ed-p",label:"Buy Price ("+s.currency+")",val:tr.buyPrice,type:"number"},
-    {id:"ed-l",label:"Signal",val:tr.signal},
+    {id:"ed-l",label:"Signal",val:tr.signal,select:sigOpts},
     {id:"ed-ath",label:"ATH (trailing stop)",val:tr.ath||"",type:"number"},
     {id:"ed-st",label:"State",val:tr.state||"accumulating",select:["accumulating","stopActive","stopped","sold"]},
   ],()=>{const prevSold=tr.sold;const newSold=nv("ed-s")||0;tr.bought=nv("ed-b")||0;tr.sold=newSold;tr.buyPrice=nv("ed-p")||0;tr.signal=gv("ed-l")||"avg";const a=nv("ed-ath");tr.ath=a||undefined;tr.state=gv("ed-st")||"accumulating";
