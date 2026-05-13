@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.44</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.45</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1191,24 +1191,37 @@ async function fetchPrices(){
   }
 
   // 3. Yahoo Finance for all stocks via Cloudflare Worker proxy
+  // FIX v3.45: defensive symbol normalization (trim + collapse) and priceMult fallback.
+  // Diagnostic recorded on window._priceDiag so MICC-class lookup misses are debuggable.
   let yfOk=0;
+  window._priceDiag={fetched:[],applied:[],missing:[],zeroPriceMult:[]};
   if(settings.ibkrWorker){
+    // Normalize finnhubSymbol in-place once per fetch to clean any hidden whitespace
+    // or zero-width chars introduced by mobile keyboards or paste operations.
+    Object.values(stocks).forEach(s=>{if(s.finnhubSymbol)s.finnhubSymbol=String(s.finnhubSymbol).replace(/[\s\u200B-\u200F\uFEFF]/g,"");});
     const yfStocks=Object.entries(stocks).filter(([t,s])=>s.finnhubSymbol);
     if(yfStocks.length>0){
       try{
         const syms=yfStocks.map(([t,s])=>s.finnhubSymbol).join(",");
         const r=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(syms)}`);
         const d=await r.json();
+        window._priceDiag.fetched=Object.keys(d||{});
         yfStocks.forEach(([t,s])=>{
-          const q=d[s.finnhubSymbol];
+          const sym=s.finnhubSymbol;
+          const q=d[sym];
           if(q&&q.price>0){
-            s.currentPrice=q.price*s.priceMult;s.lastUpdate=Date.now();s.priceSource="yahoo";
+            const mult=(s.priceMult&&s.priceMult>0)?s.priceMult:1;
+            if(!s.priceMult||s.priceMult<=0){s.priceMult=1;window._priceDiag.zeroPriceMult.push(t);}
+            s.currentPrice=q.price*mult;s.lastUpdate=Date.now();s.priceSource="yahoo";
             if(q.earningsTimestamp&&q.earningsTimestamp>0){s.earningsDate=q.earningsTimestamp*1000;}
             else if(q.earningsDate&&q.earningsDate>0){s.earningsDate=q.earningsDate;}
             updateSignals(t);yfOk++;
+            window._priceDiag.applied.push({t,sym,price:q.price});
+          }else{
+            window._priceDiag.missing.push({t,sym,inResponse:sym in (d||{}),raw:d?.[sym]});
           }
         });
-      }catch(e){}
+      }catch(e){window._priceDiag.error=String(e);}
     }
   }
 
@@ -5288,7 +5301,7 @@ function openEditStock(t){
     "— Category —",
     {id:"es-cat",label:"Framework",val:isRisk(t,currentPf)?"Risk":(s.category==="buffett"?"Buffett":"Phil Town"),select:["Phil Town","Buffett","Risk"]},
   ],()=>{
-    s.name=gv("es-name")||s.name;const fhv=gv("es-fh");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
+    s.name=gv("es-name")||s.name;const fhv=(gv("es-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,"");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;
     s.cons.eps=nv("es-eps");s.cons.gr=nv("es-gr")??s.cons.gr;s.cons.pe=nv("es-pe");
     s.cons.oe=nv("es-oe");s.cons.fcf=nv("es-fcf");
@@ -5380,7 +5393,7 @@ function openAddStock(){
     if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
     const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
-      status:"watchlist",finnhubSymbol:gv("ns-fh")||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
+      status:"watchlist",finnhubSymbol:((gv("ns-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,""))||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,eps,pe,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
     updateSignals(t);save();
