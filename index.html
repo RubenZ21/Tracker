@@ -1192,36 +1192,44 @@ async function fetchPrices(){
 
   // 3. Yahoo Finance for all stocks via Cloudflare Worker proxy
   // FIX v3.45: defensive symbol normalization (trim + collapse) and priceMult fallback.
+  // FIX v3.45: chunk batches of 10 — Yahoo's quote endpoint silently truncates large
+  // batches, dropping symbols past the cutoff (typically ~10-20). One batched request
+  // of 30+ symbols was returning only the first ~10, leaving MICC and others at price 0.
   // Diagnostic recorded on window._priceDiag so MICC-class lookup misses are debuggable.
   let yfOk=0;
-  window._priceDiag={fetched:[],applied:[],missing:[],zeroPriceMult:[]};
+  window._priceDiag={fetched:[],applied:[],missing:[],zeroPriceMult:[],chunks:0};
   if(settings.ibkrWorker){
-    // Normalize finnhubSymbol in-place once per fetch to clean any hidden whitespace
-    // or zero-width chars introduced by mobile keyboards or paste operations.
     Object.values(stocks).forEach(s=>{if(s.finnhubSymbol)s.finnhubSymbol=String(s.finnhubSymbol).replace(/[\s\u200B-\u200F\uFEFF]/g,"");});
     const yfStocks=Object.entries(stocks).filter(([t,s])=>s.finnhubSymbol);
     if(yfStocks.length>0){
-      try{
-        const syms=yfStocks.map(([t,s])=>s.finnhubSymbol).join(",");
-        const r=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(syms)}`);
-        const d=await r.json();
-        window._priceDiag.fetched=Object.keys(d||{});
-        yfStocks.forEach(([t,s])=>{
-          const sym=s.finnhubSymbol;
-          const q=d[sym];
-          if(q&&q.price>0){
-            const mult=(s.priceMult&&s.priceMult>0)?s.priceMult:1;
-            if(!s.priceMult||s.priceMult<=0){s.priceMult=1;window._priceDiag.zeroPriceMult.push(t);}
-            s.currentPrice=q.price*mult;s.lastUpdate=Date.now();s.priceSource="yahoo";
-            if(q.earningsTimestamp&&q.earningsTimestamp>0){s.earningsDate=q.earningsTimestamp*1000;}
-            else if(q.earningsDate&&q.earningsDate>0){s.earningsDate=q.earningsDate;}
-            updateSignals(t);yfOk++;
-            window._priceDiag.applied.push({t,sym,price:q.price});
-          }else{
-            window._priceDiag.missing.push({t,sym,inResponse:sym in (d||{}),raw:d?.[sym]});
-          }
-        });
-      }catch(e){window._priceDiag.error=String(e);}
+      const CHUNK=10;
+      const d={};
+      for(let i=0;i<yfStocks.length;i+=CHUNK){
+        const batch=yfStocks.slice(i,i+CHUNK);
+        try{
+          const syms=batch.map(([t,s])=>s.finnhubSymbol).join(",");
+          const r=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(syms)}`);
+          const part=await r.json();
+          Object.assign(d,part||{});
+          window._priceDiag.chunks++;
+        }catch(e){window._priceDiag.error=String(e);}
+      }
+      window._priceDiag.fetched=Object.keys(d);
+      yfStocks.forEach(([t,s])=>{
+        const sym=s.finnhubSymbol;
+        const q=d[sym];
+        if(q&&q.price>0){
+          const mult=(s.priceMult&&s.priceMult>0)?s.priceMult:1;
+          if(!s.priceMult||s.priceMult<=0){s.priceMult=1;window._priceDiag.zeroPriceMult.push(t);}
+          s.currentPrice=q.price*mult;s.lastUpdate=Date.now();s.priceSource="yahoo";
+          if(q.earningsTimestamp&&q.earningsTimestamp>0){s.earningsDate=q.earningsTimestamp*1000;}
+          else if(q.earningsDate&&q.earningsDate>0){s.earningsDate=q.earningsDate;}
+          updateSignals(t);yfOk++;
+          window._priceDiag.applied.push({t,sym,price:q.price});
+        }else{
+          window._priceDiag.missing.push({t,sym,inResponse:sym in d,raw:d[sym]});
+        }
+      });
     }
   }
 
