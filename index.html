@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.43</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.44</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1744,18 +1744,47 @@ function showImportDiffModal(changes,nUpd,nNew){
   document.body.appendChild(overlay);
 }
 
+// Full-file CSV parser. Handles RFC 4180-style quoted fields with embedded
+// newlines, commas, and escaped quotes (""). Strips BOM. Trims cells.
+// Returns rows[] where each row is a string[]. Skips fully blank rows.
+// FIX v3.44: replaces previous line-by-line approach that corrupted any row
+// containing a notes/specReason value with an embedded newline (the export
+// quotes them correctly; the old import split on "\n" before parsing quotes).
+function parseCSVText(src){
+  if(!src)return[];
+  if(src.charCodeAt(0)===0xFEFF)src=src.slice(1);
+  const rows=[];let row=[],cur="",inQ=false;
+  for(let i=0;i<src.length;i++){
+    const c=src[i];
+    if(inQ){
+      if(c==='"'){if(src[i+1]==='"'){cur+='"';i++;}else inQ=false;}
+      else cur+=c;
+    }else{
+      if(c==='"'&&cur===""){inQ=true;}
+      else if(c===','){row.push(cur.trim());cur="";}
+      else if(c==='\r'||c==='\n'){
+        if(c==='\r'&&src[i+1]==='\n')i++;
+        row.push(cur.trim());cur="";
+        if(row.some(x=>x!==""))rows.push(row);
+        row=[];
+      }else cur+=c;
+    }
+  }
+  if(cur!==""||row.length>0){
+    row.push(cur.trim());
+    if(row.some(x=>x!==""))rows.push(row);
+  }
+  return rows;
+}
+
 function handleCSVImport(e){
   const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=function(ev){
-    const lines=ev.target.result.split("\n").filter(l=>l.trim());if(lines.length<2)return alert("Empty CSV");
-    // Proper CSV line parser: handles quoted fields with embedded commas, quotes ("" → "), and trims
-    const parseCSVLine=line=>{const out=[];let cur="",inQ=false;for(let i=0;i<line.length;i++){const c=line[i];
-      if(inQ){if(c==='"'){if(line[i+1]==='"'){cur+='"';i++;}else{inQ=false;}}else{cur+=c;}}
-      else{if(c===','){out.push(cur.trim());cur="";}else if(c==='"'&&cur===""){inQ=true;}else{cur+=c;}}}
-      out.push(cur.trim());return out;};
-    const hdr=parseCSVLine(lines[0]).map(h=>h.trim().toLowerCase());let nUpd=0,nNew=0;
+    const rows=parseCSVText(ev.target.result);
+    if(rows.length<2)return alert("Empty CSV");
+    const hdr=rows[0].map(h=>h.trim().toLowerCase());let nUpd=0,nNew=0;
     const beforeSnap=snapshotStocks();
-    for(let i=1;i<lines.length;i++){const v=parseCSVLine(lines[i]);const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
+    for(let i=1;i<rows.length;i++){const v=rows[i];const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
       const t=(row.ticker||"").toUpperCase();if(!t)continue;
       // Auto-create stock if ticker doesn't exist yet
       if(!stocks[t]){
@@ -2169,16 +2198,13 @@ function handleHoldingsCSVImport(e){
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
   r.onload=function(ev){
-    const text=ev.target.result;
-    const lines=text.split(/\r?\n/).filter(l=>l.trim().length>0);
-    if(lines.length<2){alert("Empty CSV — needs header row + at least one data row.");e.target.value="";return;}
-    // Reuse the same robust CSV line parser pattern as triggers import
-    const parseCSVLine=line=>{const out=[];let cur="",inQ=false;for(let i=0;i<line.length;i++){const c=line[i];
-      if(inQ){if(c==='"'){if(line[i+1]==='"'){cur+='"';i++;}else{inQ=false;}}else{cur+=c;}}
-      else{if(c===','){out.push(cur);cur="";}else if(c==='"'&&cur===""){inQ=true;}else{cur+=c;}}}
-      out.push(cur);return out.map(s=>s.trim());};
+    // FIX v3.44: parseCSVText handles embedded newlines inside quoted notes;
+    // the previous split(/\r?\n/) approach truncated any row whose notes value
+    // contained a literal newline and could spawn phantom ticker rows.
+    const rows=parseCSVText(ev.target.result);
+    if(rows.length<2){alert("Empty CSV — needs header row + at least one data row.");e.target.value="";return;}
     const REQUIRED=["portfolio","ticker","tranchetype","shares","buyprice"];
-    const hdr=parseCSVLine(lines[0]).map(h=>h.toLowerCase());
+    const hdr=rows[0].map(h=>h.toLowerCase());
     const missing=REQUIRED.filter(c=>!hdr.includes(c));
     if(missing.length){
       showHoldingsErrorModal([{line:1,msg:`Header missing required column${missing.length>1?"s":""}: ${missing.join(", ")}. Expected: portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes`}]);
@@ -2187,9 +2213,9 @@ function handleHoldingsCSVImport(e){
     const idx=name=>hdr.indexOf(name);
     const iPf=idx("portfolio"),iTk=idx("ticker"),iTt=idx("tranchetype"),iSh=idx("shares"),iBp=idx("buyprice"),iBd=idx("buydate"),iNo=idx("notes");
     const errors=[],warnings=[],parsed=[];
-    for(let i=1;i<lines.length;i++){
-      const cells=parseCSVLine(lines[i]);
-      const lineNo=i+1; // 1-indexed file line
+    for(let i=1;i<rows.length;i++){
+      const cells=rows[i];
+      const lineNo=i+1; // 1-indexed file line (approximate after multi-line cells)
       const pfRaw=(cells[iPf]||"").toLowerCase();
       const ticker=(cells[iTk]||"").toUpperCase();
       const tt=cells[iTt]||"";
@@ -4671,18 +4697,14 @@ function handleRisklistCSVImport(ev){
   const f=ev.target.files[0];if(!f)return;
   const r=new FileReader();
   r.onload=evt=>{
-    const lines=evt.target.result.split("\n").filter(l=>l.trim());
-    if(lines.length<2){alert("Empty CSV");return;}
-    // CSV line parser handling quoted fields with embedded commas/quotes
-    const parseLine=line=>{const out=[];let cur="",inQ=false;for(let i=0;i<line.length;i++){const c=line[i];
-      if(c==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
-      else if(c===","&&!inQ){out.push(cur);cur="";}
-      else cur+=c;}out.push(cur);return out;};
-    const hdr=parseLine(lines[0]).map(h=>h.trim());
+    // FIX v3.44: parseCSVText handles embedded newlines in quoted fields.
+    const rows=parseCSVText(evt.target.result);
+    if(rows.length<2){alert("Empty CSV");return;}
+    const hdr=rows[0].map(h=>h.trim());
     const idx=(name)=>hdr.indexOf(name);
     let added=0,updated=0,skipped=0;
-    for(let i=1;i<lines.length;i++){
-      const row=parseLine(lines[i]);
+    for(let i=1;i<rows.length;i++){
+      const row=rows[i];
       const ticker=(row[idx("ticker")]||"").trim().toUpperCase();
       if(!ticker)continue;
       const num=(name)=>{const v=row[idx(name)];if(v==null||v==="")return null;const n=parseFloat(v);return isNaN(n)?null:n;};
