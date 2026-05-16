@@ -56,7 +56,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .sig-ind.none{background:transparent;border:2px solid #333}
 .sig-ind.filled{background:transparent;border:1.5px solid #888;color:#888;font-size:11px;font-weight:700}
 @keyframes sigPulse{0%,100%{box-shadow:0 0 8px #f8717150}50%{box-shadow:0 0 16px #f87171aa}}
-.sig-sub{font-size:8px;color:var(--muted);font-family:var(--mono);text-align:center;line-height:1.2}
+.sig-sub{font-size:8px;color:var(--text);font-family:var(--mono);text-align:center;line-height:1.2}
 .sig-sub.buy-sub{color:#34d399}.sig-sub.track-sub{color:#60a5fa}.sig-sub.warn-sub{color:#fbbf24}.sig-sub.sell-sub{color:#f87171}
 .sell-card{background:var(--card);border-radius:8px;padding:12px;margin-bottom:8px}
 .wl-card{background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--border);overflow:hidden}
@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.48</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.54</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3214,7 +3214,7 @@ function openConviction(t){
     <div class="modal-sheet" style="padding:24px;text-align:center">
     <div style="font-size:40px;margin-bottom:8px">🛡️</div>
     <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:2px">${s.flag} ${t}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}${buf?` · <span style="color:#38bdf8">Buffett Category</span>`:hg?` · <span style="color:#fb923c">High-Growth</span>`:""}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}${buf?` · <span style="color:#38bdf8">Buffett Category</span>`:hg?` · <span style="color:#a855f7">High-Growth</span>`:""}</div>
 
     <div style="text-align:left;margin-bottom:16px">
       <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:6px;border-left:3px solid var(--green)">
@@ -3381,9 +3381,11 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Dual-label header when any stock on the current view is High-Growth (alternate labels shown dim below).
   const _hdrCardTickers=[...GRID,...getSpeculative()];
   const hasHighgr=_hdrCardTickers.some(t=>stocks[t]?.category==="highgr");
-  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700;line-height:1.0">PBT${hasHighgr?`<div style="font-size:9px;color:var(--muted);font-weight:500;line-height:1.1;margin-top:1px;text-align:center">DMOS</div>`:""}</div><div style="color:#60a5fa;font-weight:700;line-height:1.0">10Cap${hasHighgr?`<div style="font-size:9px;color:var(--muted);font-weight:500;line-height:1.1;margin-top:1px;text-align:center">20Cap</div>`:""}</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
+  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700">PBT${hasHighgr?`<span>/DMOS</span>`:""}</div><div style="color:#60a5fa;font-weight:700">10Cap${hasHighgr?`<span>/20Cap</span>`:""}</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
+    // Framework badge — PT (Phil Town green), WB (Buffett cyan), HG (High-Growth pink). Matches position-card badge colors.
+    const _catBadge=isHighgr(t)?`<span style="font-size:9px;color:#a855f7;background:#a855f720;padding:1px 4px;border-radius:3px;margin-right:4px">HG</span>`:isBuffett(t)?`<span style="font-size:9px;color:#38bdf8;background:#38bdf820;padding:1px 4px;border-radius:3px;margin-right:4px">WB</span>`:`<span style="font-size:9px;color:#34d399;background:#34d39920;padding:1px 4px;border-radius:3px;margin-right:4px">PT</span>`;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${_catBadge}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       // Buffett category: MOS column shows "—" (not applicable)
       if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
@@ -3609,8 +3611,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
       _isGrid&&isBuffett(ticker)&&sig>0?`<span class="pos-badge" style="background:#1a2332;color:#38bdf8">BUFFETT ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&isBuffett(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">BUFFETT 0/${validTriggerSlots(ticker,currentPf)}</span>`:
-      _isGrid&&isHighgr(ticker)&&sig>0?`<span class="pos-badge" style="background:#3a2208;color:#fb923c">HG ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
-      _isGrid&&isHighgr(ticker)?`<span class="pos-badge" style="background:#3a2208;color:#fdba74">HG 0/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid&&isHighgr(ticker)&&sig>0?`<span class="pos-badge" style="background:#2a1438;color:#a855f7">HG ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid&&isHighgr(ticker)?`<span class="pos-badge" style="background:#2a1438;color:#c4b5fd">HG 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:"";
     const _phase=positionPhase(ticker,currentPf);
