@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.46</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.47</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -439,9 +439,18 @@ function earningsChip(t){
 }
 // Buffett Category: wide-moat low-growth stocks evaluated by Ten Cap + PBT only (no MOS/Sticker)
 function isBuffett(t){return stocks[t]?.category==="buffett";}
+// High-Growth Phil Town: gr>=16% stocks where Ten Cap->20Cap (OE*20) and PBT->DMOS (MOS*0.9).
+// Column reuse: s.cons.tenCap stores 20Cap value, s.cons.pbt stores DMOS value. MOS unchanged.
+function isHighgr(t){return stocks[t]?.category==="highgr";}
+// Label helpers — slot T3 is stored in cons.tenCap, slot T2 in cons.pbt.
+// One-file change adds a 4th category later.
+function trigT3Label(t){return isHighgr(t)?"20Cap":"10Cap";}
+function trigT2Label(t){return isHighgr(t)?"DMOS":"PBT";}
+function trigT3LongLabel(t){return isHighgr(t)?"20Cap":"Ten Cap";}
+function trigT2LongLabel(t){return isHighgr(t)?"DMOS — Deeper MOS":"PBT — Payback Time";}
 function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;const buf=isBuffett(t);return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 // Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2). Buffett stocks: no ceiling.
-function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;if(s.category==="buffett")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
+function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;if(s.category==="buffett")return false;if(s.category==="highgr"&&sigKey==="pbt")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
 // Piggyback: a muted trigger deploys when price is below it AND at least one valid signal is firing
 function isPiggyback(s,sigKey){if(!isTriggerMuted(s,sigKey))return false;const p=s.currentPrice;const tp=s.cons?.[sigKey];return tp!=null&&p!=null&&p<=tp&&sigCount_raw(s)>0;}
 function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;const buf=s.category==="buffett";return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
@@ -464,15 +473,17 @@ function validTriggerSlots(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===fals
 // Used to suppress buy badges and push notifications mid-month so they only appear for signals
 // where capital has not yet been deployed. Monthly allocation (deployCount) is intentionally NOT
 // gated by this — salary day still tops up existing tranches when their signal is firing.
-// Tranche.signal uses canonical labels "MOS"/"10Cap"/"PBT"; sigKey uses lowercase "mos"/"tenCap"/"pbt".
+// Tranche.signal uses canonical labels "MOS"/"10Cap"/"PBT" (or "20Cap"/"DMOS" for highgr-era tranches);
+// sigKey uses lowercase column names "mos"/"tenCap"/"pbt". One sigKey may match multiple labels because
+// old tranches purchased pre-category-change retain their original label permanently.
 function hasTrancheForSignal(ticker,sigKey,pfKey){
-  const sigName=sigKey==="mos"?"MOS":sigKey==="tenCap"?"10Cap":sigKey==="pbt"?"PBT":null;
-  if(!sigName)return false;
+  const sigNames=sigKey==="mos"?["MOS"]:sigKey==="tenCap"?["10Cap","20Cap"]:sigKey==="pbt"?["PBT","DMOS"]:null;
+  if(!sigNames)return false;
   const pfsToCheck=pfKey?[pfKey]:["personal","nl"];
   return pfsToCheck.some(pk=>{
     const pos=portfolios[pk]?.positions?.[ticker];
     if(!pos?.tranches)return false;
-    return pos.tranches.some(tr=>tr.signal===sigName&&(tr.bought-tr.sold)>0);
+    return pos.tranches.some(tr=>sigNames.includes(tr.signal)&&(tr.bought-tr.sold)>0);
   });
 }
 
@@ -485,7 +496,7 @@ function hasLimitOrder(t,sig,pf){const v=stocks[t]?.limitOrders?.[sig];if(!v)ret
 function loLabel(t,sig){const v=stocks[t]?.limitOrders?.[sig];if(!v)return"";if(v==="personal")return"🧑";if(v==="both")return"🧑🧓";if(v==="caca")return"🧓";return"";}
 function stockLimitOrderCount(t){const lo=stocks[t]?.limitOrders;if(!lo)return 0;return["mos","tenCap","pbt"].filter(k=>lo[k]).length;}
 function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
-function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?"10Cap":"PBT");return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
+function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?trigT3Label(t):trigT2Label(t));return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
 // Returns {sticker, mos} or null if any input is missing
 // Uses settings.marr (default 10%) as discount rate: divisor = (1 + marr/100)^10
 function recalcSticker(eps,gr,pe){
@@ -506,6 +517,26 @@ function applyRecalcSticker(s){
   const oldSticker=s.cons.sticker;
   s.cons.mos=r.mos;s.cons.sticker=r.sticker;
   if(oldSticker&&r.sticker!==oldSticker)s.cons.prevSticker=oldSticker;
+}
+
+// Recompute the tenCap and pbt columns from inputs, category-aware.
+// MUST be called AFTER applyRecalcSticker so s.cons.mos is current (DMOS depends on it).
+//   Standard / Buffett: tenCap = oe*10        ; pbt = 8yr cumulative growing FCF
+//   High-Growth      : tenCap = oe*20 (20Cap); pbt = mos*0.9 (DMOS, = sticker*0.45)
+function recalcConsTriggers(s){
+  if(!s?.cons)return;
+  const hg=s.category==="highgr";
+  if(s.cons.oe!=null){
+    const mult=hg?20:10;
+    s.cons.tenCap=+(s.cons.oe*mult).toFixed(2);
+  }
+  if(hg){
+    if(s.cons.mos!=null)s.cons.pbt=+(s.cons.mos*0.90).toFixed(2);
+  }else if(s.cons.fcf!=null&&s.cons.gr!=null){
+    const g=s.cons.gr/100;let sum=0;
+    for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);
+    s.cons.pbt=+sum.toFixed(2);
+  }
 }
 
 // RingMark — live signal mark SVG. Three concentric rings: outer=PBT(purple), middle=10Cap(blue), inner=MOS(green)
@@ -628,7 +659,7 @@ function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker
 
 // Find the closest trigger (highest price = fires first on decline) and its implied return
 function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(!mos)return null;const sticker=mos*2;
-  const triggers=[];if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push({name:"10Cap",price:s.cons.tenCap});if(s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push({name:"PBT",price:s.cons.pbt});
+  const triggers=[];if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push({name:trigT3Label(t),price:s.cons.tenCap});if(s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push({name:trigT2Label(t),price:s.cons.pbt});
   if(!triggers.length)return null;const closest=triggers.reduce((a,b)=>a.price>b.price?a:b);
   const ir=calcImpliedReturn(sticker,closest.price);if(ir==null)return null;
   return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,aboveMarr:ir>=0.15};}
@@ -1434,10 +1465,10 @@ async function syncIBKR(pfKey){
       if(p.t){
         const s=stocks[p.t];const sigs=[];
         if(s?.signals?.mos)sigs.push("MOS");
-        if(s?.signals?.tenCap)sigs.push("10Cap");
-        if(s?.signals?.pbt)sigs.push("PBT");
-        if(!sigs.length)sigs.push("PBT");
-        const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa"};
+        if(s?.signals?.tenCap)sigs.push(trigT3Label(p.t));
+        if(s?.signals?.pbt)sigs.push(trigT2Label(p.t));
+        if(!sigs.length)sigs.push(trigT2Label(p.t));
+        const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa"};
         const per=Math.floor(p.qty/sigs.length*100)/100;
         preview+=`<div style="padding:1px 0 3px 12px;font-size:10px;color:var(--muted)">→ ${sigs.map((sg,i)=>{
           const sh=i===sigs.length-1?(p.qty-per*(sigs.length-1)).toFixed(2):per.toFixed(2);
@@ -1481,10 +1512,10 @@ function applyIBKR(pfKey){
       // Rebuild: split shares equally across active signals for DCA sell targets
       const signals=[];
       if(s?.signals?.mos)signals.push("MOS");
-      if(s?.signals?.tenCap)signals.push("10Cap");
-      if(s?.signals?.pbt)signals.push("PBT");
+      if(s?.signals?.tenCap)signals.push(trigT3Label(p.t));
+      if(s?.signals?.pbt)signals.push(trigT2Label(p.t));
       // If no signals firing, use all 3 as placeholders
-      if(!signals.length)signals.push("PBT");
+      if(!signals.length)signals.push(trigT2Label(p.t));
 
       const perTranche=p.qty/signals.length;
       const tranches=signals.map((sig,i)=>{
@@ -1593,9 +1624,9 @@ async function autoSyncIBKR(pfKey){
       }else{
         const sigs=[];
         if(stocks[t]?.signals?.mos)sigs.push("MOS");
-        if(stocks[t]?.signals?.tenCap)sigs.push("10Cap");
-        if(stocks[t]?.signals?.pbt)sigs.push("PBT");
-        if(!sigs.length)sigs.push("PBT");
+        if(stocks[t]?.signals?.tenCap)sigs.push(trigT3Label(t));
+        if(stocks[t]?.signals?.pbt)sigs.push(trigT2Label(t));
+        if(!sigs.length)sigs.push(trigT2Label(t));
         const per=qty/sigs.length;
         pf.positions[t]={tranches:sigs.map((sig,i)=>({signal:sig,bought:i===sigs.length-1?qty-per*(sigs.length-1):Math.floor(per*100)/100,sold:0,buyPrice:cost,state:"accumulating"}))};
       }
@@ -1652,7 +1683,7 @@ function exportCSV(){
     const v=x=>x!=null?x:"";
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
-    const cat=s.category==="buffett"?"buffett":"";
+    const cat=s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"";
     csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
@@ -1858,8 +1889,8 @@ function handleCSVImport(e){
       else{s.lastCalcDate=Date.now();}
       // Import earnings date from CSV
       if(hdr.includes("earningsdate")&&row.earningsdate){const d=new Date(row.earningsdate);s.earningsDate=isNaN(d)?null:d.getTime();}
-      // Import category (buffett or philtown/empty)
-      if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=cat==="buffett"?"buffett":undefined;}
+      // Import category (buffett, highgr, or philtown/empty)
+      if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=cat==="buffett"?"buffett":cat==="highgr"?"highgr":undefined;}
       // Import notes (general stock comments)
       if(hdr.includes("notes")){const nv=(row.notes||"").trim();if(nv)s.notes=nv;else delete s.notes;}
       // Import specReason (risk thesis text). v3.31: text-only sync — risk-bucket membership
@@ -1868,10 +1899,8 @@ function handleCSVImport(e){
         if(sr)s.specReason=sr;else delete s.specReason;}
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
-      // Auto-calculate tenCap from OE
-      if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
-      // Auto-calculate PBT from FCF+gr
-      if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
+      // Auto-calc tenCap + pbt (category-aware: highgr uses 20Cap/DMOS formulas)
+      recalcConsTriggers(s);
       // If no eps/pe auto-calc, derive sticker from manual MOS
       if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
       updateSignals(t);nUpd++;}
@@ -1904,14 +1933,18 @@ function _trancheTypeForExport(t,pfKey,signal){
   if(signal==="risk")return"risk";
   const buf=isBuffett(t);
   if(signal==="MOS")return"mos";
-  if(signal==="10Cap")return buf?"buffettTenCap":"tenCap";
-  if(signal==="PBT")return buf?"buffettPbt":"pbt";
+  // 20Cap and 10Cap both live in the tenCap column → same CSV trancheType.
+  // DMOS and PBT both live in the pbt column → same CSV trancheType.
+  if(signal==="10Cap"||signal==="20Cap")return buf?"buffettTenCap":"tenCap";
+  if(signal==="PBT"||signal==="DMOS")return buf?"buffettPbt":"pbt";
   return"initial"; // unknown / fallback
 }
-function _trancheTypeToSignal(tt){
+// ticker context lets us pick highgr-era labels on round-trip; if a tenCap-column tranche is being
+// imported into a stock that's currently highgr, give it the "20Cap" label rather than "10Cap".
+function _trancheTypeToSignal(tt,ticker){
   if(tt==="mos")return"MOS";
-  if(tt==="tenCap"||tt==="buffettTenCap")return"10Cap";
-  if(tt==="pbt"||tt==="buffettPbt")return"PBT";
+  if(tt==="tenCap"||tt==="buffettTenCap")return ticker&&isHighgr(ticker)?"20Cap":"10Cap";
+  if(tt==="pbt"||tt==="buffettPbt")return ticker&&isHighgr(ticker)?"DMOS":"PBT";
   if(tt==="trophy")return"trophy";
   if(tt==="initial")return"initial";
   if(tt==="risk")return"risk";
@@ -2041,7 +2074,7 @@ function _computeHoldingsDiff(parsed){
       return;
     }
     if(tt==="cash"){a.cash[ticker]=(a.cash[ticker]||0)+shares;return;}
-    const sig=_trancheTypeToSignal(tt);
+    const sig=_trancheTypeToSignal(tt,ticker);
     if(!a.stocks[ticker])a.stocks[ticker]=[];
     a.stocks[ticker].push({signal:sig,shares,buyPrice,buyDate:buyDate||null,notes:notes||""});
   });
@@ -2333,7 +2366,7 @@ function _applyHoldingsImport(parsed,warnings){
     }
     // Stock tranche
     if(!pf.positions[ticker])pf.positions[ticker]={tranches:[]};
-    const sig=_trancheTypeToSignal(tt);
+    const sig=_trancheTypeToSignal(tt,ticker);
     const tr={signal:sig,bought:shares,sold:0,buyPrice,state:"accumulating"};
     if(buyDate)tr.buyDate=buyDate;
     if(notes)tr.notes=notes;
@@ -2380,7 +2413,7 @@ function exportExcel(){
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
-    category:s.category==="buffett"?"buffett":"",
+    category:s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"",
     sector:s.sector||"",
     specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
@@ -2518,22 +2551,22 @@ function handleExcelImport(e){
             s.cons.pbt=vn(row.pbt);s.cons.pbtYrs=vn(row.pbtYrs);s.cons.gr=vn(row.gr);
             s.cons.oe=vn(row.oe);s.cons.fcf=vn(row.fcf);
             s.cons.eps=vn(row.eps);s.cons.pe=vn(row.pe);
-            // Auto-calc chain: eps+gr+pe → sticker+mos
-            applyRecalcSticker(s);
-            // Auto-calc tenCap from OE, PBT from FCF+gr
-            if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
-            if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
-            // If no eps/pe auto-calc, derive sticker from manual MOS
-            if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:(vn(row.sticker)||null);}
-            else{s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
             if(row.prevSticker!=null)s.cons.prevSticker=vn(row.prevSticker);
             if(row.gate!=null)s.gate=String(row.gate)==="FAIL"?false:true;
             if(row.specReason!=null)s.specReason=String(row.specReason);
             if(row.specDate!=null)s.specDate=vn(row.specDate);
             if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
             if(row.priority!=null)s.priority=vn(row.priority);
-            // Category: "buffett" → set; empty cell in present column → clear; column absent → preserve
-            if(hasCategoryCol){const cat=String(row.category||"").trim().toLowerCase();if(cat==="buffett")s.category="buffett";else delete s.category;}
+            // Category: "buffett"/"highgr" → set; empty cell in present column → clear; column absent → preserve.
+            // MUST happen before recalcConsTriggers below so highgr formulas apply.
+            if(hasCategoryCol){const cat=String(row.category||"").trim().toLowerCase();if(cat==="buffett")s.category="buffett";else if(cat==="highgr")s.category="highgr";else delete s.category;}
+            // Auto-calc chain: eps+gr+pe → sticker+mos
+            applyRecalcSticker(s);
+            // Auto-calc tenCap + pbt (category-aware: highgr → 20Cap/DMOS)
+            recalcConsTriggers(s);
+            // If no eps/pe auto-calc, derive sticker from manual MOS
+            if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:(vn(row.sticker)||null);}
+            else{s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
             if(row.sector!=null&&row.sector!=="")s.sector=String(row.sector);
             // Trigger freshness: read lastCalcDate from sheet, default to now if absent
             if(row.lastCalcDate){const d=new Date(row.lastCalcDate);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
@@ -2856,7 +2889,7 @@ function checkAlerts(){
   // SIGNAL OFF — price rose above a previously active trigger
   Object.entries(stocks).forEach(([t,s])=>{
     if(!s._sigChanges?.length)return;
-    const names={mos:"MOS",tenCap:"Ten Cap",pbt:"PBT"};
+    const names={mos:"MOS",tenCap:trigT3LongLabel(t),pbt:isHighgr(t)?"DMOS":"PBT"};
     s._sigChanges.filter(c=>c.dir==="off").forEach(c=>{
       const k=`sig-off-${t}-${c.sig}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"info",icon:"ℹ️",
         html:`<strong>${s.flag} ${t}</strong> ${names[c.sig]} signal turned off — price above ${fmt(s.cons[c.sig],s.currency)}`});
@@ -2873,13 +2906,13 @@ function checkAlerts(){
       html:`<strong>${s.flag} ${t}</strong> approaching buy zone — ${fmt(s.currentPrice,s.currency)} is ${Math.round(gap*100)}% above trigger ${fmt(nt,s.currency)}`});}
     else if(gap<=0){
       // Build list of ALL firing signals for this watchlist stock (respecting Sticker Ceiling + per-signal snooze)
-      const p=s.currentPrice,c=s.cons,fires=[],buf=s.category==="buffett";
+      const p=s.currentPrice,c=s.cons,fires=[],buf=s.category==="buffett",hg=s.category==="highgr";
       if(!buf&&c.mos&&p<=c.mos&&!isSnoozed(t,"mos"))fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
-      if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 10Cap ${fmt(c.tenCap,s.currency)}`);
-      if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 PBT ${fmt(c.pbt,s.currency)}`);
+      if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 ${hg?"20Cap":"10Cap"} ${fmt(c.tenCap,s.currency)}`);
+      if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 ${hg?"DMOS":"PBT"} ${fmt(c.pbt,s.currency)}`);
       const isSpec=isRiskAnywhere(t);const maxSigs=buf?2:3;
       if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
-        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});}
+        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":hg?"HIGH-GROWTH":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});}
     }
   });
 
@@ -2917,7 +2950,7 @@ function showBuyModals(){
   const q=buyModalQueue[0]; // Show one at a time
   const s=stocks[q.ticker];if(!s)return;
   const isWL=!isOnAnyGrid(q.ticker);
-  const sigNames={mos:"MOS — Margin of Safety",tenCap:"10Cap — Owner's Earnings",pbt:"PBT — Payback Time"};
+  const sigNames={mos:"MOS — Margin of Safety",tenCap:isHighgr(q.ticker)?"20Cap — Owner's Earnings × 20":"10Cap — Owner's Earnings",pbt:trigT2LongLabel(q.ticker)};
   const sigColors={mos:"#34d399",tenCap:"#60a5fa",pbt:"#a78bfa"};
   const sigIcons={mos:"🟢",tenCap:"🔵",pbt:"🟣"};
   const triggerPrice=q.signal==="mos"?s.cons.mos:q.signal==="tenCap"?s.cons.tenCap:s.cons.pbt;
@@ -3127,14 +3160,15 @@ function sigCellStatus(ticker, sigKey, pfKey){
     if(owned)return{cls:"filled",label:"✓",sub:fmt(trigger,s.currency),subCls:"",topSub:"owned"};
     return{cls:"buy",label:"B",sub:fmt(trigger,s.currency),subCls:"buy-sub"};
   }
-  // Above trigger: check if tranche has shares
-  const sigName=sigKey==="mos"?"MOS":sigKey==="tenCap"?"10Cap":"PBT";
+  // Above trigger: check if tranche has shares. Match both legacy ("10Cap"/"PBT") and highgr-era
+  // ("20Cap"/"DMOS") labels because old tranches keep their original label permanently.
+  const sigNames=sigKey==="mos"?["MOS"]:sigKey==="tenCap"?["10Cap","20Cap"]:["PBT","DMOS"];
   let hasShares=false,worst="hold",maxDD=0;
   const pfsToCheck=pfKey?[pfKey]:["personal","nl"];
   pfsToCheck.forEach(pk=>{
     const pos=portfolios[pk]?.positions?.[ticker];if(!pos)return;
     pos.tranches.forEach(tr=>{
-      if(tr.signal!==sigName||(tr.bought-tr.sold)<=0)return;
+      if(!sigNames.includes(tr.signal)||(tr.bought-tr.sold)<=0)return;
       hasShares=true;
       if(tr.state==="stopped"){worst="sell";if(tr.ath){const dd=(tr.ath-p)/tr.ath*100;if(dd>maxDD)maxDD=dd;}}
       else if(tr.state==="stopActive"&&worst!=="sell"){worst="track";if(tr.ath){const dd=(tr.ath-p)/tr.ath*100;if(dd>maxDD)maxDD=dd;}}
@@ -3164,22 +3198,23 @@ function sigCellStatus(ticker, sigKey, pfKey){
 // ============ CONVICTION CARD (panic antidote) ============
 function openConviction(t){
   const s=stocks[t];if(!s)return;
-  const p=s.currentPrice;const c=s.cons;const buf=isBuffett(t);
+  const p=s.currentPrice;const c=s.cons;const buf=isBuffett(t);const hg=isHighgr(t);
   const refPrice=buf?c.tenCap:(c.mos?c.mos*2:(c.sticker||null));
   const refLabel=buf?"ten cap":"sticker";
   const mosFromRef=refPrice&&p?Math.round((1-p/refPrice)*100):null;
   const sigs=[];const maxSigs=buf?2:3;
+  const _tcLbl=hg?"20Cap":"Ten Cap";const _pbtLbl=hg?"DMOS":"PBT";
   if(!buf&&c.mos&&p<=c.mos)sigs.push("MOS");
-  if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))sigs.push("Ten Cap");
-  else if(c.tenCap&&p<=c.tenCap&&isPiggyback(s,"tenCap"))sigs.push("Ten Cap ↗");
-  if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))sigs.push("PBT");
-  else if(c.pbt&&p<=c.pbt&&isPiggyback(s,"pbt"))sigs.push("PBT ↗");
+  if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))sigs.push(_tcLbl);
+  else if(c.tenCap&&p<=c.tenCap&&isPiggyback(s,"tenCap"))sigs.push(_tcLbl+" ↗");
+  if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))sigs.push(_pbtLbl);
+  else if(c.pbt&&p<=c.pbt&&isPiggyback(s,"pbt"))sigs.push(_pbtLbl+" ↗");
   const moatLabel=moatDisp(s.moat);
   let h=`<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:24px;text-align:center">
     <div style="font-size:40px;margin-bottom:8px">🛡️</div>
     <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:2px">${s.flag} ${t}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}${buf?` · <span style="color:#38bdf8">Buffett Category</span>`:""}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}${buf?` · <span style="color:#38bdf8">Buffett Category</span>`:hg?` · <span style="color:#fb923c">High-Growth</span>`:""}</div>
 
     <div style="text-align:left;margin-bottom:16px">
       <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:6px;border-left:3px solid var(--green)">
@@ -3207,15 +3242,15 @@ function openConviction(t){
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:16px">✅</span>
           <div><div style="font-size:13px;font-weight:700;color:var(--accent)">Money — ${sigs.length?sigs.length+"/"+maxSigs+" signals firing":"Below intrinsic value"}</div>
-          <div style="font-size:11px;color:var(--text);margin-top:2px">${mosFromRef>0?mosFromRef+"% margin of safety below "+refLabel+".":""}${c.pbtYrs?" Payback in "+c.pbtYrs+" years.":""}</div></div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px">${mosFromRef>0?mosFromRef+"% margin of safety below "+refLabel+".":""}${c.pbtYrs&&!hg?" Payback in "+c.pbtYrs+" years.":""}</div></div>
         </div>
       </div>
     </div>`;
 
   // Signals
   h+=`<div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px">`;
-  const _sigItems=buf?[{l:"Ten Cap",v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:"PBT",v:c.pbt,col:"#a78bfa",k:"pbt"}]:
-    [{l:"MOS",v:c.mos,col:"#34d399",k:"mos"},{l:"Ten Cap",v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:"PBT",v:c.pbt,col:"#a78bfa",k:"pbt"}];
+  const _sigItems=buf?[{l:_tcLbl,v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:_pbtLbl,v:c.pbt,col:"#a78bfa",k:"pbt"}]:
+    [{l:"MOS",v:c.mos,col:"#34d399",k:"mos"},{l:_tcLbl,v:c.tenCap,col:"#60a5fa",k:"tenCap"},{l:_pbtLbl,v:c.pbt,col:"#a78bfa",k:"pbt"}];
   _sigItems.forEach(({l,v,col,k})=>{
     const on=v&&p<=v&&!isTriggerMuted(s,k);
     const muted=v&&p<=v&&isTriggerMuted(s,k);
@@ -3253,8 +3288,8 @@ function checkNewSignals(){
     const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
     // Suppress celebration if a tranche for this signal is already owned — the action is done.
     if(s.signals.mos&&!prev.mos&&!hasTrancheForSignal(t,"mos"))newFires.push({ticker:t,signal:"MOS"});
-    if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:"Ten Cap"});
-    if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:"PBT"});
+    if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:trigT3LongLabel(t)});
+    if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:isHighgr(t)?"DMOS":"PBT"});
   });
   // Also check watchlist + speculative for new fires
   [...getWatchlist(),...getSpeculative()].forEach(t=>{
@@ -3264,8 +3299,8 @@ function checkNewSignals(){
     const tag=isRiskAnywhere(t)?"spec":"wl";
     // Same ownership gate — risk-bucket positions like LULU/CSU also have tranche records.
     if(s.signals.mos&&!prev.mos&&!hasTrancheForSignal(t,"mos"))newFires.push({ticker:t,signal:"MOS",wl:true,tag});
-    if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:"Ten Cap",wl:true,tag});
-    if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:"PBT",wl:true,tag});
+    if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:trigT3LongLabel(t),wl:true,tag});
+    if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:isHighgr(t)?"DMOS":"PBT",wl:true,tag});
   });
   // Save current state
   Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
@@ -3343,7 +3378,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
   // Signal summary grid (compact lifecycle view)
   const _loCount=[...GRID,...getSpeculative()].reduce((n,t)=>n+stockLimitOrderCount(t),0);
-  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700">PBT</div><div style="color:#60a5fa;font-weight:700">10Cap</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
+  // Dual-label header when any stock on the current view is High-Growth (alternate labels shown dim below).
+  const _hdrCardTickers=[...GRID,...getSpeculative()];
+  const hasHighgr=_hdrCardTickers.some(t=>stocks[t]?.category==="highgr");
+  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700;line-height:1.0">PBT${hasHighgr?`<div style="font-size:9px;color:var(--muted);font-weight:500;line-height:1.1;margin-top:1px">DMOS</div>`:""}</div><div style="color:#60a5fa;font-weight:700;line-height:1.0">10Cap${hasHighgr?`<div style="font-size:9px;color:var(--muted);font-weight:500;line-height:1.1;margin-top:1px">20Cap</div>`:""}</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
   [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
@@ -3521,7 +3559,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Sort: non-risk by moat priority (ascending) → speculative last
   _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=isRisk(a,currentPf)?1:0,specB=isRisk(b,currentPf)?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
   if(!_allCardTickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
-  const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
+  const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
   _allCardTickers.forEach(ticker=>{
     const s=stocks[ticker];if(!s)return;
     const isOwned=_ownedSet.has(ticker);
@@ -3571,6 +3609,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
       _isGrid&&isBuffett(ticker)&&sig>0?`<span class="pos-badge" style="background:#1a2332;color:#38bdf8">BUFFETT ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&isBuffett(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">BUFFETT 0/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid&&isHighgr(ticker)&&sig>0?`<span class="pos-badge" style="background:#3a2208;color:#fb923c">HG ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid&&isHighgr(ticker)?`<span class="pos-badge" style="background:#3a2208;color:#fdba74">HG 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid?`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:"";
     const _phase=positionPhase(ticker,currentPf);
@@ -3629,8 +3669,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
     // MOS reserve bar removed (v2.94)
 
-    // Tranche rows with unified activation price — sorted PBT → 10Cap → MOS
-    const sigOrder={PBT:0,"10Cap":1,MOS:2,trophy:3,hold:4};
+    // Tranche rows with unified activation price — sorted PBT/DMOS → 10Cap/20Cap → MOS
+    const sigOrder={PBT:0,DMOS:0,"10Cap":1,"20Cap":1,MOS:2,trophy:3,hold:4};
     const active=pos.tranches.filter(t=>(t.bought-t.sold)>0).sort((a,b)=>(sigOrder[a.signal]??9)-(sigOrder[b.signal]??9));
     active.forEach((tr,i)=>{
       const origIdx=pos.tranches.indexOf(tr);
@@ -3972,13 +4012,14 @@ function renderAllocator(c){
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
         const buf=s.category==="buffett";
         const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
+        const _t3=trigT3Label(t),_t2=trigT2Label(t);
         const triggers=[];
-        if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker))triggers.push("PBT");
-        if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker))triggers.push("10Cap");
+        if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push(_t2);
+        if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push(_t3);
         if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
         const pending=[];
-        if(s.cons.pbt&&!triggers.includes("PBT")&&!isTriggerMuted(s,"pbt"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
-        if(s.cons.tenCap&&!triggers.includes("10Cap")&&!isTriggerMuted(s,"tenCap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+        if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+        if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
         if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
         if(!triggers.length&&!pending.length)return;
         const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
@@ -4153,13 +4194,14 @@ function renderAllocator(c){
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
       const buf=s.category==="buffett";
       const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
+      const _t3=trigT3Label(t),_t2=trigT2Label(t);
       const triggers=[];
-      if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker))triggers.push("PBT");
-      if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker))triggers.push("10Cap");
+      if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push(_t2);
+      if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push(_t3);
       if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
       const pending=[];
-      if(s.cons.pbt&&!triggers.includes("PBT")&&!isTriggerMuted(s,"pbt"))pending.push({name:"PBT",price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
-      if(s.cons.tenCap&&!triggers.includes("10Cap")&&!isTriggerMuted(s,"tenCap"))pending.push({name:"10Cap",price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+      if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+      if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
       if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
       if(!triggers.length&&!pending.length)return;
       const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
@@ -4261,6 +4303,7 @@ function renderWatchlist(c){
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${isBuffett(t)&&s.cons.tenCap?` · <span style="color:#38bdf8;font-weight:400">TC ${fmt(s.cons.tenCap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
     const _wlTrigs=isBuffett(t)?[{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"}]:
+      isHighgr(t)?[{l:"DMOS",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"20Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}]:
       [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}];
     _wlTrigs.forEach(({l,v,p,k})=>{
       if(!v&&!p)return; // skip empty triggers entirely
@@ -5121,7 +5164,7 @@ function renderSettings(c){
   if(!deployLog.length){
     h+=`<div style="font-size:11px;color:var(--muted);padding:16px;text-align:center">No entries yet. Add a tranche to start logging.</div>`;
   }else{
-    const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa",hold:"#818cf8",trophy:"#c084fc"};
+    const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa",hold:"#818cf8",trophy:"#c084fc"};
     deployLog.slice(0,50).forEach(e=>{
       const d=new Date(e.date);
       const dateLabel=d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
@@ -5307,7 +5350,7 @@ function openEditStock(t){
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
     "— Category —",
-    {id:"es-cat",label:"Framework",val:isRisk(t,currentPf)?"Risk":(s.category==="buffett"?"Buffett":"Phil Town"),select:["Phil Town","Buffett","Risk"]},
+    {id:"es-cat",label:"Framework",val:isRisk(t,currentPf)?"Risk":(s.category==="buffett"?"Buffett":s.category==="highgr"?"High-Growth":"Phil Town"),select:["Phil Town","Buffett","High-Growth","Risk"]},
   ],()=>{
     s.name=gv("es-name")||s.name;const fhv=(gv("es-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,"");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;
@@ -5318,10 +5361,10 @@ function openEditStock(t){
     s.cons.pbt=nv("es-pbt");s.cons.pbtYrs=nv("es-pbtyrs");
     // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
     applyRecalcSticker(s);
-    // Auto-calculate tenCap from OE if OE provided
-    if(s.cons.oe!=null)s.cons.tenCap=+(s.cons.oe*10).toFixed(2);
-    // Auto-calculate PBT from FCF+gr if both provided
-    if(s.cons.fcf!=null&&s.cons.gr!=null){const g=s.cons.gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=s.cons.fcf*Math.pow(1+g,y);s.cons.pbt=+sum.toFixed(2);}
+    // Auto-calc tenCap + pbt (category-aware: highgr → 20Cap/DMOS).
+    // NOTE: category change via Framework dropdown is committed below (line ~5380); for
+    // safety we recompute again after that. This first call handles same-category edits.
+    recalcConsTriggers(s);
     // If no eps/pe auto-calc happened, derive sticker from manual MOS
     if(s.cons.eps==null||s.cons.pe==null){
       const oldSticker=s.cons.sticker;
@@ -5359,8 +5402,10 @@ function openEditStock(t){
         // Clear thesis only if no portfolio still treats this as risk
         if(!isRiskAnywhere(t)){delete s.specReason;delete s.specDate;}
       }
-      s.category=catVal==="Buffett"?"buffett":undefined;
+      s.category=catVal==="Buffett"?"buffett":catVal==="High-Growth"?"highgr":undefined;
     }
+    // Recompute tenCap + pbt after category change in case formulas switched (e.g. Phil Town → High-Growth)
+    recalcConsTriggers(s);
     // Mark triggers as freshly calculated
     s.lastCalcDate=Date.now();
     updateSignals(t);save();
@@ -5397,13 +5442,14 @@ function openAddStock(){
     // Auto-calc sticker+MOS from eps+gr+pe if all present
     const r=recalcSticker(eps,gr,pe);
     if(r){mos=r.mos;sticker=r.sticker;}
-    if(oe!=null)tc=+(oe*10).toFixed(2);
-    if(fcf!=null&&gr!=null){const g=gr/100;let sum=0;for(let y=1;y<=8;y++)sum+=fcf*Math.pow(1+g,y);pbt=+sum.toFixed(2);}
     const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
       status:"watchlist",finnhubSymbol:((gv("ns-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,""))||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,eps,pe,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
+    // Auto-calc tenCap + pbt from oe/fcf (category-aware; new stocks start uncategorized so this
+    // applies standard formulas. If the user later sets category=highgr via Edit, formulas update.)
+    recalcConsTriggers(stocks[t]);
     updateSignals(t);save();
   });
 }
@@ -5412,9 +5458,10 @@ function openAddPosition(pk){
   const existing=Object.keys(portfolios[pk].positions);
   const avail=Object.keys(stocks).filter(t=>!existing.includes(t));
   if(!avail.length){alert("All stocks in portfolio. Use + Tranche.");return;}
+  // Signal options include all category-specific labels; user picks per chosen stock's category.
   showModal("Add to "+portfolios[pk].name,[
     {id:"ap-t",label:"Stock",val:avail[0],select:avail.map(t=>t+" — "+stocks[t].name)},
-    {id:"ap-sig",label:"Signal",val:"PBT",select:["MOS","10Cap","PBT","hold","trophy"]},
+    {id:"ap-sig",label:"Signal",val:"PBT",select:["MOS","10Cap","PBT","20Cap","DMOS","hold","trophy"]},
     {id:"ap-sh",label:"Shares",val:0,type:"number"},
     {id:"ap-bp",label:"Buy Price",val:0,type:"number"},
   ],()=>{
@@ -5423,7 +5470,8 @@ function openAddPosition(pk){
     portfolios[pk].positions[t]={tranches:[{signal:sig,bought:sh,sold:0,buyPrice:bp,state:"accumulating"}]};
     // Auto-log the buy
     const s=stocks[t];
-    const trigMap={MOS:s?.cons?.mos,"10Cap":s?.cons?.tenCap,PBT:s?.cons?.pbt};
+    // trigMap covers all category labels — 20Cap and 10Cap both point to tenCap column, DMOS/PBT to pbt column
+    const trigMap={MOS:s?.cons?.mos,"10Cap":s?.cons?.tenCap,"20Cap":s?.cons?.tenCap,PBT:s?.cons?.pbt,DMOS:s?.cons?.pbt};
     if(sh>0)logDeploy({ticker:t,action:"buy",signal:sig,shares:sh,price:bp,currency:s?.currency||"USD",portfolio:pk,triggerPrice:trigMap[sig]||null});
     save();
   });
@@ -5432,11 +5480,11 @@ function openAddPosition(pk){
 // ============ TRANCHE MODALS ============
 function openTrEdit(pk,t,i){
   const tr=portfolios[pk].positions[t].tranches[i];const s=stocks[t];
-  // Build signal dropdown options. Standard set matches openAddTranche; we also include
-  // "risk" and "initial" so legacy tranches edit cleanly. If the current signal is something
-  // outside the standard list (e.g. "avg" or a typo), prepend it so the dropdown shows the
+  // Build signal dropdown options. Includes both legacy ("10Cap"/"PBT") and highgr-era
+  // ("20Cap"/"DMOS") labels so any tranche edits cleanly regardless of buy-era.
+  // If the current signal is outside the standard list, prepend it so the dropdown shows the
   // current value as selected and the user can switch away from it without losing it by accident.
-  const sigOptsStd=["MOS","10Cap","PBT","hold","trophy","risk","initial"];
+  const sigOptsStd=["MOS","10Cap","PBT","20Cap","DMOS","hold","trophy","risk","initial"];
   const sigOpts=sigOptsStd.includes(tr.signal)?sigOptsStd:[tr.signal,...sigOptsStd];
   showModal(`${t} — ${tr.signal}`,[
     {id:"ed-b",label:"Bought",val:tr.bought,type:"number"},
@@ -5453,15 +5501,17 @@ function openTrEdit(pk,t,i){
 }
 function openAddTranche(pk,t){
   const s=stocks[t];
+  const _sigOpts=isHighgr(t)?["MOS","20Cap","DMOS","hold","trophy"]:["MOS","10Cap","PBT","hold","trophy"];
+  const _sigDefault=isHighgr(t)?"DMOS":"PBT";
   showModal("Add Tranche — "+t,[
-    {id:"at-sig",label:"Signal",val:"PBT",select:["MOS","10Cap","PBT","hold","trophy"]},
+    {id:"at-sig",label:"Signal",val:_sigDefault,select:_sigOpts},
     {id:"at-sh",label:"Shares",val:0,type:"number"},
     {id:"at-p",label:"Buy Price ("+s.currency+")",val:s.currentPrice||0,type:"number"},
   ],()=>{if(!portfolios[pk].positions[t])portfolios[pk].positions[t]={tranches:[]};
-    const sig=gv("at-sig")||"PBT";const sh=nv("at-sh")||0;const bp=nv("at-p")||0;
+    const sig=gv("at-sig")||_sigDefault;const sh=nv("at-sh")||0;const bp=nv("at-p")||0;
     portfolios[pk].positions[t].tranches.push({signal:sig,bought:sh,sold:0,buyPrice:bp,state:"accumulating"});
-    // Auto-log the buy (skip zero-share entries)
-    const trigMap={MOS:s.cons?.mos,"10Cap":s.cons?.tenCap,PBT:s.cons?.pbt};
+    // Auto-log the buy (skip zero-share entries). trigMap covers all category labels.
+    const trigMap={MOS:s.cons?.mos,"10Cap":s.cons?.tenCap,"20Cap":s.cons?.tenCap,PBT:s.cons?.pbt,DMOS:s.cons?.pbt};
     if(sh>0)logDeploy({ticker:t,action:"buy",signal:sig,shares:sh,price:bp,currency:s.currency,portfolio:pk,triggerPrice:trigMap[sig]||null});
     save();scheduleTrancheSync();});
 }
