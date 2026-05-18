@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.55</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.56</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1384,8 +1384,18 @@ async function syncIBKR(pfKey){
         const base=stocks[t].tdSymbol.split(":")[0];
         tickerMap[base]=t;
       }
+      // Also map the full Yahoo symbol (e.g. "MONY.L" → "MONY") so IBKR symbols
+      // with exchange suffixes resolve correctly.
+      if(stocks[t].finnhubSymbol)tickerMap[stocks[t].finnhubSymbol]=t;
     });
-    function resolveT(sym){return tickerMap[sym]||tickerMap[sym.replace(/\s+/g,"")]||null;}
+    // Try exact, whitespace-stripped, then suffix-stripped lookups.
+    function resolveT(sym){
+      if(!sym)return null;
+      const direct=tickerMap[sym]||tickerMap[sym.replace(/\s+/g,"")];
+      if(direct)return direct;
+      const stripped=sym.replace(/\.(L|DE|AS|T|TO)$/,"");
+      return tickerMap[stripped]||null;
+    }
 
     // Parse positions
     const positions=doc.querySelectorAll("OpenPosition");
@@ -1536,17 +1546,23 @@ function applyIBKR(pfKey){
   const totalCash=pfBaseCcy(pfKey)==="USD"?totalCashEUR*settings.fxRate:totalCashEUR;
   if(totalCash>0){pf.dpUSD=Math.round(cashUSD);pf.dpEUR=Math.round(cashEUR);pf.dpGBP=Math.round(cashGBP);pf.dpJPY=Math.round(cashJPY);pf.dpCAD=Math.round(cashCAD);pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
 
-  // Auto-demote grid stocks not in IBKR data (fully sold)
+  // Auto-demote grid stocks not in IBKR data (fully sold).
+  // SAFETY: if any IBKR symbol failed to resolve to a stocks{} entry, skip the cleanup
+  // entirely. Without this, unresolved positions silently get deleted, which is how
+  // MONY-style disappearances happen.
+  const ibkrUnresolved=Object.values(data.posData).filter(p=>!p.t).map(p=>p.sym);
   const ibkrTickers=new Set(Object.values(data.posData).map(p=>p.t).filter(Boolean));
-  if(pf.gridStocks&&ibkrTickers.size>0){
+  if(ibkrUnresolved.length>0){
+    console.warn("applyIbkrSync: skipping position cleanup — unresolved IBKR symbols:",ibkrUnresolved);
+  }else if(pf.gridStocks&&ibkrTickers.size>0){
     const toRemove=pf.gridStocks.filter(t=>!ibkrTickers.has(t)&&pf.positions[t]);
     toRemove.forEach(t=>{
       delete pf.positions[t];
       pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
     });
   }
-  // Also clean up non-grid positions that IBKR no longer reports
-  if(ibkrTickers.size>0){
+  // Also clean up non-grid positions that IBKR no longer reports (same safety guard).
+  if(ibkrUnresolved.length===0&&ibkrTickers.size>0){
     Object.keys(pf.positions).forEach(t=>{
       if(!ibkrTickers.has(t))delete pf.positions[t];
     });
@@ -1590,12 +1606,23 @@ async function autoSyncIBKR(pfKey){
     if(doc.querySelector("parsererror"))return false;
 
     const tickerMap={};
-    Object.keys(stocks).forEach(t=>{tickerMap[t]=t;if(stocks[t].tdSymbol){tickerMap[stocks[t].tdSymbol.split(":")[0]]=t;}});
-    const resolveT=sym=>tickerMap[sym]||tickerMap[sym.replace(/\s+/g,"")]||null;
+    Object.keys(stocks).forEach(t=>{
+      tickerMap[t]=t;
+      if(stocks[t].tdSymbol)tickerMap[stocks[t].tdSymbol.split(":")[0]]=t;
+      if(stocks[t].finnhubSymbol)tickerMap[stocks[t].finnhubSymbol]=t;
+    });
+    const resolveT=sym=>{
+      if(!sym)return null;
+      const direct=tickerMap[sym]||tickerMap[sym.replace(/\s+/g,"")];
+      if(direct)return direct;
+      const stripped=sym.replace(/\.(L|DE|AS|T|TO)$/,"");
+      return tickerMap[stripped]||null;
+    };
 
     // Parse positions
     const pf=portfolios[pfKey];
     const ibkrSeen=new Set();
+    const ibkrUnresolved=[]; // raw symbols IBKR reported that we couldn't map to stocks{}
     doc.querySelectorAll("OpenPosition").forEach(p=>{
       const sym=p.getAttribute("symbol");
       const qty=parseFloat(p.getAttribute("position")||p.getAttribute("quantity")||0);
@@ -1610,7 +1637,8 @@ async function autoSyncIBKR(pfKey){
         ip.shares=qty;ip.avgCost=rawCost;ip.currentPrice=rawMkt||ip.currentPrice;ip.lastUpdate=Date.now();ip.priceSource="ibkr";
         return;
       }
-      const t=resolveT(sym);if(!t)return;
+      const t=resolveT(sym);
+      if(!t){ibkrUnresolved.push(sym);return;}
       ibkrSeen.add(t);
       // IBKR reports GBP prices in pounds; app uses pence for GBp stocks
       const isGBp=stocks[t]?.currency==="GBp";
@@ -1633,8 +1661,15 @@ async function autoSyncIBKR(pfKey){
       if(mktVal&&stocks[t]){stocks[t].currentPrice=mktVal;stocks[t].lastUpdate=Date.now();stocks[t].priceSource="ibkr";updateSignals(t);}
     });
 
-    // Auto-demote grid stocks that IBKR no longer reports (fully sold)
-    if(pf.gridStocks&&ibkrSeen.size>0){
+    // Auto-demote grid stocks that IBKR no longer reports (fully sold).
+    // SAFETY: only run cleanup if every IBKR position resolved cleanly. If any symbols
+    // were unresolved, IBKR may be reporting positions whose stocks{} entries are missing
+    // (e.g. ticker not yet in defaults, holdings CSV import didn't create skeleton), and
+    // running the cleanup would silently delete them. Better to leave positions intact
+    // and let the user investigate via the manual sync preview.
+    if(ibkrUnresolved.length>0){
+      console.warn("autoSyncIBKR: skipping position cleanup — unresolved IBKR symbols:",ibkrUnresolved);
+    }else if(pf.gridStocks&&ibkrSeen.size>0){
       const sold=pf.gridStocks.filter(t=>!ibkrSeen.has(t)&&pf.positions[t]&&posShares(pf.positions[t])>0);
       sold.forEach(t=>{
         // Mark all tranches as fully sold
@@ -1647,8 +1682,8 @@ async function autoSyncIBKR(pfKey){
         pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
       });
     }
-    // Also clean up non-grid positions that IBKR no longer reports
-    if(ibkrSeen.size>0){
+    // Also clean up non-grid positions that IBKR no longer reports (same safety guard).
+    if(ibkrUnresolved.length===0&&ibkrSeen.size>0){
       Object.keys(pf.positions).forEach(t=>{
         if(!ibkrSeen.has(t))delete pf.positions[t];
       });
@@ -1922,6 +1957,47 @@ function handleCSVImport(e){
 //   index → writes to pf.indexPositions[us|eu] aggregate (shares/avgCost) — not as a tranche
 const HOLDINGS_TRANCHE_TYPES=["initial","mos","tenCap","pbt","buffettTenCap","buffettPbt","risk","trophy","index","cash"];
 const HOLDINGS_CASH_CCYS=["USD","EUR","GBP","JPY","CAD"];
+
+// Exchange lookup: bare ticker → currency + Yahoo/td symbols. Used by triggers CSV import
+// AND holdings CSV import to create skeleton stocks{} entries with correct metadata.
+// Unknown tickers default to USD (caller can override or user can edit later).
+const _EXCHANGES={
+  AUTO:{ccy:"GBp",td:"AUTO:LSE",fh:"AUTO.L"},RMV:{ccy:"GBp",td:"RMV:LSE",fh:"RMV.L"},
+  REL:{ccy:"GBp",td:"REL:LSE",fh:"REL.L"},ITRK:{ccy:"GBp",td:"ITRK:LSE",fh:"ITRK.L"},
+  LSEG:{ccy:"GBp",td:"LSEG:LSE",fh:"LSEG.L"},SGE:{ccy:"GBp",td:"SGE:LSE",fh:"SGE.L"},
+  HLMA:{ccy:"GBp",td:"HLMA:LSE",fh:"HLMA.L"},EXPN:{ccy:"GBp",td:"EXPN:LSE",fh:"EXPN.L"},
+  BNZL:{ccy:"GBp",td:"BNZL:LSE",fh:"BNZL.L"},TRN:{ccy:"GBp",td:"TRN:LSE",fh:"TRN.L"},
+  ULVR:{ccy:"GBp",td:"ULVR:LSE",fh:"ULVR.L"},MONY:{ccy:"GBp",td:"MONY:LSE",fh:"MONY.L"},
+  SCT:{ccy:"GBp",td:"SCT:LSE",fh:"SCT.L"},CPG:{ccy:"GBp",td:"CPG:LSE",fh:"CPG.L"},
+  WKL:{ccy:"EUR",td:"WKL:AMS",fh:"WKL.AS"},ASML:{ccy:"EUR",td:"ASML:AMS",fh:"ASML.AS"},
+  SAP:{ccy:"EUR",td:"SAP:XETR",fh:"SAP.DE"},ADYEN:{ccy:"EUR",td:"ADYEN:AMS",fh:"ADYEN.AS"},
+  AMS:{ccy:"EUR",td:"AMS:AMS",fh:"AMS.AS"},
+  CSU:{ccy:"CAD",fh:"CSU.TO"},
+  6146:{ccy:"JPY",name:"Disco",fh:"6146.T",sector:"Semicon Equip"},
+  6098:{ccy:"JPY",name:"Recruit Holdings",fh:"6098.T",sector:"HR Tech"},
+  3064:{ccy:"JPY",name:"MonotaRO",fh:"3064.T",sector:"MRO E-commerce"},
+  7741:{ccy:"JPY",name:"Hoya",fh:"7741.T",sector:"Optical/Medical"},
+};
+
+// Create a skeleton stocks{} entry for tickers that show up in positions/holdings but
+// don't yet have stock metadata. Triggers will be filled in via triggers CSV import or
+// manual edit. Idempotent: returns false if stock already exists.
+function _ensureStockEntry(ticker){
+  if(!ticker||stocks[ticker])return false;
+  const ex=_EXCHANGES[ticker];
+  const ccy=ex?.ccy||"USD";
+  const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+  const td=ex?.td||(ccy==="GBp"?ticker+":LSE":ticker);
+  const fh=ex?.fh||(ccy==="GBp"?ticker+".L":ccy==="CAD"?ticker+".TO":ccy==="JPY"?ticker+".T":ccy==="EUR"?undefined:ticker);
+  stocks[ticker]={
+    name:ex?.name||ticker,currency:ccy,moat:"Wide",sector:ex?.sector||"",
+    flag:flags[ccy]||"🌍",status:"watchlist",tdSymbol:td,finnhubSymbol:fh,
+    priceMult:1,currentPrice:0,gate:true,
+    cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,eps:null,pe:null,prevSticker:null},
+    phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:null
+  };
+  return true;
+}
 const _PF_CSV_TO_KEY={personal:"personal",caca:"nl"};
 const _PF_KEY_TO_CSV={personal:"personal",nl:"caca"};
 
@@ -2365,6 +2441,13 @@ function _applyHoldingsImport(parsed,warnings){
       return;
     }
     // Stock tranche
+    // Auto-create skeleton stocks{} entry if missing. Without this, the auto IBKR sync
+    // cleanup would silently delete this position because the resolver can't map it.
+    // The skeleton has no triggers yet — fill in via triggers CSV import or manual edit.
+    if(_ensureStockEntry(ticker)){
+      if(!stats.newStocks)stats.newStocks=[];
+      stats.newStocks.push(ticker);
+    }
     if(!pf.positions[ticker])pf.positions[ticker]={tranches:[]};
     const sig=_trancheTypeToSignal(tt,ticker);
     const tr={signal:sig,bought:shares,sold:0,buyPrice,state:"accumulating"};
