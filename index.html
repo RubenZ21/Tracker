@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.56</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.57</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3259,7 +3259,17 @@ function sigCellStatus(ticker, sigKey, pfKey){
   });
   // No shares in this tranche type — show trigger price plus drop % needed from current
   // Gap turns amber when price is within 10% of trigger (close to firing)
-  if(!hasShares){const gap=p>trigger?Math.round((p-trigger)/p*100):0;if(gap<=0)return{cls:"none",label:"",sub:fmt(trigger,s.currency),subCls:""};const _gapCol=gap<10?"#d97706":"var(--muted)";return{cls:"none",label:"",sub:`${fmt(trigger,s.currency)} <span style="color:${_gapCol};font-weight:${gap<10?"700":"400"}">▼${gap}%</span>`,subCls:""};}
+  if(!hasShares){
+    const gap=p>trigger?Math.round((p-trigger)/p*100):0;
+    if(gap<=0)return{cls:"none",label:"",sub:fmt(trigger,s.currency),subCls:""};
+    const _gapCol=gap<10?"#d97706":"var(--muted)";
+    const _sub=`${fmt(trigger,s.currency)} <span style="color:${_gapCol};font-weight:${gap<10?"700":"400"}">▼${gap}%</span>`;
+    // Permanently muted (trigger ≥ Sticker) but price is above trigger — flag visually so the
+    // user can see at a glance this trigger will never fire as a primary signal regardless of
+    // price action. Different from the cls:"muted" state (firing-but-muted) which uses the "C" badge.
+    if(muted)return{cls:"mutedOff",label:"",sub:_sub,subCls:"",topSub:"≥ sticker"};
+    return{cls:"none",label:"",sub:_sub,subCls:""};
+  }
   // Has shares — show lifecycle state
   if(worst==="sell")return{cls:"sell",label:"S",sub:`−${Math.round(maxDD)}%`,subCls:"sell-sub"};
   if(worst==="track"){
@@ -3478,14 +3488,15 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       let indStyle="";
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="muted")indStyle=`background:#92400e30;border:1.5px dashed #d97706;color:#d97706;font-weight:700`;
+      else if(st.cls==="mutedOff")indStyle=`background:transparent;border:2px dashed #d9770680`;
       else if(st.cls==="hold")indStyle=`background:${sigCol}15;border:1px solid ${sigCol}30;border-radius:6px;padding:2px 4px;color:${sigCol};font-weight:700`;
       else if(st.cls==="filled")indStyle=`background:${sigCol}15;border:1.5px solid ${sigCol}90;color:${sigCol};font-weight:700`;
       else if(st.cls==="track")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       // sell and warn keep their CSS class colors (red/amber)
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
-      const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:st.cls==="hold"?sigCol+"99":st.cls==="muted"?"#d9770699":"";
-      const topSubOpacity=st.cls==="hold"?"90":st.cls==="muted"?"ff":"60";
+      const subCol=st.cls==="buy"?sigCol:st.cls==="track"?sigCol:st.cls==="hold"?sigCol+"99":st.cls==="muted"?"#d9770699":st.cls==="mutedOff"?"#d9770699":"";
+      const topSubOpacity=st.cls==="hold"?"90":st.cls==="muted"?"ff":st.cls==="mutedOff"?"cc":"60";
       const _lo=hasLimitOrder(t,key);const _loLbl=loLabel(t,key);
       h+=`<div class="sig-cell" onclick="toggleLimitOrder('${t}','${key}')" style="cursor:pointer">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div>${_lo?`<div style="font-size:7px;color:#67e8f9;font-family:var(--mono);margin-top:1px">${_loLbl} LO</div>`:""}</div>`;
     });
@@ -3509,12 +3520,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       let indStyle="";
       if(st.cls==="buy")indStyle=`background:${sigCol};box-shadow:0 0 8px ${sigCol}50`;
       else if(st.cls==="muted")indStyle=`background:#92400e30;border:1.5px dashed #d97706;color:#d97706;font-weight:700`;
+      else if(st.cls==="mutedOff")indStyle=`background:transparent;border:2px dashed #d9770680`;
       else if(st.cls==="hold")indStyle=`background:${sigCol}15;border:1px solid ${sigCol}30;border-radius:6px;padding:2px 4px;color:${sigCol};font-weight:700`;
       else if(st.cls==="filled")indStyle=`background:${sigCol}15;border:1.5px solid ${sigCol}90;color:${sigCol};font-weight:700`;
       else if(st.cls==="none")indStyle=`background:transparent;border:2px solid #333`;
       const useClass=(st.cls==="sell"||st.cls==="warn")?st.cls:"";
-      const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":"";
-      h+=`<div class="sig-cell" onclick="toggleLimitOrder('${t}','${key}')" style="cursor:pointer"><div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div>${hasLimitOrder(t,key)?`<div style="font-size:7px;color:#67e8f9;font-family:var(--mono);margin-top:1px">${loLabel(t,key)} LO</div>`:""}</div>`;
+      const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":st.cls==="muted"?"#d9770699":st.cls==="mutedOff"?"#d9770699":"";
+      h+=`<div class="sig-cell" onclick="toggleLimitOrder('${t}','${key}')" style="cursor:pointer">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${st.cls==="mutedOff"?"cc":"60"};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div>${hasLimitOrder(t,key)?`<div style="font-size:7px;color:#67e8f9;font-family:var(--mono);margin-top:1px">${loLabel(t,key)} LO</div>`:""}</div>`;
     });
     h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${deployCount(t,currentPf)||"0"}/${validTriggerSlots(t,currentPf)}</div></div>`;
   });
