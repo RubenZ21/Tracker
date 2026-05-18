@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.57</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.58</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1180,7 +1180,13 @@ function scheduleTrancheSync(){
   _trancheSyncTimer=setTimeout(()=>{syncTriggersToCloud().catch(()=>{});},500);
 }
 
+let _fetchInFlight=false;
 async function fetchPrices(){
+  // FIX v3.58: re-entry guard. Concurrent fetchPrices() (e.g. tap Refresh during an
+  // in-flight auto-refresh) used to double the IBKR Flex call volume.
+  if(_fetchInFlight)return;
+  _fetchInFlight=true;
+  try{
   if(!settings.ibkrWorker){document.getElementById("refresh-status").textContent="⚠ Set Worker URL in Settings";return;}
   const el=document.getElementById("refresh-status");el.textContent="Fetching...";
 
@@ -1191,9 +1197,23 @@ async function fetchPrices(){
   // Suppress buy modals during refresh — intermediate price flips between IBKR and Yahoo cause false positives
   window._suppressBuyModal=true;
 
-  // 1. IBKR auto-sync (silent — gets positions + prices for all held stocks)
-  let ibkrOk=0;
-  try{ibkrOk=await autoSyncAll();}catch(e){}
+  // 1. IBKR auto-sync (silent — gets positions + prices for all held stocks).
+  // THROTTLE (v3.58): IBKR Flex Activity Queries are COB-frozen on IBKR's side, so
+  // polling every 15 min yields no new data and triggers their "Too many requests"
+  // rate-limit error. Cap silent auto-sync to once per 4h. The Settings → IBKR
+  // "Sync" button still bypasses this for on-demand refresh after a trade.
+  // lastIbkrAttempt records every attempt (incl. failures) so a rate-limit error
+  // can't cause a retry storm; lastIbkrSync still records last *success* for the
+  // "⚡ Xmin ago" header badge.
+  let ibkrOk=0,ibkrSkipped=false;
+  const IBKR_MIN_INTERVAL=4*60*60*1000; // 4 hours
+  const lastIbkrAttempt=settings.lastIbkrAttempt||0;
+  if(Date.now()-lastIbkrAttempt>=IBKR_MIN_INTERVAL){
+    settings.lastIbkrAttempt=Date.now();
+    try{ibkrOk=await autoSyncAll();}catch(e){}
+  }else{
+    ibkrSkipped=true;
+  }
 
   // 2. Fetch FX from ECB via Frankfurter (free, no key)
   //    Primary: api.frankfurter.dev (current canonical). Fallback: api.frankfurter.app (legacy redirect).
@@ -1313,8 +1333,10 @@ async function fetchPrices(){
   const parts=[];
   if(yfOk)parts.push(`YF✓${yfOk}`);
   if(ibkrOk)parts.push(`IBKR✓`);
+  else if(ibkrSkipped)parts.push(`IBKR⏸`); // v3.58: skipped due to 4h cooldown
   if(fxOk)parts.push(`FX✓`);
   el.textContent=`✓ ${parts.join(" · ")} — ${t}`;
+  }finally{_fetchInFlight=false;}
 }
 
 // ============ IBKR FLEX SYNC ============
