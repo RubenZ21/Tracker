@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span style="opacity:.4;margin-left:6px">v3.58</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.59</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -361,7 +361,7 @@ let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
-const DATA_VERSION=9;
+const DATA_VERSION=10;
 
 function getGrid(pfKey){
   if(pfKey){
@@ -437,6 +437,60 @@ function earningsChip(t){
   const lbl=ei.status==="stale"?"EC → update":ei.status==="upcoming"?(ei.soon?"EC "+dStr+" ⏰":"EC "+dStr):ei.status==="fresh"?"EC ✓":"EC "+ei.label.replace("📅 ","");
   return` <span style="font-size:8px;font-family:var(--mono);color:${ei.color};padding:0 3px;background:${ei.soon||ei.status==='stale'?ei.color+'15':'transparent'};border-radius:2px">${lbl}</span>`;
 }
+
+// 13F filing deadlines: 45 days after end of each calendar quarter.
+// Q1 (Mar 31) → May 15, Q2 (Jun 30) → Aug 14, Q3 (Sep 30) → Nov 14, Q4 (Dec 31) → Feb 14 next year.
+// Returns {date, qLabel, daysUntil, qEndDays} where qEndDays is days since the quarter ended (negative = future).
+function next13FDeadline(){
+  const now=new Date();const y=now.getFullYear();
+  // [quarter-end date, deadline date, quarter label]
+  const slots=[
+    [new Date(y-1,11,31),new Date(y,1,14),`Q4 ${y-1}`],
+    [new Date(y,2,31),new Date(y,4,15),`Q1 ${y}`],
+    [new Date(y,5,30),new Date(y,7,14),`Q2 ${y}`],
+    [new Date(y,8,30),new Date(y,10,14),`Q3 ${y}`],
+    [new Date(y,11,31),new Date(y+1,1,14),`Q4 ${y}`],
+  ];
+  // Find the next deadline that hasn't passed yet, OR if just passed (within 14d), keep showing it as "filing window closed".
+  const today=now.setHours(0,0,0,0);
+  let chosen=null;
+  for(const[qEnd,deadline,qLab]of slots){
+    const ddl=new Date(deadline).setHours(0,0,0,0);
+    if(ddl>=today){chosen={qEnd,deadline:new Date(deadline),qLabel:qLab};break;}
+    // If deadline was within last 14 days, still show this one (filing-window-closed reminder)
+    if((today-ddl)/86400000<=14){chosen={qEnd,deadline:new Date(deadline),qLabel:qLab};break;}
+  }
+  if(!chosen)return null;
+  const daysUntil=Math.ceil((chosen.deadline-Date.now())/86400000);
+  const qEndDays=Math.ceil((Date.now()-chosen.qEnd)/86400000); // positive = quarter already ended
+  return{date:chosen.deadline,qLabel:chosen.qLabel,daysUntil,qEndDays};
+}
+
+// Update the 13F header chip. Called from render(). Short, dense; no clutter when far away.
+function render13F(){
+  const el=document.getElementById("filing-13f");if(!el)return;
+  const f=next13FDeadline();if(!f){el.innerHTML="";return;}
+  const d=f.date.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  let col="var(--muted)";let pre="13F";
+  if(f.daysUntil<0){col="var(--green)";pre="13F ✓";} // deadline passed, in 14d post-window
+  else if(f.daysUntil<=14)col="var(--amber)"; // filing window active
+  else if(f.daysUntil<=30)col="var(--accent)"; // approaching
+  const suffix=f.daysUntil>0?` (${f.daysUntil}d)`:f.daysUntil===0?" (today)":` (${-f.daysUntil}d ago)`;
+  el.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:${col}">${pre} ${d}${suffix}</span>`;
+}
+
+// Pool 1 stocks no longer use trailing stops (v3.59). Trailing stop logic preserved only for:
+// (a) trophy tranches (tr.signal === "trophy", e.g. ASML — special long-term tracker), and
+// (b) Pool 3 / risk-bucket positions (isRisk(ticker, pfKey) — currently LULU, CSU).
+// Caca portfolio (pfKey === "nl") never used trailing stops; this helper preserves that too.
+// Pool 1 exit triggers are now ONLY: moat failure (s.gate === false) and Layer 2 recycling (manual).
+function usesTrailingStop(ticker,pfKey,tr){
+  if(tr&&tr.signal==="trophy")return true;
+  if(pfKey==="nl")return false; // Caca: sell at sticker/activation, no trailing
+  if(isRisk(ticker,pfKey))return true; // Pool 3 risk bucket retains trailing stop sell discipline
+  return false;
+}
+
 // Buffett Category: wide-moat low-growth stocks evaluated by Ten Cap + PBT only (no MOS/Sticker)
 function isBuffett(t){return stocks[t]?.category==="buffett";}
 // High-Growth Phil Town: gr>=16% stocks where Ten Cap->20Cap (OE*20) and PBT->DMOS (MOS*0.9).
@@ -624,6 +678,8 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
     else if(!prev[sig]&&s.signals[sig]){s._sigChanges.push({sig,dir:"on"});if(!window._suppressBuyModal)queueBuyModal(t,sig);}
   });
   // Track per-tranche state machine + ATH
+  // v3.59: Pool 1 stocks no longer use trailing stops. Only Pool 3 (risk bucket) and
+  // trophy tranches still write tr.ath / tr.state="stopActive"/"stopped". See usesTrailingStop().
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf?.positions?.[t])return;
     pf.positions[t].tranches.forEach(tr=>{
@@ -631,6 +687,8 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
       if(!tr.state)tr.state="accumulating";
       const base=sellBase(s,tr.signal);
       if(!base)return; // hold signal — no tracking
+      // v3.59 gate: Pool 1 (non-risk, non-trophy) tranches skip ATH/trailing-stop logic entirely.
+      if(!usesTrailingStop(t,pk,tr))return;
       // Trophy: always track ATH from purchase price (base === -1)
       const isTrophy=(base===-1);
       if(isTrophy){
@@ -706,15 +764,18 @@ function pool3CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const 
 // DP as % of Pool 1 market value
 function dpPctOfPool1(pfKey){const p1=pool1Value(pfKey);if(!p1)return 0;const pf=portfolios[pfKey];return(pf?.dryPowder||0)/p1*100;}
 // Position phase: 1=Accumulate, 2=Hold, 3=Monitor, 4=Trailing, 5=Sell
+// v3.59: TRAILING and SELL phases only apply to tranches that use trailing stops
+// (Pool 3 risk bucket + trophy). Pool 1 stocks never reach phase 4/5 via trailing stop;
+// gate-fail SELL is surfaced via the 4M gate badge (separate path) and the gate-fail alert.
 function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
   const buf=isBuffett(ticker);const isSpec=isRisk(ticker,pfKey);
   // Fair-value threshold: Sticker for PT, activation (TC×1.333) for Buffett
   const sticker=s.cons?.mos?s.cons.mos*2:null;
   const fvt=buf?activationPrice(s):sticker;
-  // Check if any tranche has active trailing stop
-  const hasTrailing=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;return sh>0&&tr.ath!=null;});
-  const hasSellSignal=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||!tr.ath)return false;const base=sellBase(s,tr.signal);if(!base)return false;const dd=(tr.ath-s.currentPrice)/tr.ath*100;return dd>=25;});
+  // Check if any tranche that USES trailing stops has active trailing / sell signal.
+  const hasTrailing=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||tr.ath==null)return false;return usesTrailingStop(ticker,pfKey,tr);});
+  const hasSellSignal=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||!tr.ath)return false;if(!usesTrailingStop(ticker,pfKey,tr))return false;const base=sellBase(s,tr.signal);if(!base)return false;const dd=(tr.ath-s.currentPrice)/tr.ath*100;return dd>=25;});
   if(hasSellSignal)return{phase:5,label:"SELL",color:"var(--red)"};
   if(hasTrailing)return{phase:4,label:"TRAILING",color:"var(--accent)"};
   if(fvt&&s.currentPrice>fvt&&!isSpec)return{phase:3,label:"MONITOR",color:"var(--amber)"};
@@ -1159,6 +1220,22 @@ function load(){
         if(base===null)return; // hold — skip
         if(base===-1)return; // trophy — always valid
         if(tr.ath<base){delete tr.ath;tr.state="accumulating";} // ATH below activation = invalid
+      });
+    });
+  });
+  // v3.59 migration: Pool 1 stocks no longer use trailing stops. Clear stale tr.ath and
+  // reset tr.state to "accumulating" for any tranche that no longer participates in trailing
+  // stop tracking. Idempotent — running again is a no-op.
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    Object.entries(pf.positions).forEach(([t,pos])=>{
+      pos.tranches.forEach(tr=>{
+        if((tr.bought-tr.sold)<=0)return; // sold tranches keep their history
+        if(usesTrailingStop(t,pk,tr))return; // Pool 3 + trophy keep ATH/state
+        if(tr.ath!=null||tr.state==="stopActive"||tr.state==="stopped"){
+          delete tr.ath;
+          tr.state="accumulating";
+        }
       });
     });
   });
@@ -2938,11 +3015,14 @@ function checkAlerts(){
   });
 
   // TRAILING STOP — SELL (critical, per-tranche)
+  // v3.59: Pool 1 stocks no longer use trailing stops. Only fires for tranches where
+  // usesTrailingStop(t,pk,tr) returns true: Pool 3 risk bucket + trophy.
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
     Object.entries(pf.positions).forEach(([t,pos])=>{
       const s=stocks[t];if(!s?.currentPrice)return;
       pos.tranches.forEach(tr=>{
+        if(!usesTrailingStop(t,pk,tr))return;
         if(tr.state!=="stopped"&&tr.state!=="stopActive")return;
         if(!tr.ath||(tr.bought-tr.sold)<=0)return;
         const base=sellBase(s,tr.signal);if(base===null)return;
@@ -3027,6 +3107,25 @@ function checkAlerts(){
     const label=settings.lastBackup?`Last backup ${Math.floor(backupAge/86400000)}d ago`:"No backup on record";
     alerts.push({key:k,type:"watch",icon:"💾",
       html:`<strong>${label}</strong> — <span style="cursor:pointer;text-decoration:underline" onclick="exportExcel()">Export Excel backup now</span>`});}}
+
+  // 13F FILING WINDOW — remind during active window (deadline within 14d) and just after (post-deadline check).
+  // Per-deadline dismissal key so the alert reappears for each quarterly filing.
+  {const f=next13FDeadline();
+   if(f){
+     const dStr=f.date.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+     const keyTag=f.date.toISOString().slice(0,10);
+     if(f.daysUntil>=0&&f.daysUntil<=14&&f.qEndDays>=0){
+       const k=`13f-window-${keyTag}`;
+       if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"📋",
+         html:`<strong>13F filing window — ${f.qLabel}</strong> · Deadline ${dStr} (${f.daysUntil===0?"today":f.daysUntil+"d"}). Check Phil Town's filing at <span style="font-family:var(--mono)">sec.gov</span> / whalewisdom.`});
+     }else if(f.daysUntil<0&&f.daysUntil>=-14){
+       const k=`13f-filed-${keyTag}`;
+       if(!dismissedAlerts[k])alerts.push({key:k,type:"info",icon:"📋",
+         html:`<strong>13F filed — ${f.qLabel}</strong> · Deadline ${dStr} passed ${-f.daysUntil}d ago. Review Phil Town's positioning if you haven't yet.`});
+     }
+   }
+  }
+
 
   // Render
   const el=document.getElementById("alert-banner");
@@ -3216,6 +3315,7 @@ function render(){
   b.style.color=ts>0?"#34d399":"var(--muted)";
   // Header RingMark — always fully lit as app logo
   document.getElementById("header-ringmark").innerHTML=ringMark(36, true, true, true, "hdr");
+  render13F();
   if(settings.lastFetch){document.getElementById("refresh-status").textContent="✓ "+new Date(settings.lastFetch).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}
   // Show selected portfolio value
   const totalV=pfValueEUR(currentPf);
@@ -3815,6 +3915,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         </div>`;
 
       // Sell info row
+      // v3.59: Pool 1 (Personal non-risk, non-trophy) no longer has trailing stops.
+      // Sell only on moat failure (s.gate===false, surfaced via gate badge below) or
+      // Layer 2 recycling (manual). Pool 3 risk bucket retains trailing-stop discipline.
+      const _usesTrail=usesTrailingStop(ticker,currentPf,tr);
       if(currentPf==="nl"&&!isTrophy&&!isHold){
         // Caca sell rules: Phil Town → sticker, Buffett → activation (Ten Cap × 1.333).
         // No trailing stop in Caca either way — sell at the reference price.
@@ -3839,7 +3943,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <span>25% trail from ATH</span>`;
         if(ath){h+=`<span style="font-family:var(--mono);color:${ddCol};font-weight:600">${stateIcon} ATH ${fmt(ath.toFixed(2),s.currency)} · −${dd.toFixed(1)}%</span>`;}
         h+=`</div>`;
-      }else if(!isHold&&hasSellSticker){
+      }else if(!isHold&&hasSellSticker&&_usesTrail){
+        // Pool 3 risk bucket (Personal): trailing stop active, show activation + ATH/state.
         h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
           <span style="color:var(--muted)">activation ${fmt(+sellSticker.toFixed(2),s.currency)}</span>`;
         if(ath&&(state==="stopActive"||state==="stopped")){
@@ -3854,6 +3959,16 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             <div style="height:100%;width:${Math.min(dd/25*100,100)}%;background:${ddCol};border-radius:2px"></div></div>`;
           if(stopHit)h+=`<div style="font-size:9px;color:var(--red);font-weight:700;margin-top:2px">⚠ SELL — stop @ ${fmt((ath*0.75).toFixed(2),s.currency)}</div>`;
         }
+      }else if(!isHold&&hasSellSticker){
+        // Pool 1 (Personal non-risk, non-trophy): no trailing stop. Activation shown as
+        // fair-value threshold reference (Phase 3 MONITOR / recycling eligibility marker).
+        const _bufP1=isBuffett(ticker);
+        const _refLab=_bufP1?"activation":"fair value";
+        const _ref=_bufP1?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
+        const _aboveFV=_ref&&cp&&cp>_ref;
+        h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+          <span style="color:var(--muted)">${_refLab} ${_ref?fmt(+_ref.toFixed(2),s.currency):"—"}</span>
+          <span style="font-family:var(--mono);color:${_aboveFV?"var(--amber)":"var(--muted)"}">${_aboveFV?"recycle-eligible":"sell on M-break only"}</span></div>`;
       }
       h+=`</div>`;
     });
