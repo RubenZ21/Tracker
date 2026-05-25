@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.59</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.63</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1810,7 +1810,7 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason\n";
+  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason\n";
   // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
   const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
@@ -1818,7 +1818,7 @@ function exportCSV(){
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -1838,13 +1838,14 @@ const DIFF_FIELDS=[
   {key:"category",label:"Category",path:["category"]},
   {key:"gate",label:"Gate",path:["gate"]},
   {key:"priority",label:"Priority",path:["priority"]},
+  {key:"compounderPriority",label:"Compounder",path:["compounderPriority"]},
   {key:"earningsDate",label:"Earnings Date",path:["earningsDate"],isDate:true},
   {key:"lastCalcDate",label:"Last Calc",path:["lastCalcDate"],isDate:true}
 ];
 function snapshotStocks(){
   const snap={};
   Object.entries(stocks).forEach(([t,s])=>{
-    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null};
+    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null};
     if(s.cons){Object.keys(s.cons).forEach(k=>o["cons."+k]=s.cons[k]);}
     snap[t]=o;
   });
@@ -2018,6 +2019,7 @@ function handleCSVImport(e){
       if(hdr.includes("eps"))s.cons.eps=set("eps",row.eps);
       if(hdr.includes("pe"))s.cons.pe=set("pe",row.pe);
       if(hdr.includes("priority")){const pv=set("priority",row.priority);s.priority=pv;}
+      if(hdr.includes("compounderpriority")){const cp=set("compounderpriority",row.compounderpriority);s.compounderPriority=cp;}
       // Set trigger freshness date: use CSV value if present, else mark as updated now
       if(hdr.includes("lastcalc")&&row.lastcalc){const d=new Date(row.lastcalc);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
       else{s.lastCalcDate=Date.now();}
@@ -2739,6 +2741,7 @@ function handleExcelImport(e){
             if(row.specDate!=null)s.specDate=vn(row.specDate);
             if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
             if(row.priority!=null)s.priority=vn(row.priority);
+            if(row.compounderPriority!=null)s.compounderPriority=vn(row.compounderPriority);
             // Category: "buffett"/"highgr" → set; empty cell in present column → clear; column absent → preserve.
             // MUST happen before recalcConsTriggers below so highgr formulas apply.
             if(hasCategoryCol){const cat=String(row.category||"").trim().toLowerCase();if(cat==="buffett")s.category="buffett";else if(cat==="highgr")s.category="highgr";else delete s.category;}
@@ -2775,7 +2778,8 @@ function handleExcelImport(e){
               notes:row.notes?String(row.notes):undefined,
               lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now(),
               earningsDate:row.earningsDate?(isNaN(new Date(row.earningsDate))?null:new Date(row.earningsDate).getTime()):null,
-              priority:vn(row.priority)||null};
+              priority:vn(row.priority)||null,
+              compounderPriority:vn(row.compounderPriority)||null};
             if(catRaw==="buffett")stocks[t].category="buffett";
             // Restore Phil (Toolbox) data for new stocks
             if(row.philSticker!=null||row.philGR!=null){
@@ -3600,7 +3604,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     // Framework badge — PT (Phil Town green), WB (Buffett cyan), HG (High-Growth pink). Matches position-card badge colors.
     const _catBadge=isHighgr(t)?`<span style="font-size:9px;color:#a855f7;background:#a855f720;padding:1px 4px;border-radius:3px;margin-right:4px">HG</span>`:isBuffett(t)?`<span style="font-size:9px;color:#38bdf8;background:#38bdf820;padding:1px 4px;border-radius:3px;margin-right:4px">WB</span>`:`<span style="font-size:9px;color:#34d399;background:#34d39920;padding:1px 4px;border-radius:3px;margin-right:4px">PT</span>`;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${_catBadge}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${_catBadge}${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);font-family:var(--mono);margin-left:3px;font-weight:400">C${s.compounderPriority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       // Buffett category: MOS column shows "—" (not applicable)
       if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
@@ -3634,7 +3638,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Speculative stocks row(s) — shown in grid but not counted in totals
   const SPEC=getSpeculative(currentPf);
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
-    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">#${s.priority||"—"}</span></div></div>`;
+    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);font-family:var(--mono);margin-left:3px;font-weight:400">C${s.compounderPriority||"—"}</span></div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
       const st=sigCellStatus(t,key,currentPf);
@@ -3790,7 +3794,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
       const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
-        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
+        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
         <div class="btn-row">
@@ -3805,7 +3809,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
       const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
-        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
+        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max ${Math.round(riskBucketCapPct(currentPf)*100)}%)</div>
         ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;opacity:0.5" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
@@ -3836,7 +3840,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const phaseBadge=s.status!=="trophy"?`<span class="pos-badge" style="background:transparent;color:${_phase.color};font-size:8px;padding:1px 4px;border:1px solid ${_phase.color}33">${_phase.label}</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">#${s.priority||"—"}</span></div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
     // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
@@ -4513,6 +4517,8 @@ function renderWatchlist(c){
   let wl=getWatchlist();
   if(wlView==="priority"){
     wl.sort((a,b)=>{const pa=stocks[a].priority??999,pb=stocks[b].priority??999;return pa!==pb?pa-pb:(gapPct(a)??999)-(gapPct(b)??999);});
+  }else if(wlView==="compounder"){
+    wl.sort((a,b)=>{const pa=stocks[a].compounderPriority??999,pb=stocks[b].compounderPriority??999;return pa!==pb?pa-pb:(gapPct(a)??999)-(gapPct(b)??999);});
   }else if(wlView==="ir"){
     wl.sort((a,b)=>{const ra=getClosestTriggerReturn(a)?.impliedReturn??-1,rb=getClosestTriggerReturn(b)?.impliedReturn??-1;return rb-ra;});
   }else{
@@ -4521,18 +4527,17 @@ function renderWatchlist(c){
   let h=subToggle+`<div class="section-pad" style="padding-top:0"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700">Watchlist</div>
     <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>
-  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Moat</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button></div>`;
+  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Moat</button><button class="${wlView==="compounder"?"active":"inactive"}" onclick="wlView='compounder';localStorage.setItem('r1-wlView','compounder');render()">Compounder</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button></div>`;
 
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   h+=`<div class="wl-grid">`;
   wl.forEach(t=>{const s=stocks[t];const g=gapPct(t);const sc=sigCount(t);
     const gStr=sc>0?sc+"/"+(isBuffett(t)?2:3)+" signals":g!=null?g+"%":"—";
     const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
-    const pri=s.priority;
     const snoozed=isSnoozed(t);
     const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
     h+=`<div class="wl-card" ${snoozed?'style="opacity:0.5"':''}><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
+      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span><span style="font-size:9px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:6px" onclick="setPriority('${t}')">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${t}')">C${s.compounderPriority||"—"}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
       <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${isBuffett(t)&&s.cons.tenCap?` · <span style="color:#38bdf8;font-weight:400">TC ${fmt(s.cons.tenCap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
@@ -4555,9 +4560,8 @@ function renderWatchlist(c){
     h+=`</div><div style="display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:9px;color:${calcFreshness(s.lastCalcDate).color};font-family:var(--mono);padding:1px 5px;background:${calcFreshness(s.lastCalcDate).stale?calcFreshness(s.lastCalcDate).color+'15':'var(--bg)'};border-radius:3px;flex-shrink:0">${calcFreshness(s.lastCalcDate).label}</span>${earningsChip(t)}
       <div style="display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-wrap:wrap">
-        <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:2px 6px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono)" onclick="setPriority('${t}')">#${pri||"—"}</span>
         ${snoozed?`<span style="font-size:10px;color:var(--amber);cursor:pointer;padding:2px 6px;background:#92400e33;border-radius:4px" onclick="unsnoozeStock('${t}');render()">⏰ Wake</span>`:`<span style="font-size:10px;color:var(--muted);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="['mos','tenCap','pbt'].forEach(sig=>{if(stocks['${t}']?.signals?.[sig])snoozeSignal('${t}',sig)});render()">😴</span>`}
-        <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="openEditStock('${t}')">✏</span>
+        <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:4px 14px;background:var(--bg);border:1px solid #60a5fa33;border-radius:4px" onclick="openEditStock('${t}')">✏ Edit</span>
         <span style="font-size:10px;color:var(--green);cursor:pointer;padding:2px 6px;background:#0d332033;border-radius:4px" onclick="promoteToGrid('${t}')">→ Grid</span>
         <span style="font-size:10px;color:#d97706;cursor:pointer;padding:2px 6px;background:#332d0d33;border-radius:4px" onclick="promoteToSpec('${t}')">→ Risk</span>
         <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 6px;background:#3b111133;border-radius:4px" onclick="removeStock('${t}')">✕</span>
@@ -5078,6 +5082,15 @@ function sendRisklistNotification(fires){
 function setPriority(t){
   const cur=stocks[t].priority;const v=prompt("Moat strength for "+t+" (1 = strongest, empty to clear):",cur||"");
   if(v===null)return;const n=parseFloat(v);stocks[t].priority=isNaN(n)?null:n;save();render();
+}
+function setCompounderPriority(t){
+  const cur=stocks[t].compounderPriority;
+  const v=prompt("Compounder tier for "+t+" (1.0–4.x, where 1 = strongest, decimals OK, empty to clear):",cur||"");
+  if(v===null)return;
+  if(v===""){stocks[t].compounderPriority=null;save();render();return;}
+  const n=parseFloat(v);
+  if(isNaN(n)||n<1||n>=5){alert("Compounder tier must be a number ≥1 and <5 (e.g. 1.3, 2.5, 4.0).");return;}
+  stocks[t].compounderPriority=n;save();render();
 }
 function editNotes(t){
   const s=stocks[t];const cur=s.notes||"";
