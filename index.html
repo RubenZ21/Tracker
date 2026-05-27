@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.67</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.69</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -551,6 +551,148 @@ function pmosFires(t){
 function slotWeight(t,sigKey,pfKey){
   if(pfKey==='personal'&&sigKey==='pmos'&&isOperationalTier1(t))return 0.6;
   return 1.0;
+}
+
+// ============ STAGE E (v3.68, May 27 2026): HALF-SELL-AT-FAIR-VALUE NOTIFICATION ============
+// Framework §5: non-Tier-1 positions trigger a "sell half at market + trail remainder 25%"
+// action when price crosses fair value from below. FVT = Sticker for PT/HIGHGR, Ten Cap × 1.333
+// for Buffett (operations.md §2 Key Features). Tier 1 suppressed entirely (forever-hold, §9).
+// Pool 3 (risk bucket) suppressed — those positions have their own trailing-stop discipline
+// on ALL tranches, not the half-sell-at-FV mechanic. Caca and Personal both notified — the
+// framework §5 sell mechanic now applies to both portfolios uniformly post-Stage D.
+//
+// Scope of Stage E: client-side push notification + dismissable in-app alert. Trailing-stop
+// tracking on the Pool 1 remainder is NOT yet implemented (usesTrailingStop still false for
+// non-Tier-1 Pool 1) — that's deferred to a later stage. The user executes the half-sell
+// manually in IBKR after notification.
+
+// Compute fair-value threshold for a position. Returns null if no FVT applies
+// (Tier 1, Pool 3 risk bucket, or missing trigger inputs).
+function fairValueThreshold(t,pk){
+  if(isOperationalTier1(t))return null;
+  if(isRisk(t,pk))return null;
+  const s=stocks[t];if(!s)return null;
+  if(isBuffett(t))return activationPrice(s,t); // Ten Cap × 1.333
+  return s.cons?.mos?+(s.cons.mos*2).toFixed(2):null; // Sticker
+}
+
+// Last-seen "above FVT" state per position. Module-level Map (not persisted) — seeded at
+// app boot from current prices so the first refresh doesn't false-fire on positions that
+// were already above FVT when the user opened the app. Entries deleted when shares drop
+// to 0 so re-buys start fresh.
+let prevAboveFVT={};
+
+// Detect new fair-value crossings from below since last check. Returns list of fires.
+// Mutates prevAboveFVT state as a side-effect (matches the pattern of checkNewSignals).
+function checkFairValueCrossings(){
+  const fires=[];
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    Object.entries(pf.positions).forEach(([t,pos])=>{
+      const s=stocks[t];if(!s?.currentPrice)return;
+      const key=`${pk}-${t}`;
+      const shares=posShares(pos);
+      if(shares<=0){delete prevAboveFVT[key];return;}
+      const fvt=fairValueThreshold(t,pk);
+      if(fvt==null){delete prevAboveFVT[key];return;}
+      const isAbove=s.currentPrice>fvt;
+      const wasAbove=prevAboveFVT[key];
+      // Fire only on transition from below → above. First-observation (wasAbove===undefined)
+      // never fires regardless of current state — the init seed populates wasAbove so this
+      // branch is only hit if a new position was added mid-session above FVT, in which case
+      // suppressing is the correct conservative default (no false sell signal).
+      if(isAbove&&wasAbove===false){
+        fires.push({pk,ticker:t,price:s.currentPrice,fvt,pfName:pf.name,buf:isBuffett(t)});
+      }
+      prevAboveFVT[key]=isAbove;
+    });
+  });
+  return fires;
+}
+
+// Seed prevAboveFVT from current state. Called at app boot AFTER load() so portfolios are
+// populated. Mirrors the prevSignals snapshot at startup.
+function seedPrevAboveFVT(){
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    Object.entries(pf.positions).forEach(([t,pos])=>{
+      const s=stocks[t];if(!s?.currentPrice)return;
+      if(posShares(pos)<=0)return;
+      const fvt=fairValueThreshold(t,pk);
+      if(fvt==null)return;
+      prevAboveFVT[`${pk}-${t}`]=s.currentPrice>fvt;
+    });
+  });
+}
+
+// ============ STAGE F (v3.69, May 27 2026): TRIPWIRE STATUS — T1 / T3 / T6 ============
+// Tripwire firing state is stored as boolean flags on the stock object (t1Firing, t3Firing,
+// t6Firing). The CSV is the persistence layer; `watchlist.md` evidence folder is the system
+// of record (operations §6, §7). The app surfaces firing state visually on Tier 1 rows and
+// generates alerts.
+//
+// OPERATIONAL GATE: badges and alerts render ONLY when isOperationalTier1(t) is true. A
+// non-Tier-1 stock with a stale firing flag in its CSV is masked at render — the flag
+// persists in storage but does not surface. On re-promotion to Tier 1 it reappears.
+//
+// MANUAL TOGGLE: there is no auto-fire logic. Tripwires fire by user determination, made
+// against primary-source evidence per the methodology in trigger_calculation_standard.md
+// Part 7. The toggle action requires confirm() because firing initiates the §7 protocol:
+//   - T1/T3: no immediate position action, 4M re-audit within 30 days.
+//   - T6:    half-weight reduction at market next session, then re-audit.
+//
+// FIRING ≠ DEMOTION: during the audit window, Tier 1 treatment (forever-hold, P-MOS
+// eligibility, per-stock cap) REMAINS in effect (per framework §7). Demotion is a separate
+// action — the user removes the ticker from TIER1_SET at the top of Stage A's block when
+// the re-audit verdict comes back "demote". Tripwire alone does not change deployment.
+
+function tripwireState(t){
+  const s=stocks[t]||{};
+  return {t1:!!s.t1Firing,t3:!!s.t3Firing,t6:!!s.t6Firing};
+}
+function hasAnyTripwireFiring(t){
+  if(!isOperationalTier1(t))return false;
+  const tw=tripwireState(t);
+  return tw.t1||tw.t3||tw.t6;
+}
+// Compact badge cluster for Tier 1 rows. Returns "" for non-Tier-1 — safe to inject
+// unconditionally alongside tier1Marker(). Each badge is tappable: stops propagation
+// (so the row's main click handler doesn't also fire) and toggles via confirm() dialog.
+function tripwireBadges(t){
+  if(!isOperationalTier1(t))return "";
+  const tw=tripwireState(t);
+  const mk=(label,fires,title)=>{
+    const bg=fires?"#7f1d1d":"transparent";
+    const fg=fires?"#fca5a5":"var(--muted)";
+    const bd=fires?"#ef4444":"#1a2035";
+    const wt=fires?"700":"500";
+    return `<span style="font-size:8px;color:${fg};background:${bg};border:1px solid ${bd};padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:${wt};cursor:pointer;letter-spacing:0.3px" onclick="event.stopPropagation();toggleTripwire('${t}','${label.toLowerCase()}')" title="${title}${fires?' — FIRING (tap to clear after audit)':' — not firing (tap to mark)'}">${label}${fires?" 🔥":""}</span>`;
+  };
+  return mk("T1",tw.t1,"5yr ROIIC < CoC, 3 consecutive years")+
+         mk("T3",tw.t3,"Morningstar Wide→Narrow w/ structural commentary")+
+         mk("T6",tw.t6,"Restatement / auditor / SEC / DOJ / material settlement");
+}
+
+// Manual toggle. Confirmation step is mandatory because firing initiates the §7 protocol.
+// T6 confirmation includes the immediate-action instruction so the user can't fire T6 by
+// accident and miss the sell window.
+function toggleTripwire(ticker,which){
+  const s=stocks[ticker];if(!s)return;
+  const key=which==="t1"?"t1Firing":which==="t3"?"t3Firing":which==="t6"?"t6Firing":null;
+  if(!key)return;
+  const W=which.toUpperCase();
+  const currentlyFiring=!!s[key];
+  if(currentlyFiring){
+    if(!confirm(`Clear ${W} FIRING on ${ticker}?\n\nOnly clear after the 30-day 4M re-audit has reached a verdict (retain) and the firing condition has resolved. If verdict was 'demote', remove ${ticker} from TIER1_SET instead — clearing the tripwire alone does not demote.`))return;
+    delete s[key];
+  }else{
+    let msg=`Mark ${W} FIRING on ${ticker}?\n\nThis initiates the §7 protocol:\n  • 4M re-audit within 30 days\n  • Log primary-source evidence to watchlist.md`;
+    if(which==="t6")msg+=`\n  • IMMEDIATE half-weight reduction next session\n    (IBKR Highest Cost, sequential)`;
+    msg+="\n\nProceed?";
+    if(!confirm(msg))return;
+    s[key]=true;
+  }
+  save();checkAlerts();render();
 }
 
 function sigCount(t){
@@ -871,14 +1013,24 @@ function dpPctOfPool1(pfKey){const p1=pool1Value(pfKey);if(!p1)return 0;const pf
 // gate-fail SELL is surfaced via the 4M gate badge (separate path) and the gate-fail alert.
 // v3.66 Stage C: MONITOR phase deprecated (was phase 3). For non-Tier-1 PT post-E2,
 // activation = Sticker (fair value), so no MONITOR window exists between FV and prior
-// 1.333 multiple. Above fair value is now relabeled TRAILING (price-based label only;
-// actual trailing-stop tracking on Pool 1 remainder lands in Stage E along with the
-// half-sell push notification). Tier 1 stocks (framework §5, §9) never enter TRAILING
-// or SELL via price — only tripwires (T1/T3/T6, surfaced separately in Stage F).
+// 1.333 multiple. Above fair value is now relabeled TRAILING (price-based label only).
+// v3.68 Stage E: the half-sell-at-FV PUSH NOTIFICATION shipped — see prevAboveFVT /
+// checkFairValueCrossings / sendFairValueNotification below — but actual per-tranche
+// trailing-stop tracking on the Pool 1 remainder remains deferred: usesTrailingStop()
+// still returns false for non-Tier-1 Pool 1, so tr.ath / tr.state="stopActive" are not
+// written for these tranches. The TRAILING label here is purely price-derived. Tier 1
+// stocks (framework §5, §9) never enter TRAILING or SELL via price — only tripwires
+// (T1/T3/T6, surfaced separately in Stage F).
 function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
   const buf=isBuffett(ticker);const isSpec=isRisk(ticker,pfKey);
   const isT1=isOperationalTier1(ticker);
+  // Stage F (v3.69): Tier 1 with any tripwire firing → TRIPWIRE FIRING phase (operations §3).
+  // Replaces TRAILING/SELL mechanical states for Tier 1 — those are price-derived and Tier 1
+  // is forever-hold by price. Tripwire firing is the only phase signal Tier 1 ever moves to
+  // out of HOLD/ACCUMULATE, and the action depends on which tripwire (T1/T3 audit-pending vs
+  // T6 immediate half-weight sell — see operations §7).
+  if(isT1&&hasAnyTripwireFiring(ticker))return{phase:6,label:"TRIPWIRE FIRING",color:"var(--red)"};
   // Fair-value threshold = activation post-E2: Sticker for non-Tier-1 PT/HIGHGR,
   // Ten Cap × 1.333 for Buffett, null for Tier 1 (forever-hold, no FV threshold).
   const sticker=s.cons?.mos?s.cons.mos*2:null;
@@ -1534,6 +1686,10 @@ async function fetchPrices(){
   // Risklist: detect newly-eligible tranches and notify. Same-day duplicates suppressed.
   const rlFires=checkNewRisklistFires();
   if(rlFires.length)sendRisklistNotification(rlFires);
+  // v3.68 Stage E: detect non-Tier-1 owned positions crossing fair value FROM BELOW and
+  // notify "sell half at market". Tier 1 and Pool 3 suppressed inside fairValueThreshold().
+  const fvFires=checkFairValueCrossings();
+  if(fvFires.length)sendFairValueNotification(fvFires);
   showBuyModals();
   const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
   const parts=[];
@@ -1939,15 +2095,16 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason\n";
+  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing\n";
   // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
   const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
     const v=x=>x!=null?x:"";
+    const tw=x=>x?"Y":"";
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -1968,13 +2125,16 @@ const DIFF_FIELDS=[
   {key:"gate",label:"Gate",path:["gate"]},
   {key:"priority",label:"Priority",path:["priority"]},
   {key:"compounderPriority",label:"Compounder",path:["compounderPriority"]},
+  {key:"t1Firing",label:"T1",path:["t1Firing"],boolDisplay:["FIRING",null]},
+  {key:"t3Firing",label:"T3",path:["t3Firing"],boolDisplay:["FIRING",null]},
+  {key:"t6Firing",label:"T6",path:["t6Firing"],boolDisplay:["FIRING",null]},
   {key:"earningsDate",label:"Earnings Date",path:["earningsDate"],isDate:true},
   {key:"lastCalcDate",label:"Last Calc",path:["lastCalcDate"],isDate:true}
 ];
 function snapshotStocks(){
   const snap={};
   Object.entries(stocks).forEach(([t,s])=>{
-    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null};
+    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null};
     if(s.cons){Object.keys(s.cons).forEach(k=>o["cons."+k]=s.cons[k]);}
     snap[t]=o;
   });
@@ -1993,6 +2153,11 @@ function diffStocks(before){
       // Normalize: treat undefined as null
       if(oldVal===undefined)oldVal=null;
       if(newVal===undefined)newVal=null;
+      // boolDisplay: map truthy/falsy to display strings (e.g. tripwire firing flags)
+      if(df.boolDisplay){
+        oldVal=oldVal?df.boolDisplay[0]:df.boolDisplay[1];
+        newVal=newVal?df.boolDisplay[0]:df.boolDisplay[1];
+      }
       // Compare with tolerance for floats, day-level for dates
       if(oldVal===newVal)return;
       if(df.isDate&&typeof oldVal==="number"&&typeof newVal==="number"&&Math.abs(oldVal-newVal)<86400000)return;
@@ -2162,6 +2327,17 @@ function handleCSVImport(e){
       // is now per-portfolio and managed in Settings, not auto-toggled by CSV import.
       if(hdr.includes("specreason")){const sr=(row.specreason||"").trim();
         if(sr)s.specReason=sr;else delete s.specReason;}
+      // Import tripwire firing flags (T1/T3/T6 — Stage F v3.69). "Y"/"YES"/"TRUE"/"1" → firing;
+      // anything else (incl. empty, "N", absent column) → not firing. Operationally gated
+      // by isOperationalTier1() at render — a non-Tier-1 stock with a stale flag is masked
+      // but the flag persists in storage. Manual toggle through tripwireBadges UI.
+      [["t1firing","t1Firing"],["t3firing","t3Firing"],["t6firing","t6Firing"]].forEach(([col,key])=>{
+        if(hdr.includes(col)){
+          const raw=(row[col]||"").toString().trim().toUpperCase();
+          const fires=raw==="Y"||raw==="YES"||raw==="TRUE"||raw==="1";
+          if(fires)s[key]=true;else delete s[key];
+        }
+      });
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calc tenCap + pbt (category-aware: highgr uses 20Cap/DMOS formulas)
@@ -2728,7 +2904,8 @@ function exportExcel(){
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
     category:s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"",
     sector:s.sector||"",
-    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null};});
+    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null,
+    t1Firing:s.t1Firing?"Y":"",t3Firing:s.t3Firing?"Y":"",t6Firing:s.t6Firing?"Y":""};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws1,"Stocks");
 
@@ -2872,6 +3049,14 @@ function handleExcelImport(e){
             if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
             if(row.priority!=null)s.priority=vn(row.priority);
             if(row.compounderPriority!=null)s.compounderPriority=vn(row.compounderPriority);
+            // Stage F (v3.69): tripwire firing flags. Excel restore reads same Y/string sentinel as CSV.
+            [["t1Firing","t1Firing"],["t3Firing","t3Firing"],["t6Firing","t6Firing"]].forEach(([col,key])=>{
+              if(row[col]!=null){
+                const raw=String(row[col]||"").toUpperCase().trim();
+                const fires=raw==="Y"||raw==="YES"||raw==="TRUE"||raw==="1";
+                if(fires)s[key]=true;else delete s[key];
+              }
+            });
             // Category: "buffett"/"highgr" → set; empty cell in present column → clear; column absent → preserve.
             // MUST happen before recalcConsTriggers below so highgr formulas apply.
             if(hasCategoryCol){const cat=String(row.category||"").trim().toLowerCase();if(cat==="buffett")s.category="buffett";else if(cat==="highgr")s.category="highgr";else delete s.category;}
@@ -2911,6 +3096,11 @@ function handleExcelImport(e){
               priority:vn(row.priority)||null,
               compounderPriority:vn(row.compounderPriority)||null};
             if(catRaw==="buffett")stocks[t].category="buffett";
+            // Stage F (v3.69): seed tripwire firing flags on new-stock Excel restore.
+            [["t1Firing","t1Firing"],["t3Firing","t3Firing"],["t6Firing","t6Firing"]].forEach(([col,key])=>{
+              const raw=String(row[col]||"").toUpperCase().trim();
+              if(raw==="Y"||raw==="YES"||raw==="TRUE"||raw==="1")stocks[t][key]=true;
+            });
             // Restore Phil (Toolbox) data for new stocks
             if(row.philSticker!=null||row.philGR!=null){
               stocks[t].phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
@@ -3146,6 +3336,30 @@ function checkAlerts(){
         html:`<strong>${s.flag} ${t}</strong> 4M GATE FAILED — SELL ALL tranches immediately!`});}
   });
 
+  // TRIPWIRE FIRING — T6 critical (red pulse) with immediate-action instruction; T1/T3 watch
+  // (amber) with audit-pending guidance. Operational gate (isOperationalTier1) enforced —
+  // a non-Tier-1 stock with a stale t6Firing flag in CSV does NOT generate an alert (badges
+  // are also masked at render). Per operations §7. Each fires once per dismissal cycle.
+  // Ordered T6 → T1 → T3 so the most urgent (T6 = immediate sell) sorts highest visually.
+  Object.entries(stocks).forEach(([t,s])=>{
+    if(!isOperationalTier1(t))return;
+    if(s.t6Firing){
+      const k=`tripwire-t6-${t}`;
+      if(!dismissedAlerts[k])alerts.push({key:k,type:"critical",icon:"🚨",
+        html:`<strong>${s.flag} ${t}</strong> — <strong>T6 FIRING</strong>. Reduce to <strong>half-weight at market next session</strong> (IBKR Highest Cost, sequential highest-cost-first). 4M re-audit within 30 days. See operations §7.`});
+    }
+    if(s.t1Firing){
+      const k=`tripwire-t1-${t}`;
+      if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"⚠",
+        html:`<strong>${s.flag} ${t}</strong> — <strong>T1 FIRING</strong> (5yr ROIIC &lt; CoC, 3 consecutive years). No position action; 4M re-audit within 30 days. See operations §7.`});
+    }
+    if(s.t3Firing){
+      const k=`tripwire-t3-${t}`;
+      if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"⚠",
+        html:`<strong>${s.flag} ${t}</strong> — <strong>T3 FIRING</strong> (Wide→Narrow moat downgrade with structural commentary). No position action; 4M re-audit within 30 days. See operations §7.`});
+    }
+  });
+
   // STICKER DROP >20% — flag for re-audit
   Object.entries(stocks).forEach(([t,s])=>{
     if(!s.cons?.prevSticker||!s.cons?.sticker)return;
@@ -3192,6 +3406,28 @@ function checkAlerts(){
           delete tr._justCrossed;
         }
       });
+    });
+  });
+
+  // HALF-SELL-AT-FAIR-VALUE — v3.68 Stage E. Non-Tier-1 owned positions above their FVT
+  // (Sticker for PT/HIGHGR, Ten Cap × 1.333 for Buffett). Persists as long as the position
+  // is above FVT and shares > 0, until dismissed. Tier 1 (forever-hold) and Pool 3 (own
+  // trailing-stop discipline) are suppressed inside fairValueThreshold(). Different from
+  // the per-tranche "ACTIVATION CROSSED" alert above: that one fires per tranche transition
+  // with trailing-stop tracking enabled (Pool 3 / trophy only); this one fires per position
+  // for Pool 1 non-Tier-1 where the user must execute the half-sell manually.
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    Object.entries(pf.positions).forEach(([t,pos])=>{
+      const s=stocks[t];if(!s?.currentPrice)return;
+      if(posShares(pos)<=0)return;
+      const fvt=fairValueThreshold(t,pk);
+      if(fvt==null||s.currentPrice<=fvt)return;
+      const k=`halfsell-${pk}-${t}`;
+      if(dismissedAlerts[k])return;
+      const fvtLabel=isBuffett(t)?"Ten Cap × 1.333":"Sticker";
+      alerts.push({key:k,type:"sell",icon:"🎯",
+        html:`<strong>${s.flag} ${t}</strong> crossed ${fvtLabel} in ${pf.name} — <strong>${fmt(s.currentPrice,s.currency)}</strong> > ${fmt(fvt,s.currency)}. <strong>Sell HALF at market</strong> (highest-cost first); trail remainder with 25% stop.`});
     });
   });
 
@@ -3763,7 +3999,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     // Framework badge — PT (Phil Town green), WB (Buffett cyan), HG (High-Growth pink). Matches position-card badge colors.
     const _catBadge=isHighgr(t)?`<span style="font-size:9px;color:#a855f7;background:#a855f720;padding:1px 4px;border-radius:3px;margin-right:4px">HG</span>`:isBuffett(t)?`<span style="font-size:9px;color:#38bdf8;background:#38bdf820;padding:1px 4px;border-radius:3px;margin-right:4px">WB</span>`:`<span style="font-size:9px;color:#34d399;background:#34d39920;padding:1px 4px;border-radius:3px;margin-right:4px">PT</span>`;
-    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${_catBadge}${s.flag} ${t}${tier1Marker(t)}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);font-family:var(--mono);margin-left:3px;font-weight:400">C${s.compounderPriority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
+    h+=`<div class="sig-row" ${gateFail?'style="opacity:0.4"':notFiring?'style="opacity:0.7"':''}><div><div style="font-size:13px;font-weight:600">${gateFail?"🚫 ":""}${_catBadge}${s.flag} ${t}${tier1Marker(t)}${tripwireBadges(t)}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);font-family:var(--mono);margin-left:3px;font-weight:400">C${s.compounderPriority||"—"}</span>${notFiring?` <span style="font-size:9px;color:var(--muted);font-weight:400">HOLD</span>`:""}${(()=>{const ei=earningsInfo(s);return ei&&(ei.soon||ei.status==="stale")?` <span style="font-size:8px;color:${ei.color}" title="${ei.label}">📅</span>`:"";})()}${calcFreshness(s.lastCalcDate).stale?`<span style="font-size:8px;color:${calcFreshness(s.lastCalcDate).color};margin-left:4px;font-weight:400" title="Triggers: ${calcFreshness(s.lastCalcDate).label}">${calcFreshness(s.lastCalcDate).label}</span>`:""}</div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       // Buffett category: MOS column shows "—" (not applicable)
       if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
@@ -3799,7 +4035,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Speculative stocks row(s) — shown in grid but not counted in totals
   const SPEC=getSpeculative(currentPf);
   SPEC.forEach(t=>{const s=stocks[t];const sig=sigCount(t);
-    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}${tier1Marker(t)}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);font-family:var(--mono);margin-left:3px;font-weight:400">C${s.compounderPriority||"—"}</span></div></div>`;
+    h+=`<div class="sig-row" style="border-top:1px dashed #d9770644"><div><div style="font-size:13px;font-weight:600"><span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>${s.flag} ${t}${tier1Marker(t)}${tripwireBadges(t)}<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);font-family:var(--mono);margin-left:3px;font-weight:400">C${s.compounderPriority||"—"}</span></div></div>`;
     ["pbt","tenCap","mos"].forEach(key=>{
       if(key==="mos"&&isBuffett(t)){h+=`<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;return;}
       const st=sigCellStatus(t,key,currentPf);
@@ -3960,7 +4196,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
       const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
-        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
+        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireBadges(ticker)}${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
         <div class="btn-row">
@@ -3975,7 +4211,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
       const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
       h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
-        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
+        <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireBadges(ticker)}${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max ${Math.round(riskBucketCapPct(currentPf)*100)}%)</div>
         ${s.specReason?`<div style="padding:0 10px 6px;font-size:10px;color:#d97706;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="padding:0 10px 6px;font-size:10px;color:var(--muted);cursor:pointer;opacity:0.5" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
@@ -4006,7 +4242,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const phaseBadge=s.status!=="trophy"?`<span class="pos-badge" style="background:transparent;color:${_phase.color};font-size:8px;padding:1px 4px;border:1px solid ${_phase.color}33">${_phase.label}</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireBadges(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
     // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
@@ -4750,7 +4986,7 @@ function renderWatchlist(c){
     const snoozed=isSnoozed(t);
     const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
     h+=`<div class="wl-card" ${snoozed?'style="opacity:0.5"':''}><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${tier1Marker(t)}<span style="font-size:9px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:6px" onclick="setPriority('${t}')">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${t}')">C${s.compounderPriority||"—"}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
+      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${tier1Marker(t)}${tripwireBadges(t)}<span style="font-size:9px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:6px" onclick="setPriority('${t}')">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${t}')">C${s.compounderPriority||"—"}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
       <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${isBuffett(t)&&s.cons.tenCap?` · <span style="color:#38bdf8;font-weight:400">TC ${fmt(s.cons.tenCap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">`;
@@ -6191,6 +6427,35 @@ function sendTriggerNotification(fires){
   });
 }
 
+// v3.68 Stage E: push notification for non-Tier-1 positions crossing fair value from below.
+// Same-day dedup via localStorage as defense in depth — prevAboveFVT state should already
+// limit firing to once per crossing, but multi-tab or state-corruption scenarios could
+// double-fire. Tier 1 and Pool 3 already filtered upstream in fairValueThreshold().
+function sendFairValueNotification(fires){
+  if(!fires.length)return;
+  if(typeof Notification==="undefined"||Notification.permission!=="granted")return;
+  const today=new Date().toISOString().slice(0,10);
+  const shown=JSON.parse(localStorage.getItem("r1-fvNotifShown")||"{}");
+  navigator.serviceWorker.ready.then(reg=>{
+    fires.forEach(f=>{
+      const dedupKey=`${f.pk}-${f.ticker}`;
+      if(shown[dedupKey]===today)return;
+      const s=stocks[f.ticker];if(!s)return;
+      const priceStr=fmt(f.price,s.currency);
+      const fvtStr=fmt(f.fvt,s.currency);
+      const fvtLabel=f.buf?"Ten Cap × 1.333":"Sticker";
+      reg.showNotification(`🎯 Half-Sell: ${s.flag} ${f.ticker} hit fair value`,{
+        body:`${s.name||f.ticker} at ${priceStr} crossed ${fvtLabel} (${fvtStr}) in ${f.pfName}. Sell HALF at market; trail remainder with 25% stop.`,
+        tag:`ttt-halfsell-${f.pk}-${f.ticker}`,
+        renotify:true,
+        requireInteraction:true
+      }).catch(()=>{});
+      shown[dedupKey]=today;
+    });
+    localStorage.setItem("r1-fvNotifShown",JSON.stringify(shown));
+  });
+}
+
 // Silent auto-refresh: keeps prices current while app is open
 let refreshTimer=null;
 const REFRESH_MS=15*60*1000; // 15 min
@@ -6212,6 +6477,9 @@ Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t
 // Seed prevRisklistEligible so first fetch doesn't false-notify Risklist tranches
 // that were already eligible when the app started.
 risklist.forEach(e=>{for(let n=1;n<=3;n++)prevRisklistEligible[e.ticker+"-"+n]=risklistTrancheEligible(e,n);});
+// v3.68 Stage E: Seed prevAboveFVT so first fetch doesn't false-fire half-sell notifications
+// for positions that were already above their fair-value threshold when the app started.
+seedPrevAboveFVT();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
 fetchPrices();
 startRefreshTimer();
