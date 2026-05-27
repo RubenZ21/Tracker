@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.65</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.66</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -487,6 +487,12 @@ function render13F(){
 function usesTrailingStop(ticker,pfKey,tr){
   if(tr&&tr.signal==="trophy")return true;
   if(pfKey==="nl")return false; // Caca: sell at sticker/activation, no trailing
+  // v3.66 Stage C: Tier 1 forever-hold (framework §5, §9). No mechanical trailing stop
+  // regardless of pool — Pool 3 placement does NOT override Tier 1 sell discipline.
+  // Real behavior change: CSU (Tier 1 in Pool 3) no longer fires trailing-stop alerts.
+  // Exception: trophy tranches (handled above) keep their trailing stop — trophy is a
+  // deliberate user-chosen long-hold backstop, separate from framework Tier 1 mechanics.
+  if(isOperationalTier1(ticker))return false;
   if(isRisk(ticker,pfKey))return true; // Pool 3 risk bucket retains trailing stop sell discipline
   return false;
 }
@@ -859,22 +865,32 @@ function pool3CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const 
     pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});return v;}
 // DP as % of Pool 1 market value
 function dpPctOfPool1(pfKey){const p1=pool1Value(pfKey);if(!p1)return 0;const pf=portfolios[pfKey];return(pf?.dryPowder||0)/p1*100;}
-// Position phase: 1=Accumulate, 2=Hold, 3=Monitor, 4=Trailing, 5=Sell
+// Position phase: 1=Accumulate, 2=Hold, 4=Trailing, 5=Sell
 // v3.59: TRAILING and SELL phases only apply to tranches that use trailing stops
 // (Pool 3 risk bucket + trophy). Pool 1 stocks never reach phase 4/5 via trailing stop;
 // gate-fail SELL is surfaced via the 4M gate badge (separate path) and the gate-fail alert.
+// v3.66 Stage C: MONITOR phase deprecated (was phase 3). For non-Tier-1 PT post-E2,
+// activation = Sticker (fair value), so no MONITOR window exists between FV and prior
+// 1.333 multiple. Above fair value is now relabeled TRAILING (price-based label only;
+// actual trailing-stop tracking on Pool 1 remainder lands in Stage E along with the
+// half-sell push notification). Tier 1 stocks (framework §5, §9) never enter TRAILING
+// or SELL via price — only tripwires (T1/T3/T6, surfaced separately in Stage F).
 function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
   const buf=isBuffett(ticker);const isSpec=isRisk(ticker,pfKey);
-  // Fair-value threshold: Sticker for PT, activation (TC×1.333) for Buffett
+  const isT1=isOperationalTier1(ticker);
+  // Fair-value threshold = activation post-E2: Sticker for non-Tier-1 PT/HIGHGR,
+  // Ten Cap × 1.333 for Buffett, null for Tier 1 (forever-hold, no FV threshold).
   const sticker=s.cons?.mos?s.cons.mos*2:null;
-  const fvt=buf?activationPrice(s):sticker;
+  const fvt=buf?activationPrice(s,ticker):(isT1?null:sticker);
   // Check if any tranche that USES trailing stops has active trailing / sell signal.
   const hasTrailing=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||tr.ath==null)return false;return usesTrailingStop(ticker,pfKey,tr);});
   const hasSellSignal=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||!tr.ath)return false;if(!usesTrailingStop(ticker,pfKey,tr))return false;const base=sellBase(s,tr.signal);if(!base)return false;const dd=(tr.ath-s.currentPrice)/tr.ath*100;return dd>=25;});
   if(hasSellSignal)return{phase:5,label:"SELL",color:"var(--red)"};
   if(hasTrailing)return{phase:4,label:"TRAILING",color:"var(--accent)"};
-  if(fvt&&s.currentPrice>fvt&&!isSpec)return{phase:3,label:"MONITOR",color:"var(--amber)"};
+  // Non-Tier-1 above fair value → TRAILING label by price (sell half + trail per framework §5).
+  // Pool 3 (isSpec) handled by hasTrailing/hasSellSignal above; Tier 1 skipped (forever-hold).
+  if(fvt&&s.currentPrice>fvt&&!isSpec&&!isT1)return{phase:4,label:"TRAILING",color:"var(--accent)"};
   const sig=sigCount(ticker);
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
@@ -1086,8 +1102,9 @@ function cacaAllocStatus(ticker){
   else{targetTranches=nTranches>=3?4:(nTranches===2?2:(nTranches===1?1:0));}
   const trBelow=nTranches; // kept in return shape for backward compat
   const target=targetTranches*ci.tranche;
-  // Buffett: sell threshold is activation price (tenCap × 1.333). Phil Town: sell at sticker.
-  const sellRef=buf?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
+  // Buffett: sell threshold = activation (tenCap × 1.333). Phil Town: sell at sticker.
+  // v3.66 Stage C: Tier 1 in Caca → null sellRef (forever-hold, never enters sellAll).
+  const sellRef=isOperationalTier1(ticker)?null:(buf?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null));
   const aboveSellRef=sellRef&&s.currentPrice>sellRef;
   const diff=costEUR-target;
   const aboveCost=s.currentPrice>=avg;
@@ -3074,17 +3091,23 @@ function handleExcelImport(e){
   };r.readAsArrayBuffer(f);e.target.value="";
 }
 
-// Unified activation price: sticker / 0.75 (= sticker × 1.3333...)
-// Buffett category: tenCap × 1.3333 (anchored to Ten Cap instead of Sticker)
-// Guarantees worst-case sell (ATH = activation+ε, then -25%) lands at sticker/tenCap = intrinsic value
-function activationPrice(s){
+// v3.66 Stage C (May 27 2026 E2): Three-class activation per framework §5.
+//   Tier 1 (ticker arg provided + isOperationalTier1): null (forever-hold, framework §9).
+//   Non-Tier-1 Phil Town / HIGHGR: Sticker (was Sticker × 1.333 pre-E2).
+//   Buffett Category: Ten Cap × 1.333 (unchanged).
+// The optional `ticker` arg lets callers gate the Tier 1 check. If undefined, the function
+// falls back to category-only logic — safe for trailing-stop paths that are already
+// pre-gated by usesTrailingStop() (which returns false for non-trophy Tier 1).
+function activationPrice(s,ticker){
+  if(ticker&&isOperationalTier1(ticker))return null;
   if(s.category==="buffett"){const tc=s.cons?.tenCap;return tc?+(tc/0.75).toFixed(2):null;}
-  const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+(stk/0.75).toFixed(2):null;
+  const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+stk.toFixed(2):null;
 }
 function sellBase(s,signal){
   if(signal==="trophy")return -1; // special: always tracking, no sticker gate
   if(signal==="hold")return null; // hold — no sell tracking
-  return activationPrice(s); // unified for MOS, 10Cap, PBT
+  // No ticker arg — gated by usesTrailingStop() in trailing-stop paths (Tier 1 returns false there).
+  return activationPrice(s);
 }
 
 // ============ ALERT SYSTEM ============
@@ -3502,7 +3525,7 @@ function sigCellStatus(ticker, sigKey, pfKey){
   // Gap turns amber when within 10% of re-triggering
   const sym=s.currency==="USD"?"$":s.currency==="GBp"?"":s.currency==="CAD"?"C$":"€";
   const sfx=s.currency==="GBp"?"p":"";
-  const act=activationPrice(s);
+  const act=activationPrice(s,ticker);
   const _holdGap=p>trigger?Math.round((p-trigger)/p*100):0;
   let _holdSub;
   if(_holdGap<=0){_holdSub=fmt(trigger,s.currency);}
@@ -4049,23 +4072,30 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       // Layer 2 recycling (manual). Pool 3 risk bucket retains trailing-stop discipline.
       const _usesTrail=usesTrailingStop(ticker,currentPf,tr);
       if(currentPf==="nl"&&!isTrophy&&!isHold){
+        // v3.66 Stage C: Tier 1 forever-hold (framework §5, §9) — no sell row, tripwires only.
+        if(isOperationalTier1(ticker)){
+          h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+            <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
+            <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
+        }else{
         // Caca sell rules: Phil Town → sticker, Buffett → activation (Ten Cap × 1.333).
         // No trailing stop in Caca either way — sell at the reference price.
         const _bufC=isBuffett(ticker);
         const _refLabel=_bufC?"activation":"sticker";
-        const stkP=_bufC?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
+        const stkP=_bufC?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null);
         if(stkP&&stkP>0){
           const gapPctStk=cp?((stkP-cp)/cp*100):0;
           const atOrAbove=cp>=stkP;
           if(atOrAbove){
             h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-              <span style="color:var(--red);font-weight:700">⚠ SELL — at/above ${_refLabel}</span>
+              <span style="color:var(--red);font-weight:700">⚠ SELL HALF — at/above ${_refLabel}</span>
               <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(stkP.toFixed(2),s.currency)}</span></div>`;
           }else{
             h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-              <span style="color:var(--muted)">sell at ${fmt(stkP.toFixed(2),s.currency)} (${_refLabel})</span>
+              <span style="color:var(--muted)">sell half at ${fmt(stkP.toFixed(2),s.currency)} (${_refLabel})</span>
               <span style="font-family:var(--mono);color:var(--muted)">+${gapPctStk.toFixed(0)}% away</span></div>`;
           }
+        }
         }
       }else if(isTrophy){
         h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px;color:var(--muted)">
@@ -4089,15 +4119,29 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           if(stopHit)h+=`<div style="font-size:9px;color:var(--red);font-weight:700;margin-top:2px">⚠ SELL — stop @ ${fmt((ath*0.75).toFixed(2),s.currency)}</div>`;
         }
       }else if(!isHold&&hasSellSticker){
-        // Pool 1 (Personal non-risk, non-trophy): no trailing stop. Activation shown as
-        // fair-value threshold reference (Phase 3 MONITOR / recycling eligibility marker).
+        // v3.66 Stage C: Tier 1 forever-hold (framework §5, §9) — no fair-value row, tripwires only.
+        if(isOperationalTier1(ticker)){
+          h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+            <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
+            <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
+        }else{
+        // Pool 1 Personal non-Tier-1 (PT/HIGHGR or Buffett): activation = fair value post-E2.
+        // At/above fair value → sell half; below → informational reference for the half-sell trigger.
+        // Trailing stop tracking on the remainder lands in Stage E with the push notification.
         const _bufP1=isBuffett(ticker);
         const _refLab=_bufP1?"activation":"fair value";
-        const _ref=_bufP1?activationPrice(s):(s.cons?.mos?s.cons.mos*2:null);
-        const _aboveFV=_ref&&cp&&cp>_ref;
-        h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-          <span style="color:var(--muted)">${_refLab} ${_ref?fmt(+_ref.toFixed(2),s.currency):"—"}</span>
-          <span style="font-family:var(--mono);color:${_aboveFV?"var(--amber)":"var(--muted)"}">${_aboveFV?"recycle-eligible":"sell on M-break only"}</span></div>`;
+        const _ref=_bufP1?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null);
+        const _aboveFV=_ref&&cp&&cp>=_ref;
+        if(_aboveFV){
+          h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+            <span style="color:var(--red);font-weight:700">⚠ SELL HALF — at/above ${_refLab}</span>
+            <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(+_ref.toFixed(2),s.currency)}</span></div>`;
+        }else{
+          h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+            <span style="color:var(--muted)">sell half at ${_ref?fmt(+_ref.toFixed(2),s.currency):"—"} (${_refLab})</span>
+            <span style="font-family:var(--mono);color:var(--muted);font-size:9px">+ trail 25% on remainder</span></div>`;
+        }
+        }
       }
       h+=`</div>`;
     });
@@ -4483,11 +4527,14 @@ function renderAllocator(c){
     const dpCovers=targetTr>0?Math.floor(nlDpAvail/targetTr):0;
 
     // Tier 2 candidates: 0/N signals AND price > sell reference (sticker for PT, activation for Buffett)
+    // v3.66 Stage C: Tier 1 stocks not eligible as Layer 2 sources (framework §5.2) — activationPrice
+    // returns null for Tier 1, so they're naturally excluded by the sellRef truthiness check below.
     const tier2=[];
     nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");if(isTrophy)return;
+      if(isOperationalTier1(t))return; // T1 forever-hold, not a Layer 2 source
       const sig=sigCount(t);const buf=isBuffett(t);
-      const sellRef=buf?activationPrice(s):(s.cons?.mos?s.cons.mos*2:s.cons?.sticker||null);
+      const sellRef=buf?activationPrice(s,t):(s.cons?.mos?s.cons.mos*2:s.cons?.sticker||null);
       if(sig===0&&sellRef&&s.currentPrice>sellRef){
         const gap=((s.currentPrice-sellRef)/sellRef*100).toFixed(0);
         const available=toEUR(sh*s.currentPrice,s.currency);
