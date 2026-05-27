@@ -43,7 +43,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .btn-sm{padding:6px 10px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-family:var(--font);color:var(--muted);text-align:center}
 .btn-sm:active{opacity:.6}.btn-accent{color:var(--accent)}.btn-red{color:var(--red);border-color:#3b1111}
 .signal-grid{background:var(--card);border-radius:10px;overflow:hidden;border:1px solid var(--border)}
-.sig-header,.sig-row,.sig-total-row{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 56px;padding:10px 12px;align-items:center}
+.sig-header,.sig-row,.sig-total-row{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr 1fr 56px;padding:10px 12px;align-items:center}
 .sig-header{border-bottom:1px solid var(--border)}.sig-header div{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center}.sig-header div:first-child{text-align:left}
 .sig-row{border-bottom:1px solid var(--bg)}.sig-total-row{background:#0d1117}
 .sig-cell{text-align:center}
@@ -108,7 +108,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 @media(min-width:580px){
   .header{padding:16px 24px 12px}.section-pad{padding:16px 24px}.pf-toggle{margin:16px 24px 0}
   .pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .sig-header,.sig-row,.sig-total-row{grid-template-columns:1.4fr 1fr 1fr 1fr 64px;padding:12px 16px}
+  .sig-header,.sig-row,.sig-total-row{grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 64px;padding:12px 16px}
   .wl-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .alloc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .modal-sheet{max-width:500px;border-radius:16px;margin:auto}.modal-overlay{align-items:center}
@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.64</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.65</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -502,7 +502,7 @@ function trigT3Label(t){return isHighgr(t)?"20Cap":"10Cap";}
 function trigT2Label(t){return isHighgr(t)?"DMOS":"PBT";}
 function trigT3LongLabel(t){return isHighgr(t)?"20Cap":"Ten Cap";}
 function trigT2LongLabel(t){return isHighgr(t)?"DMOS — Deeper MOS":"PBT — Payback Time";}
-// ============ COMPOUNDER TIER v2 (Stage A, May 27 2026) ============
+// ============ COMPOUNDER TIER v2 (Stages A + B, May 27 2026) ============
 // Operational Tier 1 set per framework §10.2 (g_sustainable rule, evaluated annually each January).
 // NOT a bright-line on compounderPriority — V (pending re-measurement) and HLMA (Step G demotion)
 // are operationally Tier 2 despite low compounderPriority values; do not auto-derive from CSV.
@@ -513,26 +513,111 @@ function isOperationalTier1(t){return TIER1_SET.has((t||"").toUpperCase());}
 // Visual marker — small gold "⭐T1" badge shown next to ticker on Tier 1 rows.
 // Returns empty string for non-Tier-1 so it's safe to inject everywhere without conditional logic upstream.
 function tier1Marker(t){return isOperationalTier1(t)?`<span style="font-size:9px;color:#fbbf24;background:#fbbf2420;border:1px solid #fbbf2444;padding:1px 4px;border-radius:3px;margin-left:4px;font-family:var(--mono);font-weight:600" title="Operational Tier 1 — see framework §10.2">⭐T1</span>`:"";}
-function sigCount(t){const s=stocks[t];if(!s?.signals||s.gate===false)return 0;const buf=isBuffett(t);return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+
+// ---- Stage B: P-MOS (Premium MOS) — Tier 1 only ----
+// P-MOS = Sticker × 0.75 = (MOS × 2) × 0.75 = MOS × 1.5. Never muted (0.75 < 1.0 by construction).
+function pmosPrice(s){return s?.cons?.mos!=null?+(s.cons.mos*1.5).toFixed(2):null;}
+// Raw firing: price <= pmosPrice. Suppression NOT applied here — that's pmosFires().
+function pmosFiresRaw(s){const pm=pmosPrice(s);return pm!=null&&s?.currentPrice!=null&&s.currentPrice<=pm;}
+// Suppression rule (framework §2.6): P-MOS suppresses when any OTHER firing signal has trigger
+// price ≤ pmosPrice. "Deeper" means lower-as-multiple-of-Sticker. Worked CSU example:
+// TenCap at 0.82×Sticker is SHALLOWER than P-MOS at 0.75×Sticker → does NOT suppress.
+// MOS at 0.50×Sticker IS deeper than P-MOS → DOES suppress.
+function isPmosSuppressed(t){
+  const s=stocks[t];if(!s?.signals||!s.cons)return false;
+  const pm=pmosPrice(s);if(pm==null)return false;
+  if(s.signals.mos&&s.cons.mos!=null&&s.cons.mos<=pm)return true;
+  if(s.signals.pbt&&s.cons.pbt!=null&&s.cons.pbt<=pm)return true;
+  if(s.signals.tenCap&&s.cons.tenCap!=null&&s.cons.tenCap<=pm)return true;
+  return false;
+}
+// Operational P-MOS firing: Tier 1 only, raw firing AND not suppressed AND gate not failed.
+function pmosFires(t){
+  const s=stocks[t];if(!s||!isOperationalTier1(t)||s.gate===false)return false;
+  if(!pmosFiresRaw(s))return false;
+  if(isPmosSuppressed(t))return false;
+  return true;
+}
+// Slot weight in allocation denominator (framework §7, operations §2 Signal Function Hierarchy).
+// Personal: standard slots = 1.0, P-MOS = 0.6 (P-MOS deploys 3% vs standard 5% — asymmetric).
+// Caca: all weights 1.0 (P-MOS sized 3% flat with other Caca triggers at 3%). Stage B preserves
+// the legacy Caca double-MOS rule for non-Tier-1 PT (retired in Stage D's Caca rewrite).
+function slotWeight(t,sigKey,pfKey){
+  if(pfKey==='personal'&&sigKey==='pmos'&&isOperationalTier1(t))return 0.6;
+  return 1.0;
+}
+
+function sigCount(t){
+  const s=stocks[t];if(!s?.signals||s.gate===false)return 0;
+  const buf=isBuffett(t);
+  let n=(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);
+  if(pmosFires(t))n++;
+  return n;
+}
 // Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2). Buffett stocks: no ceiling.
-function isTriggerMuted(s,sigKey){if(sigKey==="mos"||!s?.cons)return false;if(s.category==="buffett")return false;if(s.category==="highgr"&&sigKey==="pbt")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
-// Piggyback: a muted trigger deploys when price is below it AND at least one valid signal is firing
-function isPiggyback(s,sigKey){if(!isTriggerMuted(s,sigKey))return false;const p=s.currentPrice;const tp=s.cons?.[sigKey];return tp!=null&&p!=null&&p<=tp&&sigCount_raw(s)>0;}
+// MOS, DMOS, and P-MOS are never muted (all mathematically below Sticker by construction: 0.50/0.45/0.75 < 1.0).
+function isTriggerMuted(s,sigKey){if(sigKey==="mos"||sigKey==="pmos"||!s?.cons)return false;if(s.category==="buffett")return false;if(s.category==="highgr"&&sigKey==="pbt")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
+// Piggyback: a muted trigger deploys when price is below it AND at least one valid (non-muted) signal is firing.
+// P-MOS firing counts as a valid signal for piggyback gating (it's never muted; has its own suppression rule).
+// `ticker` is optional for backward-compat with legacy callers; without it, P-MOS won't open the piggyback door.
+function isPiggyback(s,sigKey,ticker){
+  if(!isTriggerMuted(s,sigKey))return false;
+  const p=s.currentPrice;const tp=s.cons?.[sigKey];
+  if(tp==null||p==null||p>tp)return false;
+  if(sigCount_raw(s)>0)return true;
+  if(ticker&&pmosFires(ticker))return true;
+  return false;
+}
 function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;const buf=s.category==="buffett";return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
-// Deploy count: valid firing signals + piggybacking muted signals
-// pfKey='nl' → MOS fires 2 tranches (Caca double-MOS rule)
-function deployCount(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;const valid=sigCount(t);if(valid===0)return 0;let n=valid;["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k))n++;});
-  // Caca: MOS counts as 2 deploy slots when firing (not for Buffett — no MOS)
-  if(pfKey==="nl"&&s.signals?.mos&&!isBuffett(t))n++;
-  return n;}
-// Count ALL populated trigger slots (muted or not) — every populated trigger is a slot
-// pfKey='nl' → MOS counts as 2 slots (Caca 4-slot rule: PBT + 10Cap + MOS×2). Buffett: only 2 slots (PBT + 10Cap).
-function validTriggerSlots(t,pfKey){const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
+// Deploy count: lit firing signals + piggybacking muted signals + Caca legacy double-MOS (non-Tier-1).
+// Tier 1: P-MOS firing (when not suppressed) is included via sigCount.
+function deployCount(t,pfKey){
+  const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
+  const valid=sigCount(t);if(valid===0)return 0;
+  let n=valid;
+  ["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k,t))n++;});
+  // Caca legacy: MOS counts as 2 deploy slots when firing for NON-Tier-1 PT stocks only.
+  // Tier 1 stocks in Caca use the Tier 1 slot structure (P-MOS as 4th slot, no MOS double).
+  // The legacy double-MOS for non-Tier-1 is retired in Stage D's Caca rewrite.
+  if(pfKey==="nl"&&s.signals?.mos&&!isBuffett(t)&&!isOperationalTier1(t))n++;
+  return n;
+}
+// Discrete trigger slot count — for "X/Y" displays and MOS-reserve unlit counts.
+// Buffett: 2 (tenCap+pbt). Non-Tier-1 PT: 3. Tier 1 PT: 4 (adds P-MOS). Caca legacy adds 1 for non-Tier-1 MOS-double.
+function validTriggerSlots(t,pfKey){
+  const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
   if(isBuffett(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
   let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});
-  // Caca: MOS is a double slot
-  if(pfKey==="nl"&&s.cons?.mos!=null)n++;
-  return n;}
+  // Tier 1: P-MOS as 4th slot (cons.mos populated → pmos derived).
+  if(isOperationalTier1(t)&&s.cons.mos!=null)n++;
+  // Caca legacy: MOS double-counts as a slot for NON-Tier-1 PT (Stage D will retire).
+  if(pfKey==="nl"&&s.cons?.mos!=null&&!isOperationalTier1(t))n++;
+  return n;
+}
+// Weighted slot count for the allocation denominator. Tier 1 Personal: 3.6 (1+1+1+0.6). All others = discrete count × 1.0.
+function weightedSlots(t,pfKey){
+  const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
+  if(isBuffett(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n+=slotWeight(t,k,pfKey);});return n;}
+  let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n+=slotWeight(t,k,pfKey);});
+  if(isOperationalTier1(t)&&s.cons.mos!=null)n+=slotWeight(t,'pmos',pfKey);
+  if(pfKey==="nl"&&s.cons?.mos!=null&&!isOperationalTier1(t))n+=slotWeight(t,'mos',pfKey);
+  return n;
+}
+// Weighted lit count for a single stock — sum of slot weights for currently-deploying signals (firing + piggyback).
+// On Personal Tier 1 with all four firing (P-MOS not suppressed): 3×1.0 + 0.6 = 3.6. With P-MOS suppressed
+// (because MOS/PBT/TenCap firing deeper): equals the three lit weights, P-MOS unlit goes to reserve.
+function weightedLit(t,pfKey){
+  const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
+  let n=0;
+  if(!isBuffett(t)&&s.signals?.mos)n+=slotWeight(t,'mos',pfKey);
+  if(s.signals?.tenCap)n+=slotWeight(t,'tenCap',pfKey);
+  if(s.signals?.pbt)n+=slotWeight(t,'pbt',pfKey);
+  if(pmosFires(t))n+=slotWeight(t,'pmos',pfKey);
+  if(isPiggyback(s,"tenCap",t))n+=slotWeight(t,'tenCap',pfKey);
+  if(isPiggyback(s,"pbt",t))n+=slotWeight(t,'pbt',pfKey);
+  if(pfKey==="nl"&&s.signals?.mos&&!isBuffett(t)&&!isOperationalTier1(t))n+=slotWeight(t,'mos',pfKey);
+  return n;
+}
 
 // Tranche-ownership check — true when the user already holds shares in a tranche for this signal.
 // Used to suppress buy badges and push notifications mid-month so they only appear for signals
@@ -649,8 +734,8 @@ function ringState(ticker, pfKey) {
   const keyMap={PBT:'pbt','10Cap':'tc',MOS:'mos'};
   const sigMap={pbt:'pbt',tenCap:'tc',mos:'mos'};
   // First: check buy signals (highest priority — overrides tranche state). Include piggyback.
-  if(s.signals?.pbt||isPiggyback(s,"pbt")) result.pbt="buy";
-  if(s.signals?.tenCap||isPiggyback(s,"tenCap")) result.tc="buy";
+  if(s.signals?.pbt||isPiggyback(s,"pbt",ticker)) result.pbt="buy";
+  if(s.signals?.tenCap||isPiggyback(s,"tenCap",ticker)) result.tc="buy";
   if(s.signals?.mos) result.mos="buy";
   // Then: check tranche lifecycle for non-buy rings
   if(pos){
@@ -3436,9 +3521,9 @@ function openConviction(t){
   const _tcLbl=hg?"20Cap":"Ten Cap";const _pbtLbl=hg?"DMOS":"PBT";
   if(!buf&&c.mos&&p<=c.mos)sigs.push("MOS");
   if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap"))sigs.push(_tcLbl);
-  else if(c.tenCap&&p<=c.tenCap&&isPiggyback(s,"tenCap"))sigs.push(_tcLbl+" ↗");
+  else if(c.tenCap&&p<=c.tenCap&&isPiggyback(s,"tenCap",t))sigs.push(_tcLbl+" ↗");
   if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt"))sigs.push(_pbtLbl);
-  else if(c.pbt&&p<=c.pbt&&isPiggyback(s,"pbt"))sigs.push(_pbtLbl+" ↗");
+  else if(c.pbt&&p<=c.pbt&&isPiggyback(s,"pbt",t))sigs.push(_pbtLbl+" ↗");
   const moatLabel=moatDisp(s.moat);
   let h=`<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:24px;text-align:center">
@@ -3611,7 +3696,29 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Dual-label header when any stock on the current view is High-Growth (alternate labels shown dim below).
   const _hdrCardTickers=[...GRID,...getSpeculative()];
   const hasHighgr=_hdrCardTickers.some(t=>stocks[t]?.category==="highgr");
-  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700">PBT${hasHighgr?`<span>/DMOS</span>`:""}</div><div style="color:#60a5fa;font-weight:700">10Cap${hasHighgr?`<span>/20Cap</span>`:""}</div><div style="color:#4ade80;font-weight:700">MOS</div><div>#</div></div>`;
+  // P-MOS cell renderer (Stage B). Three states for operational Tier 1; dashed n/a otherwise.
+  // - Firing (raw && !suppressed): solid gold, "B", price.
+  // - Suppressed (raw && deeper signal firing): dashed gold, "S", "supp." top sub.
+  // - Not raw-firing: empty circle with price (gap behaviour like other unfired cells).
+  const pmosCellHtml=(t)=>{
+    const s=stocks[t];const _t1=isOperationalTier1(t);const _pmP=pmosPrice(s);
+    if(!_t1||_pmP==null) return `<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:1.5px dashed #333;font-size:9px;color:#555">—</div><div class="sig-sub" style="color:#555;font-size:8px">n/a</div></div>`;
+    const _pmRaw=pmosFiresRaw(s);const _pmFires=pmosFires(t);const _pmSupp=_pmRaw&&!_pmFires;
+    const _g="#fbbf24";let _sty="",_lbl="",_top="";
+    const _subStr=fmt(_pmP,s.currency);
+    if(_pmFires){_sty=`background:${_g};box-shadow:0 0 8px ${_g}50;color:#000;font-weight:700`;_lbl="B";}
+    else if(_pmSupp){_sty=`background:transparent;border:2px dashed ${_g}80;color:${_g};font-weight:700`;_lbl="S";_top="supp.";}
+    else{
+      // Not firing: show price + drop % needed (matches MOS/TC/PBT cell gap UX)
+      const p=s.currentPrice;
+      if(p&&p>_pmP){const gap=Math.round((p-_pmP)/p*100);const gCol=gap<10?"#d97706":"var(--muted)";
+        return `<div class="sig-cell"><div class="sig-ind" style="background:transparent;border:2px solid #333"></div><div class="sig-sub">${_subStr} <span style="color:${gCol};font-weight:${gap<10?"700":"400"}">▼${gap}%</span></div></div>`;}
+      _sty=`background:transparent;border:2px solid #333`;
+    }
+    const _subCol=_pmFires?`style="color:${_g}"`:_pmSupp?`style="color:${_g}99"`:"";
+    return `<div class="sig-cell">${_top?`<div class="sig-sub" style="color:${_g}aa;font-size:9px;margin-bottom:2px">${_top}</div>`:""}<div class="sig-ind" style="${_sty}">${_lbl}</div><div class="sig-sub" ${_subCol}>${_subStr}</div></div>`;
+  };
+  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-header"><div>Stock${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div style="color:#a78bfa;font-weight:700">PBT${hasHighgr?`<span>/DMOS</span>`:""}</div><div style="color:#60a5fa;font-weight:700">10Cap${hasHighgr?`<span>/20Cap</span>`:""}</div><div style="color:#4ade80;font-weight:700">MOS</div><div style="color:#fbbf24;font-weight:700">P-MOS</div><div>#</div></div>`;
   [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
     // Framework badge — PT (Phil Town green), WB (Buffett cyan), HG (High-Growth pink). Matches position-card badge colors.
     const _catBadge=isHighgr(t)?`<span style="font-size:9px;color:#a855f7;background:#a855f720;padding:1px 4px;border-radius:3px;margin-right:4px">HG</span>`:isBuffett(t)?`<span style="font-size:9px;color:#38bdf8;background:#38bdf820;padding:1px 4px;border-radius:3px;margin-right:4px">WB</span>`:`<span style="font-size:9px;color:#34d399;background:#34d39920;padding:1px 4px;border-radius:3px;margin-right:4px">PT</span>`;
@@ -3637,6 +3744,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const _lo=hasLimitOrder(t,key);const _loLbl=loLabel(t,key);
       h+=`<div class="sig-cell" onclick="toggleLimitOrder('${t}','${key}')" style="cursor:pointer">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${topSubOpacity};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div>${_lo?`<div style="font-size:7px;color:#67e8f9;font-family:var(--mono);margin-top:1px">${_loLbl} LO</div>`:""}</div>`;
     });
+    // P-MOS cell (Stage B) — gold, Tier 1 only.
+    h+=pmosCellHtml(t);
     // Status column: overall stock status
     const _sigKeys=isBuffett(t)?["tenCap","pbt"]:["mos","tenCap","pbt"];
     const hasSell=_sigKeys.some(k=>sigCellStatus(t,k,currentPf).cls==="sell");
@@ -3665,14 +3774,19 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const subCol=st.cls==="buy"?sigCol:st.cls==="hold"?sigCol+"99":st.cls==="muted"?"#d9770699":st.cls==="mutedOff"?"#d9770699":"";
       h+=`<div class="sig-cell" onclick="toggleLimitOrder('${t}','${key}')" style="cursor:pointer">${st.topSub?`<div class="sig-sub" style="color:${sigCol}${st.cls==="mutedOff"?"cc":"60"};font-size:9px;margin-bottom:2px">${st.topSub}</div>`:""}<div class="sig-ind ${useClass}" style="${indStyle}">${st.label}</div><div class="sig-sub ${st.subCls||""}" ${subCol?`style="color:${subCol}"`:""}>${st.sub}</div>${hasLimitOrder(t,key)?`<div style="font-size:7px;color:#67e8f9;font-family:var(--mono);margin-top:1px">${loLabel(t,key)} LO</div>`:""}</div>`;
     });
+    // P-MOS cell (Stage B) — Tier 1 only (e.g. CSU in Pool 3); otherwise dashed n/a.
+    h+=pmosCellHtml(t);
     h+=`<div style="text-align:center;font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${deployCount(t,currentPf)||"0"}/${validTriggerSlots(t,currentPf)}</div></div>`;
   });
   // Totals row
   const buyCount=k=>GRID.filter(t=>sigCellStatus(t,k,currentPf).cls==="buy").length;
+  const _pmosCount=GRID.filter(t=>pmosFires(t)).length;
+  const _t1Count=GRID.filter(t=>isOperationalTier1(t)).length;
   h+=`<div class="sig-total-row"><div style="font-size:12px;font-weight:700;color:var(--muted)">TOTAL</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("pbt")}/${GRID.length}</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("tenCap")}/${GRID.length}</div>
     <div style="text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted)">${buyCount("mos")}/${GRID.length}</div>
+    <div style="text-align:center;font-size:12px;font-family:var(--mono);color:#fbbf24">${_pmosCount}/${_t1Count}</div>
     <div style="text-align:center;font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${ts}/${fgs}</div></div></div>`;
 
   // Portfolio weight bar
@@ -4098,42 +4212,52 @@ function renderAllocator(c){
   if(currentPf==="personal"){
     h+=renderMonthlyBanner();
     const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS().length;
-    // v2 formula with Sticker Ceiling: Tranche = income ÷ (sum of valid trigger slots across firing stocks + 3)
-    // Only new income is divided. Existing DP stays earmarked.
+    // v3.65 Stage B: Tranche = income ÷ (weighted slots across firing stocks + expansion slots).
+    // Weighted slots = 3.6 for Tier 1 PT (1+1+1+0.6 for P-MOS), 3 for non-Tier-1 PT, 2 for Buffett.
+    // Discrete slot counts (validSlots, litTotal, unlitTotal) preserved for "X/Y" display strings;
+    // weighted values (weightedSlotsTotal, litWeighted, etc.) drive the dollar math.
     const firingStocks=GRID.filter(t=>sigCount(t)>0);
     const nFiring=firingStocks.length;
-    const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,'personal'),0);
+    const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,'personal'),0);            // discrete (display)
+    const weightedSlotsTotal=firingStocks.reduce((n,t)=>n+weightedSlots(t,'personal'),0);        // weighted (math)
     const expSlots=settings.expansionSlots??3;
-    const denom=validSlots+expSlots;
+    const denom=validSlots+expSlots;                                                              // discrete (label only)
+    const denomW=weightedSlotsTotal+expSlots;                                                     // weighted denominator
     const totalIncome=pfIncome("personal");
     const idxAlloc=indexAllocationUSD();
     const income=totalIncome-idxAlloc; // Phil Town portion
     const _bs=pfSym("personal");const _bc=pfBaseCcy("personal");
-    const perTr=denom>0?Math.round(income/denom):0;
+    const perTr=denomW>0?Math.round(income/denomW):0;                                             // tranche from weighted denom
     // Count lit (deploy) vs unlit signals across firing stocks — deployCount includes piggyback
-    const litTotal=firingStocks.reduce((n,t)=>n+deployCount(t,'personal'),0);
-    const unlitTotal=validSlots-litTotal;
+    const litTotal=firingStocks.reduce((n,t)=>n+deployCount(t,'personal'),0);                    // discrete (display)
+    const unlitTotal=validSlots-litTotal;                                                         // discrete (display)
+    const litWeighted=firingStocks.reduce((n,t)=>n+weightedLit(t,'personal'),0);                 // weighted (math)
+    const unlitWeighted=weightedSlotsTotal-litWeighted;                                           // weighted (math)
     // Position cap enforcement: lit tranches for stocks at/above per-stock cap
     // (15% Pool 1 MV for Phil Town, 10% for Buffett) are redirected to DP.
     const cappedLit=firingStocks.reduce((n,t)=>n+(atPositionCap(t,'personal')?deployCount(t,'personal'):0),0);
-    const litDeploying=litTotal-cappedLit;
-    const deployTotal=denom>0?Math.round(income*litDeploying/denom):0;
-    const cappedRedirect=denom>0?Math.round(income*cappedLit/denom):0;
+    const cappedLitWeighted=firingStocks.reduce((n,t)=>n+(atPositionCap(t,'personal')?weightedLit(t,'personal'):0),0);
+    const litDeploying=litTotal-cappedLit;                                                        // discrete count (display)
+    const litDeployingWeighted=litWeighted-cappedLitWeighted;                                     // weighted (math)
+    const deployTotal=denomW>0?Math.round(income*litDeployingWeighted/denomW):0;
+    const cappedRedirect=denomW>0?Math.round(income*cappedLitWeighted/denomW):0;
     const toDP=income-deployTotal;
     const sliderPct=settings.dpSlider??40;
     const mosReserveTotal=Math.round(toDP*(sliderPct/100));
     const expansionTotal=toDP-mosReserveTotal;
     h+=`<div class="${salaryLanded?"":"alloc-waiting"}">`;
-    // Calculate MOS reserves: ideal (cost-matched) vs actual (override or ideal)
+    // Calculate MOS reserves: ideal (cost-matched) vs actual (override or ideal).
+    // Uses WEIGHTED unlit so a suppressed P-MOS slot reserves 0.6×tranche-cost, not 1.0× — matches its eventual deploy size.
     const mosInfo={}; // per-stock: {ideal, actual, unlit}
     let dpMosReserved=0;
     firingStocks.forEach(t=>{const s=stocks[t];const slots=validTriggerSlots(t,'personal');const dc=deployCount(t,'personal');const unlit=slots-dc;
+      const wSlotsStock=weightedSlots(t,'personal');const wLitStock=weightedLit(t,'personal');const wUnlit=wSlotsStock-wLitStock;
       if(unlit<=0){mosInfo[t]={ideal:0,actual:0,unlit:0};return;}
       const pos=pf.positions?.[t];if(!pos){mosInfo[t]={ideal:0,actual:0,unlit};return;}
       const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
       let ideal=0;
       const resMult=s.currency==="GBp"?100:1;
-      if(nTr>0&&avg>0&&sh>0){ideal=Math.round(avg*sh/nTr/resMult*unlit);}
+      if(nTr>0&&avg>0&&sh>0){ideal=Math.round(avg*sh/nTr/resMult*wUnlit);}
       const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
       const resCcy=s.currency==="GBp"?"GBP":s.currency;
       mosInfo[t]={ideal,actual,unlit,resCcy};
@@ -4189,8 +4313,10 @@ function renderAllocator(c){
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + MOS reserve
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
+      // Weighted versions drive $ math so P-MOS-only deploys at 0.6× tranche, not 1.0×.
+      const wLitS=weightedLit(t,'personal');const wSlotsS=weightedSlots(t,'personal');const wUnlitS=wSlotsS-wLitS;
       const capped=atPositionCap(t,'personal');const capPct=positionCapPct(t);const mvPct=positionMVPct(t,'personal');
-      const deployBase=capped?0:dc*perTr;const cappedBase=capped?dc*perTr:0;const mosBase=unlit*perTr;
+      const deployBase=capped?0:wLitS*perTr;const cappedBase=capped?wLitS*perTr:0;const mosBase=wUnlitS*perTr;
       const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0,resCcy:_bc};
       const allocSym=mi.resCcy==="USD"?"$":mi.resCcy==="GBP"?"\u00a3":"\u20ac";
