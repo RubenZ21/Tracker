@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.66</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.67</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -354,7 +354,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 // watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
 let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
@@ -989,11 +989,19 @@ function syncRisklistStockStubs(){
 }
 // 5% initial entry size from Pool 1 market value
 function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
-// Per-stock position cap: 15% Pool 1 MV for Phil Town, 10% for Buffett Category.
-// When at/above cap, monthly allocator skips deployment and routes tranche(s) to DP.
-function positionCapPct(ticker){return isBuffett(ticker)?0.10:0.15;}
+// Per-stock position cap (% of Pool 1 MV). v3.67 Stage D: Tier- and portfolio-aware.
+//   Personal: Tier 1 = 18%, non-Tier-1 PT/HIGHGR = 15%, Buffett = 10%
+//   Caca    : Tier 1 = 12%, non-Tier-1 PT/HIGHGR =  9%, Buffett =  6%
+// When at/above cap in Personal, the monthly allocator skips deployment for that stock
+// and routes the tranche(s) to DP. Caca uses the same caps for display + Stage G grandfathering.
+// NOW/PGR/WKL are grandfathered above caps in Caca — handled at display layer (Stage G), not here.
+function positionCapPct(ticker,pfKey){
+  const isT1=isOperationalTier1(ticker);const buf=isBuffett(ticker);
+  if(pfKey==="nl")return isT1?0.12:buf?0.06:0.09;
+  return isT1?0.18:buf?0.10:0.15; // personal
+}
 function positionMVPct(ticker,pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const s=stocks[ticker];if(!s)return 0;const pos=pf.positions?.[ticker];if(!pos)return 0;const p1=pool1Value(pfKey);if(p1<=0)return 0;const base=pfBaseCcy(pfKey);const mv=fromEUR(toEUR(posShares(pos)*(s.currentPrice||0),s.currency),base);return mv/p1;}
-function atPositionCap(ticker,pfKey){return positionMVPct(ticker,pfKey)>=positionCapPct(ticker);}
+function atPositionCap(ticker,pfKey){return positionMVPct(ticker,pfKey)>=positionCapPct(ticker,pfKey);}
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
 function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
@@ -1066,22 +1074,30 @@ function cacaInfo(){
   Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;
     const isTrophy=pos.tranches.every(tr=>tr.signal==="trophy");
     if(!isTrophy){const sh=posShares(pos);if(sh>0)mv+=toEUR(sh*s.currentPrice,s.currency);}});
-  const total=mv+(pf.dryPowder||0);
+  const total=mv+(pf.dryPowder||0); // Pool 1 MV + Pool 3 MV (trophy excluded) + DP
   const ixVal=indexValue("nl");
   const totalWithIndex=total+ixVal;
-  return{total,tranche:Math.round(total/(settings.nlTranches||40)),mv,totalWithIndex,ixVal};
+  // v3.67 Stage D: tranche = 3% × (Pool 1+3 MV) at deployment, floating (not ÷40).
+  // Falls back to legacy `100/nlTranches` derivation if nlTranchePct unset (migration safety).
+  const tranchePct=settings.nlTranchePct||(settings.nlTranches?100/settings.nlTranches:3);
+  return{total,tranche:Math.round(total*tranchePct/100),mv,totalWithIndex,ixVal,tranchePct};
 }
 // Per-stock cost allocation status for Caca: target cost vs actual cost
 // TRIM RULE (v3.13): target is based on how many triggers the AVERAGE COST sits at-or-below,
 // NOT on which signals happen to be lit right now. Philosophy: reward good entries with room
-// to hold. If the avg cost beat all triggers historically, earn full 10% allocation even if
+// to hold. If the avg cost beat all triggers historically, earn full allocation even if
 // the current price has rallied and no signals are firing anymore.
 // Caca allocation status: where this position stands relative to its target tranche count.
 // Target is driven by how many tranches are actually deployed (recorded in pos.tranches),
 // since avg cost almost always sits between trigger prices and made the old "trBelow"
 // comparison unreliable.
-//   Phil Town stocks (3 triggers): 3+ deployed → 4 tranches (10%), 2 → 2 (5%), 1 → 1 (2.5%), 0 → 0
-//   Buffett stocks   (2 triggers): 2+ deployed → 2 tranches (5%),  1 → 1 (2.5%), 0 → 0
+// v3.67 Stage D: targetTranches now CAPS at the per-stock category limit so 4×3% targets
+// align with Tier 1's 12% cap, 3×3% with non-Tier-1 PT/HIGHGR's 9% cap, and 2×3% with
+// Buffett's 6% cap. (Old code mapped 3+ PT tranches to 4 under ÷40 math — that would now
+// overshoot a non-Tier-1 PT's cap by ~3 percentage points.)
+//   Tier 1 (PT/HIGHGR): max 4 tranches (incl. P-MOS) → 12% target
+//   Non-Tier-1 PT/HIGHGR: max 3 tranches → 9% target
+//   Buffett: max 2 tranches → 6% target
 function cacaAllocStatus(ticker){
   const pf=portfolios.nl;if(!pf)return null;
   const pos=pf.positions?.[ticker];if(!pos)return null;
@@ -1091,20 +1107,17 @@ function cacaAllocStatus(ticker){
   const costEUR=toEUR(avg*sh,s.currency);
   const ci=cacaInfo();
   const sig=sigCount(ticker);
-  // Target allocation is based on how many tranches were actually deployed (recorded
-  // in pos.tranches), NOT how many triggers the avg cost sits below. Avg price almost
-  // always lands between trigger prices, which made the old comparison unreliable.
-  // Phil Town: 1 tranche→2.5%, 2→5%, 3+→10%. Buffett: 1→2.5%, 2→5% (max 2 signals).
+  // Target = min(deployed tranches, category max) × tranche size. Aligns with per-stock cap.
   const cons=s.cons||{};const buf=isBuffett(ticker);
+  const isT1=isOperationalTier1(ticker);
   const nTranches=posTranchesOwned(pos);
-  let targetTranches;
-  if(buf){targetTranches=nTranches>=2?2:(nTranches===1?1:0);}
-  else{targetTranches=nTranches>=3?4:(nTranches===2?2:(nTranches===1?1:0));}
+  const maxTranches=buf?2:isT1?4:3;
+  const targetTranches=Math.min(nTranches,maxTranches);
   const trBelow=nTranches; // kept in return shape for backward compat
   const target=targetTranches*ci.tranche;
   // Buffett: sell threshold = activation (tenCap × 1.333). Phil Town: sell at sticker.
   // v3.66 Stage C: Tier 1 in Caca → null sellRef (forever-hold, never enters sellAll).
-  const sellRef=isOperationalTier1(ticker)?null:(buf?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null));
+  const sellRef=isT1?null:(buf?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null));
   const aboveSellRef=sellRef&&s.currentPrice>sellRef;
   const diff=costEUR-target;
   const aboveCost=s.currentPrice>=avg;
@@ -1180,6 +1193,9 @@ function load(){
   if(!settings.dpDivisor)settings.dpDivisor=6;
   if(!settings.dpFloor)settings.dpFloor=2000;
   if(!settings.nlTranches)settings.nlTranches=40;
+  // v3.67 Stage D migration: nlTranchePct (3% of Pool 1+3 MV) replaces the legacy ÷nlTranches divisor.
+  // If user had nlTranches set (e.g. 40), derive equivalent percentage (40 → 2.5%). New default: 3%.
+  if(settings.nlTranchePct==null)settings.nlTranchePct=settings.nlTranches?+(100/settings.nlTranches).toFixed(2):3;
   if(settings.dpSlider==null)settings.dpSlider=40;
   if(settings.dpSliderCaca==null)settings.dpSliderCaca=50;
   // Migration: add dpUSD/dpEUR split if missing (seed from existing dryPowder)
@@ -2747,6 +2763,7 @@ function exportExcel(){
     {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
     {key:"nlTranches",value:settings.nlTranches||40},
+    {key:"nlTranchePct",value:settings.nlTranchePct||3},
     {key:"marr",value:settings.marr||10},
     {key:"pushWorkerUrl",value:settings.pushWorkerUrl||""},
     {key:"indexAllocation",value:settings.indexAllocation||0},
@@ -2962,6 +2979,7 @@ function handleExcelImport(e){
           if(k==="expansionSlots"&&!empty(val))settings.expansionSlots=Number(val);
           if(k==="nlCapAtPersonal"&&!empty(val))settings.nlCapAtPersonal=Number(val)===1;
           if(k==="nlTranches"&&!empty(val))settings.nlTranches=Math.max(1,Number(val));
+          if(k==="nlTranchePct"&&!empty(val))settings.nlTranchePct=Math.max(0.1,Math.min(20,Number(val)));
           if(k==="marr"&&!empty(val))settings.marr=Math.max(1,Math.min(30,Number(val)));
           if(k==="pushWorkerUrl"&&!empty(val))settings.pushWorkerUrl=String(val);
           if(k==="indexAllocation"&&!empty(val))settings.indexAllocation=Math.max(0,Number(val));
@@ -3704,7 +3722,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(ci.totalWithIndex).toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
-        <div style="font-size:9px;color:var(--muted)">Tranche (${(100/(settings.nlTranches||40)).toFixed(2).replace(/\.?0+$/,"")}%)</div>
+        <div style="font-size:9px;color:var(--muted)">Tranche (${(settings.nlTranchePct||3).toFixed(2).replace(/\.?0+$/,"")}%)</div>
         <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${ci.tranche.toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
@@ -4359,7 +4377,7 @@ function renderAllocator(c){
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
       // Weighted versions drive $ math so P-MOS-only deploys at 0.6× tranche, not 1.0×.
       const wLitS=weightedLit(t,'personal');const wSlotsS=weightedSlots(t,'personal');const wUnlitS=wSlotsS-wLitS;
-      const capped=atPositionCap(t,'personal');const capPct=positionCapPct(t);const mvPct=positionMVPct(t,'personal');
+      const capped=atPositionCap(t,'personal');const capPct=positionCapPct(t,'personal');const mvPct=positionMVPct(t,'personal');
       const deployBase=capped?0:wLitS*perTr;const cappedBase=capped?wLitS*perTr:0;const mosBase=wUnlitS*perTr;
       const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const mi=mosInfo[t]||{ideal:0,actual:0,unlit:0,resCcy:_bc};
@@ -4375,7 +4393,7 @@ function renderAllocator(c){
       const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:`deploy`;
       const amtCol=capped?"#d97706":"var(--green)";
       const amtVal=capped?fmt(Math.round(fromEUR(toEUR(cappedBase,_bc),s.currency)),s.currency):fmt(Math.round(localDeploy),s.currency);
-      const subline=capped?`${isBuf?"10%":"15%"} of Pool 1 reached — routed to DP`:`~${sh} sh${mosBase?` · +${allocSym}${Math.round(fromEUR(toEUR(mosBase,_bc),mi.resCcy)).toLocaleString()}/mo`:""}`;
+      const subline=capped?`${(capPct*100).toFixed(0)}% of Pool 1 reached — routed to DP`:`~${sh} sh${mosBase?` · +${allocSym}${Math.round(fromEUR(toEUR(mosBase,_bc),mi.resCcy)).toLocaleString()}/mo`:""}`;
       h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}${capped?' <span style="font-size:10px;color:#d97706">🔒</span>':""}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → ${litDest} · ${unlit} unlit → <span style="color:${unlitCol}">${unlitDest}</span>${pbNote}</div></div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${amtCol}">${amtVal}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">${subline}</div></div></div>`;
     });
@@ -4488,6 +4506,9 @@ function renderAllocator(c){
     }
   }else{
     // === CACA (NL) CLOSED FUND ALLOCATOR ===
+    // v3.67 Stage D: tranche = 3% × (Pool 1 MV + Pool 3 MV) at deployment (floating, not ÷40).
+    // Floor = $1,000 USD currency-converted at deployment (was hardcoded €1,500).
+    // Funding tiers renamed Funded / Recycle / Defer to avoid clash with Compounder Tier 1.
     const nlPos=pf.positions;const nlTickers=Object.keys(nlPos);
     // Full portfolio value EXCLUDING trophy positions (per reference: "excl. ASML trophy")
     let pvTotal=0;let slotsFilled=0;
@@ -4496,15 +4517,20 @@ function renderAllocator(c){
       if(!isTrophy){pvTotal+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
     const ixValNl=indexValue("nl"); // Index value for display (not for tranche calc)
-    const TARGET_SLOTS=settings.nlTranches||40;const TARGET_STOCKS=Math.round(TARGET_SLOTS/4);
-    const targetTrRaw=Math.round(pvTotal/TARGET_SLOTS);
+    const TRANCHE_PCT=settings.nlTranchePct||3;
+    // TARGET_SLOTS is now a derived display value (≈ how many tranches fit at this %).
+    // The math no longer uses it as a divisor; only the "X/Y stocks · X/Y slots" header & "÷N rule" label.
+    const TARGET_SLOTS=Math.max(1,Math.round(100/TRANCHE_PCT));const TARGET_STOCKS=Math.round(TARGET_SLOTS/4);
+    const targetTrRaw=Math.round(pvTotal*TRANCHE_PCT/100);
     // Cap at Personal portfolio's tranche size so Caca never over-deploys relative to Personal
     const personalDP=portfolios.personal?.dryPowder||0;
     const personalTr=Math.max(Math.round(personalDP/settings.dpDivisor),settings.dpFloor);
     const targetTr=settings.nlCapAtPersonal?Math.min(targetTrRaw,Math.round(toEUR(personalTr,pfBaseCcy("personal")))):targetTrRaw;
     const trCapped=settings.nlCapAtPersonal&&targetTr<targetTrRaw;
     const dpCoversRaw=targetTr>0?Math.floor(pf.dryPowder/targetTr):0;
-    const MIN_FLOOR=1500;
+    // v3.67 Stage D: floor = $1,000 USD currency-converted (was €1,500 hardcoded).
+    const MIN_FLOOR_USD=1000;
+    const MIN_FLOOR=Math.round(toEUR(MIN_FLOOR_USD,"USD"));
     const dpOk=pf.dryPowder>=MIN_FLOOR;
 
     // MOS reserves for NL: firing stocks with unlit valid triggers
@@ -4551,7 +4577,7 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value <span style="opacity:.6">(excl. trophy)</span></div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal+ixValNl).toLocaleString()}</div></div>
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (${(100/TARGET_SLOTS).toFixed(2).replace(/\.?0+$/,"")}%${trCapped?" · capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">÷</span><input type="number" style="width:36px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${settings.nlTranches||40}" onchange="settings.nlTranches=Math.max(1,+this.value);save();render()"></div><div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (${TRANCHE_PCT.toFixed(2).replace(/\.?0+$/,"")}%${trCapped?" · capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="display:flex;gap:4px;margin-top:4px;align-items:center"><span style="font-size:9px;color:var(--muted)">%</span><input type="number" step="0.1" min="0.1" max="20" style="width:44px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-family:var(--mono);padding:2px 4px;text-align:center" value="${TRANCHE_PCT}" onchange="settings.nlTranchePct=Math.max(0.1,Math.min(20,+this.value||3));save();render()"></div><div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"€0"})()}</div>
@@ -4559,6 +4585,8 @@ function renderAllocator(c){
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Covers</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${dpCovers>=3?"var(--green)":dpCovers>=1?"var(--amber)":"var(--red)"}">${dpCovers} tranche${dpCovers!==1?"s":""}</div></div></div></div>`;
 
     // Scenario: what if N triggers fire?
+    // v3.67 Stage D: funding tiers renamed Funded/Recycle/Defer (was Tier 1/2/3) so the
+    // wording doesn't collide with Compounder Tier 1 elsewhere in the app.
     h+=`<div class="alloc-card" style="margin-bottom:12px">
       <div style="font-size:13px;font-weight:700;margin-bottom:8px">If a new stock triggers…</div>`;
     [1,2,3].forEach(n=>{
@@ -4566,16 +4594,16 @@ function renderAllocator(c){
       const tier2Avail=tier2.reduce((s,x)=>s+x.available,0);
       const canFund=nlDpAvail>=need;const canTier2=!canFund&&dpShort<=tier2Avail;const mustDefer=!canFund&&!canTier2&&nlDpAvail<MIN_FLOOR;
       const statusIcon=canFund?"✅":canTier2?"🔄":nlDpAvail>=MIN_FLOOR?"⚠️":"❌";
-      const statusText=canFund?"Tier 1 — DP covers":canTier2?`Tier 2 — sell €${Math.round(dpShort).toLocaleString()} from ${tier2[0]?.ticker||"?"}`:nlDpAvail>=MIN_FLOOR?"Tier 3 — undersized entry":"Below €1,500 floor — defer";
+      const statusText=canFund?"Funded — DP covers":canTier2?`Recycle — sell €${Math.round(dpShort).toLocaleString()} from ${tier2[0]?.ticker||"?"}`:nlDpAvail>=MIN_FLOOR?"Defer — undersized entry":`Below $${MIN_FLOOR_USD.toLocaleString()} floor — defer`;
       const statusCol=canFund?"var(--green)":canTier2?"var(--amber)":"var(--red)";
       h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
         <div><span style="font-size:12px;font-weight:600">${n} trigger${n>1?"s":""}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">€${Math.round(need).toLocaleString()} needed</span></div>
         <span style="font-size:10px;font-family:var(--mono);color:${statusCol}">${statusIcon} ${statusText}</span></div>`;});
     h+=`</div>`;
 
-    // Tier 2 candidates
+    // Recycle candidates (formerly "Tier 2 Sources") — 0/N firing AND price above sell reference.
     h+=`<div class="alloc-card" style="margin-bottom:12px">
-      <div style="font-size:13px;font-weight:700;margin-bottom:6px">Tier 2 Sources <span style="font-size:10px;color:var(--muted);font-weight:400">0/3 + above sticker</span></div>`;
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">Recycle Sources <span style="font-size:10px;color:var(--muted);font-weight:400">0/N + above sticker</span></div>`;
     if(!tier2.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">None — all grid stocks have active signals or are below sticker.</div>`;}
     else{tier2.forEach(t2=>{
       h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
@@ -4609,7 +4637,7 @@ function renderAllocator(c){
       }
     }
 
-    // === NEW ENTRY DEPLOYMENT (Caca ÷15 rule + waterfall) ===
+    // === NEW ENTRY DEPLOYMENT (Caca 3% rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
     const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&!isRisk(t,"nl"));
     const readyNL=[];
@@ -4635,15 +4663,16 @@ function renderAllocator(c){
       h+=`<div class="alloc-card" style="margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">÷${TARGET_SLOTS} rule</span></div>`;
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${TRANCHE_PCT.toFixed(2).replace(/\.?0+$/,"")}% rule</span></div>`;
       // Firing stocks
       const firingNL=readyNL.filter(r=>r.firingCount>0);
       if(firingNL.length){
         h+=`<div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:4px">🔥 FIRING NOW</div>`;
         firingNL.forEach(r=>{const s=stocks[r.ticker];const needEUR=r.firingCount*targetTr;const dpUse=Math.min(nlDpAvail,needEUR);const shortfall=needEUR-dpUse;
           const localDeploy=fromEUR(needEUR,s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
-          const funded=dpUse>=needEUR?"Tier 1":shortfall<=tier2Avail?"Tier 2":"Tier 3";
-          const fundCol=funded==="Tier 1"?"var(--green)":funded==="Tier 2"?"var(--amber)":"var(--red)";
+          // v3.67 Stage D: Funded / Recycle / Defer (was Tier 1/2/3, which clashed with Compounder Tier 1).
+          const funded=dpUse>=needEUR?"Funded":shortfall<=tier2Avail?"Recycle":"Defer";
+          const fundCol=funded==="Funded"?"var(--green)":funded==="Recycle"?"var(--amber)":"var(--red)";
           h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
             <div style="display:flex;justify-content:space-between;align-items:center">
               <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
