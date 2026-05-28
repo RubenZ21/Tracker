@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.72</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.73</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3893,7 +3893,8 @@ function signalChip(t,key,pfKey){
   if(st.cls==='buy'){
     if(st.topSub==='piggyback') // faint piggyback chip — deploys via count, not a standalone signal
       return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:${col}cc">↗ pgbk</div>`,`border-color:${col}80`,'chip-faint');
-    return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:${col}">fires</div>`,`background:${col}22;border-color:${col}66;box-shadow:0 0 7px ${col}40`);
+    // Firing & NOT yet owned = action needed → solid fill + black text + glow, like the P-MOS firing chip.
+    return wrap(`<div class="chip-lbl" style="color:#000">${lbl}</div><div class="chip-val" style="color:#000">${tv}</div><div class="chip-sub" style="color:#000">fires</div>`,`background:${col};border-color:${col};box-shadow:0 0 8px ${col}66`);
   }
   if(st.cls==='filled'||st.cls==='hold'){
     const act=activationPrice(s,t);
@@ -3910,7 +3911,22 @@ function signalChip(t,key,pfKey){
   if(p&&tr&&p>tr){const g=Math.round((p-tr)/p*100);const gc=g<10?"#d97706":"#8a90a6";sub=`<span style="color:${gc};font-weight:${g<10?700:400}">▼${g}%</span>`;}
   return wrap(`<div class="chip-lbl">${lbl}</div><div class="chip-val">${tv}</div><div class="chip-sub">${sub}</div>`,"",'chip-dim');
 }
-function chipStripHtml(t,pfKey){return chipKeys(t).map(k=>signalChip(t,k,pfKey)).join("");}
+// Trigger value backing each chip — used to order the strip high→low.
+function chipTrigValue(t,key){
+  const s=stocks[t];if(!s)return null;
+  if(key==='pmos')return pmosPrice(s);
+  return s.cons?s.cons[key]:null;
+}
+function chipStripHtml(t,pfKey){
+  // Order left→right by trigger value, highest first. Null-valued / muted keys sort last and
+  // render empty (filtered out). LO wiring is per-key inside signalChip, so reordering is safe.
+  const keys=chipKeys(t).slice().sort((a,b)=>{
+    const va=chipTrigValue(t,a),vb=chipTrigValue(t,b);
+    if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;
+    return vb-va;
+  });
+  return keys.map(k=>signalChip(t,k,pfKey)).join("");
+}
 // Full row: ident (flag · cat pill · ticker · ★T1 · shield · M/C · HOLD · 📅 · calc) + chip strip
 // + right block (current price shown ONCE + #/N count). isSpec = Pool 3 risk-bucket row.
 function sigRowHtml(t,pfKey,isSpec){
