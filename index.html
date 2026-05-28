@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.74</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.75</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1008,7 +1008,13 @@ function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return
     });
   });
 }
-function nearestTrigger(t){const s=stocks[t];if(!s)return null;const tr=[s.cons.mos,!isTriggerMuted(s,"tenCap")?s.cons.tenCap:null,!isTriggerMuted(s,"pbt")?s.cons.pbt:null].filter(Boolean);return tr.length?Math.max(...tr):null;}
+function nearestTrigger(t){const s=stocks[t];if(!s)return null;
+  // FIX v3.75: include P-MOS for Tier 1 so gap%, sort tiebreaks, and the "approaching buy zone" alert
+  // measure to the same trigger the watchlist star now flags. BEHAVIORAL NOTE: Tier 1 stocks now enter
+  // the buy-zone alert when within 10% of P-MOS (higher price) rather than within 10% of MOS — i.e. the
+  // heads-up fires earlier. To revert ONLY this and keep the star fix, delete the pmos line below.
+  const pm=isOperationalTier1(t)?pmosPrice(s):null;
+  const tr=[pm,s.cons.mos,!isTriggerMuted(s,"tenCap")?s.cons.tenCap:null,!isTriggerMuted(s,"pbt")?s.cons.pbt:null].filter(Boolean);return tr.length?Math.max(...tr):null;}
 function gapPct(t){const s=stocks[t],nt=nearestTrigger(t);if(!s||!nt||!s.currentPrice)return null;return Math.round((s.currentPrice-nt)/s.currentPrice*100);}
 
 // Implied annual return: what you'd earn per year if buying at entryPrice and stock reaches projected future value in 10 years
@@ -1016,7 +1022,13 @@ function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker
 
 // Find the closest trigger (highest price = fires first on decline) and its implied return
 function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(!mos)return null;const sticker=mos*2;
-  const triggers=[];if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push({name:trigT3Label(t),price:s.cons.tenCap});if(s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push({name:trigT2Label(t),price:s.cons.pbt});
+  const triggers=[];
+  // FIX v3.75: P-MOS (Tier-1 premium trigger, Sticker×0.75) is the shallowest/highest trigger and
+  // fires FIRST on a decline, so it is the genuine "closest" trigger for Tier 1 rows. Previously omitted,
+  // which pushed the ★/border/headline-IR onto the next-deepest trigger (MOS/PBT). reduce(max) still
+  // correctly stars a non-muted 10Cap if it ever sits above P-MOS (0.75×Sticker < 10Cap < Sticker).
+  if(isOperationalTier1(t)){const pm=pmosPrice(s);if(pm)triggers.push({name:"P-MOS",price:pm});}
+  if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push({name:trigT3Label(t),price:s.cons.tenCap});if(s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push({name:trigT2Label(t),price:s.cons.pbt});
   if(!triggers.length)return null;const closest=triggers.reduce((a,b)=>a.price>b.price?a:b);
   const ir=calcImpliedReturn(sticker,closest.price);if(ir==null)return null;
   return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,aboveMarr:ir>=0.15};}
