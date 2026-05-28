@@ -4133,7 +4133,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-hdr-row"><div>Signals${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div>Price · #</div></div>`;
   [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{h+=sigRowHtml(t,currentPf,false);});
   // Speculative / Pool 3 risk-bucket rows — same chip strip, RISK pill, dashed separator.
-  getSpeculative(currentPf).forEach(t=>{h+=sigRowHtml(t,currentPf,true);});
+  // SPEC is also consumed by the position-cards section further down — keep it defined here.
+  const SPEC=getSpeculative(currentPf);
+  SPEC.forEach(t=>{h+=sigRowHtml(t,currentPf,true);});
   h+=`</div>`;
 
   // Portfolio weight bar
