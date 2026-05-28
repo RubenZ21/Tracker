@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.75</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.77</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1929,7 +1929,7 @@ async function syncIBKR(pfKey){
         if(s?.signals?.tenCap)sigs.push(trigT3Label(p.t));
         if(s?.signals?.pbt)sigs.push(trigT2Label(p.t));
         if(!sigs.length)sigs.push(trigT2Label(p.t));
-        const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa"};
+        const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa","P-MOS":"#fbbf24"};
         const per=Math.floor(p.qty/sigs.length*100)/100;
         preview+=`<div style="padding:1px 0 3px 12px;font-size:10px;color:var(--muted)">→ ${sigs.map((sg,i)=>{
           const sh=i===sigs.length-1?(p.qty-per*(sigs.length-1)).toFixed(2):per.toFixed(2);
@@ -3904,8 +3904,21 @@ function signalChip(t,key,pfKey){
   }
   // ---- MOS / PBT(DMOS) / Ten Cap(20Cap): drive off existing lifecycle status ----
   const st=sigCellStatus(t,key,pfKey);
-  if(st.cls==='muted'||st.cls==='mutedOff')return ""; // permanently muted, not piggybacking → excluded
   const tv=valFmt(s.cons[key]);
+  // FIX v3.76: muted triggers were returned as "" (hidden). Now render with dashed amber
+  // border + "≥ stkr" caption so the chip stays visible — matches the watchlist convention.
+  // Two visual tiers: mutedOff (price above, informational) vs muted (price reached trigger
+  // but can't deploy alone, no piggyback firing — slightly more emphatic).
+  if(st.cls==='mutedOff'){
+    const p2=s.currentPrice,tr2=s.cons[key];
+    let gapStr="";
+    if(p2&&tr2&&p2>tr2){const g=Math.round((p2-tr2)/p2*100);gapStr=` <span style="color:#d97706">▼${g}%</span>`;}
+    return wrap(`<div class="chip-lbl" style="color:#d97706">${lbl} ⌀</div><div class="chip-val" style="color:#d97706;opacity:.7">${tv}</div><div class="chip-sub" style="color:#d97706cc">≥ stkr${gapStr}</div>`,`border-color:#d97706aa`,'chip-faint','Muted: trigger ≥ Sticker — cannot fire as primary signal');
+  }
+  if(st.cls==='muted'){
+    // Price has reached a muted trigger but no other signal is firing → no piggyback deploy.
+    return wrap(`<div class="chip-lbl" style="color:#d97706">${lbl} ⌀</div><div class="chip-val" style="color:#d97706">${tv}</div><div class="chip-sub" style="color:#d97706">≥ stkr · muted</div>`,`background:#d9770618;border-color:#d97706;border-style:dashed`,'','Muted: trigger ≥ Sticker — cannot fire as primary signal');
+  }
   if(st.cls==='buy'){
     if(st.topSub==='piggyback') // faint piggyback chip — deploys via count, not a standalone signal
       return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:${col}cc">↗ pgbk</div>`,`border-color:${col}80`,'chip-faint');
@@ -4293,7 +4306,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Sort: non-risk by moat priority (ascending) → speculative last
   _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=isRisk(a,currentPf)?1:0,specB=isRisk(b,currentPf)?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
   if(!_allCardTickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
-  const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa",trophy:"#c084fc",hold:"#818cf8"};
+  const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa","P-MOS":"#fbbf24",trophy:"#c084fc",hold:"#818cf8"};
   _allCardTickers.forEach(ticker=>{
     const s=stocks[ticker];if(!s)return;
     const isOwned=_ownedSet.has(ticker);
@@ -4351,8 +4364,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const phaseBadge=s.status!=="trophy"?`<span class="pos-badge" style="background:transparent;color:${_phase.color};font-size:8px;padding:1px 4px;border:1px solid ${_phase.color}33">${_phase.label}</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
-        <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
+        <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
     // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
     const _refPrice=isBuffett(ticker)?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);
@@ -5971,7 +5984,7 @@ function renderSettings(c){
   if(!deployLog.length){
     h+=`<div style="font-size:11px;color:var(--muted);padding:16px;text-align:center">No entries yet. Add a tranche to start logging.</div>`;
   }else{
-    const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa",hold:"#818cf8",trophy:"#c084fc"};
+    const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa","P-MOS":"#fbbf24",hold:"#818cf8",trophy:"#c084fc"};
     deployLog.slice(0,50).forEach(e=>{
       const d=new Date(e.date);
       const dateLabel=d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
