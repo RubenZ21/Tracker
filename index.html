@@ -4066,25 +4066,30 @@ function checkNewSignals(){
   const newFires=[];
   GRID.forEach(t=>{
     const s=stocks[t];if(!s?.signals)return;
-    const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
+    const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false,pmos:false};
     // Suppress celebration if a tranche for this signal is already owned — the action is done.
     if(s.signals.mos&&!prev.mos&&!hasTrancheForSignal(t,"mos"))newFires.push({ticker:t,signal:"MOS"});
     if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:trigT3LongLabel(t)});
     if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:isHighgr(t)?"DMOS":"PBT"});
+    // FIX v3.75: P-MOS firing isn't stored on s.signals (it's derived). Use operational pmosFires()
+    // which already bakes in Tier-1 gate, suppression rule, gate failures, and Buffett exclusion.
+    if(pmosFires(t)&&!prev.pmos&&!hasTrancheForSignal(t,"pmos"))newFires.push({ticker:t,signal:"P-MOS"});
   });
   // Also check watchlist + speculative for new fires
   [...getWatchlist(),...getSpeculative()].forEach(t=>{
     if(isOnAnyGrid(t))return; // already counted above
     const s=stocks[t];if(!s?.signals)return;
-    const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false};
+    const prev=prevSignals[t]||{mos:false,tenCap:false,pbt:false,pmos:false};
     const tag=isRiskAnywhere(t)?"spec":"wl";
     // Same ownership gate — risk-bucket positions like LULU/CSU also have tranche records.
     if(s.signals.mos&&!prev.mos&&!hasTrancheForSignal(t,"mos"))newFires.push({ticker:t,signal:"MOS",wl:true,tag});
     if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:trigT3LongLabel(t),wl:true,tag});
     if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:isHighgr(t)?"DMOS":"PBT",wl:true,tag});
+    // FIX v3.75: P-MOS edge detection for Tier 1 watchlist/risk entries (e.g., MSFT, MA when on watchlist).
+    if(pmosFires(t)&&!prev.pmos&&!hasTrancheForSignal(t,"pmos"))newFires.push({ticker:t,signal:"P-MOS",wl:true,tag});
   });
-  // Save current state
-  Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
+  // Save current state. FIX v3.75: include derived P-MOS state alongside the s.signals trio.
+  Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals,pmos:pmosFires(t)};});
   return newFires;
 }
 function showSignalCelebration(fires){
@@ -6407,12 +6412,17 @@ async function syncTriggersToCloud(){
         currency:s.currency,priceMult:s.priceMult||1,
         category:s.category||"philtown",
         sticker:s.category==="buffett"?null:(s.cons.mos?s.cons.mos*2:null),
-        triggers:{mos:s.category==="buffett"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null},
-        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt},
+        // FIX v3.75: include P-MOS in cloud payload. Client gates pmos to non-Buffett Tier 1 here
+        // so worker can stay dumb — if triggers.pmos is null, no P-MOS push detection happens.
+        // signals.pmos uses pmosFires() (operational state w/ suppression) so the worker's baseline
+        // doesn't false-fire on first cron after sync if P-MOS is already firing.
+        triggers:{mos:s.category==="buffett"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null,
+          pmos:isOperationalTier1(t)&&s.category!=="buffett"&&s.cons.mos?pmosPrice(s):null},
+        signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt,pmos:pmosFires(t)},
         // Per-signal ownership snapshot — worker uses this to suppress mid-month notifications
         // for tranches that have already been bought. Re-synced every time save() runs, so the
         // worker's view stays current as soon as a buy is recorded in the app.
-        owned:{mos:hasTrancheForSignal(t,"mos"),tenCap:hasTrancheForSignal(t,"tenCap"),pbt:hasTrancheForSignal(t,"pbt")}
+        owned:{mos:hasTrancheForSignal(t,"mos"),tenCap:hasTrancheForSignal(t,"tenCap"),pbt:hasTrancheForSignal(t,"pbt"),pmos:hasTrancheForSignal(t,"pmos")}
       });
     });
     const resp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
@@ -6581,7 +6591,9 @@ function startRefreshTimer(){
 // ============ INIT ============
 load();render();
 // Snapshot current signals so first fetch doesn't false-celebrate
-Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals};});
+// FIX v3.75: include derived P-MOS state — without this, every Tier 1 already below P-MOS
+// would notify on first refresh after app load.
+Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t].signals,pmos:pmosFires(t)};});
 // Seed prevRisklistEligible so first fetch doesn't false-notify Risklist tranches
 // that were already eligible when the app started.
 risklist.forEach(e=>{for(let n=1;n<=3;n++)prevRisklistEligible[e.ticker+"-"+n]=risklistTrancheEligible(e,n);});
