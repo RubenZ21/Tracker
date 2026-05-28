@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ttt-v3.69';
+const CACHE_NAME = 'ttt-v3.70';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', e => {
@@ -40,6 +40,9 @@ self.addEventListener('push', e => {
     tag: data.tag || 'ttt-push',
     renotify: true,
     requireInteraction: true, // keep notification visible until tapped
+    // FIX v3.70: attach the deeplink so notificationclick can route to #risklist:TICKER.
+    // Without this, e.notification.data was undefined and targetUrl always fell back to './'.
+    data: { url: data.url || '' },
   };
   e.waitUntil(self.registration.showNotification(title, options));
 });

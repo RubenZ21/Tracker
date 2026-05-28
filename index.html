@@ -254,7 +254,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.69</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.70</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -538,8 +538,11 @@ function isPmosSuppressed(t){
   return false;
 }
 // Operational P-MOS firing: Tier 1 only, raw firing AND not suppressed AND gate not failed.
+// FIX v3.70: Buffett structural exclusion (framework §2.6) — Buffett never gets P-MOS, even
+// if a stock is somehow both buffett-category and in TIER1_SET. Defensive: no current stock
+// satisfies both, but this hardens the invariant at the single chokepoint all callers use.
 function pmosFires(t){
-  const s=stocks[t];if(!s||!isOperationalTier1(t)||s.gate===false)return false;
+  const s=stocks[t];if(!s||!isOperationalTier1(t)||isBuffett(t)||s.gate===false)return false;
   if(!pmosFiresRaw(s))return false;
   if(isPmosSuppressed(t))return false;
   return true;
@@ -2269,19 +2272,13 @@ function handleCSVImport(e){
       const t=(row.ticker||"").toUpperCase();if(!t)continue;
       // Auto-create stock if ticker doesn't exist yet
       if(!stocks[t]){
-        const EXCHANGES={
-          AUTO:{ccy:"GBp",td:"AUTO:LSE",fh:"AUTO.L"},RMV:{ccy:"GBp",td:"RMV:LSE",fh:"RMV.L"},
-          REL:{ccy:"GBp",td:"REL:LSE",fh:"REL.L"},ITRK:{ccy:"GBp",td:"ITRK:LSE",fh:"ITRK.L"},
-          LSEG:{ccy:"GBp",td:"LSEG:LSE",fh:"LSEG.L"},SGE:{ccy:"GBp",td:"SGE:LSE",fh:"SGE.L"},
-          HLMA:{ccy:"GBp",td:"HLMA:LSE",fh:"HLMA.L"},EXPN:{ccy:"GBp",td:"EXPN:LSE",fh:"EXPN.L"},
-          BNZL:{ccy:"GBp",td:"BNZL:LSE",fh:"BNZL.L"},TRN:{ccy:"GBp",td:"TRN:LSE",fh:"TRN.L"},
-          WKL:{ccy:"EUR",td:"WKL:AMS",fh:"WKL.AS"},ASML:{ccy:"EUR",td:"ASML:AMS",fh:"ASML.AS"},
-          SAP:{ccy:"EUR",td:"SAP:XETR",fh:"SAP.DE"},ADYEN:{ccy:"EUR",td:"ADYEN:AMS",fh:"ADYEN.AS"},
-          6146:{ccy:"JPY",name:"Disco",fh:"6146.T",sector:"Semicon Equip"},
-          6098:{ccy:"JPY",name:"Recruit Holdings",fh:"6098.T",sector:"HR Tech"},
-        };
+        // FIX v3.70: use the shared module-level _EXCHANGES table (defined below near the
+        // holdings importer) instead of a separate inline literal. _EXCHANGES is a strict
+        // superset (adds CSU, ULVR, 3064, 7741, AMS, etc.) and is the single source of truth
+        // for ticker→currency/symbol metadata. Safe to reference here: it's a module-level
+        // const, and this code only runs at import time, long after the module has loaded.
         const csvCcy=(row.currency||"").trim();
-        const ex=EXCHANGES[t];
+        const ex=_EXCHANGES[t];
         let ccy=csvCcy||ex?.ccy||"USD";
         const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
         let td=ex?.td||(ccy==="GBp"?t+":LSE":t);
