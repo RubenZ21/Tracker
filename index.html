@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.77</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.79</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -408,6 +408,23 @@ function getSpeculative(pfKey){
 function posShares(p){if(!p?.tranches)return 0;return p.tranches.reduce((s,t)=>s+(t.bought-t.sold),0);}
 function posAvgPrice(p){if(!p?.tranches)return 0;let c=0,s=0;p.tranches.forEach(t=>{const sh=t.bought-t.sold;if(sh>0){c+=sh*t.buyPrice;s+=sh;}});return s>0?c/s:0;}
 function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t=>(t.bought-t.sold)>0).length;}
+// Capital-recovery sell (framework §5, June 2 2026 redesign). At the fair-value anchor,
+// sell exactly enough shares to recover total invested capital in the position, then hold
+// the residual forever. Invested capital = Σ (open shares × buyPrice) over open tranches.
+// Trophy tranches are excluded — they keep their own 25% trailing-stop discipline.
+function posInvestedCapital(p){if(!p?.tranches)return 0;let c=0;p.tranches.forEach(t=>{if(t.signal==="trophy")return;const sh=t.bought-t.sold;if(sh>0)c+=sh*t.buyPrice;});return c;}
+// Shares to sell at the anchor to recover invested capital, and the residual left to ride.
+// anchorPrice is the current-year fair-value anchor (Sticker for PT/HIGHGR, 20Cap for Buffett).
+// Capped at open non-trophy shares (degenerate case: heavy averaging-up → recovery may need
+// nearly the whole position; framework documents this as intended, no special-casing).
+function capitalRecoverySizing(p,anchorPrice){
+  if(!p?.tranches||!anchorPrice||anchorPrice<=0)return null;
+  const openShares=p.tranches.reduce((s,t)=>t.signal==="trophy"?s:s+Math.max(0,t.bought-t.sold),0);
+  if(openShares<=0)return null;
+  const invested=posInvestedCapital(p);
+  const sell=Math.min(openShares,invested/anchorPrice);
+  return{sellShares:sell,residualShares:Math.max(0,openShares-sell),invested,anchorPrice};
+}
 function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/60000),h=Math.floor(d/3600000),dy=Math.floor(d/86400000);if(m<1)return"just now";if(m<60)return m+"m ago";if(h<24)return h+"h ago";return dy+"d ago";}
 function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";if(ccy==="CAD")return"C$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="JPY")return"¥"+n.toLocaleString("en",{maximumFractionDigits:0});return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
@@ -495,22 +512,26 @@ function render13F(){
   el.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:${col}">${pre} ${d}${suffix}</span>`;
 }
 
-// Pool 1 stocks no longer use trailing stops (v3.59). Trailing stop logic preserved only for:
-// (a) trophy tranches (tr.signal === "trophy", e.g. ASML — special long-term tracker), and
-// (b) Pool 3 / risk-bucket positions (isRisk(ticker, pfKey) — currently LULU, CSU).
-// Caca portfolio (pfKey === "nl") never used trailing stops; this helper preserves that too.
-// Pool 1 exit triggers are now ONLY: moat failure (s.gate === false) and Layer 2 recycling (manual).
+// Trailing stops are retained ONLY for trophy tranches (tr.signal === "trophy", e.g. ASML) —
+// a deliberate user-chosen long-hold backstop, kept per explicit instruction (Jun 2 2026).
+// Everything else uses the framework §5 capital-recovery mechanic instead:
+//   - Pool 1 non-Tier-1 (PT/HIGHGR/Buffett): recover at the fair-value anchor.
+//   - Pool 3 / risk bucket non-Tier-1: recover at 2× average cost (see riskRecoveryAnchor).
+//   - Caca: recover at Sticker / 20Cap.
+//   - Tier 1 (any pool, incl. CSU in Pool 3): forever-hold, tripwires only.
+// Pool 1 exit triggers: capital recovery at anchor, moat failure (s.gate === false), Layer 2 recycle.
 function usesTrailingStop(ticker,pfKey,tr){
-  if(tr&&tr.signal==="trophy")return true;
-  if(pfKey==="nl")return false; // Caca: sell at sticker/activation, no trailing
-  // v3.66 Stage C: Tier 1 forever-hold (framework §5, §9). No mechanical trailing stop
-  // regardless of pool — Pool 3 placement does NOT override Tier 1 sell discipline.
-  // Real behavior change: CSU (Tier 1 in Pool 3) no longer fires trailing-stop alerts.
-  // Exception: trophy tranches (handled above) keep their trailing stop — trophy is a
-  // deliberate user-chosen long-hold backstop, separate from framework Tier 1 mechanics.
-  if(isOperationalTier1(ticker))return false;
-  if(isRisk(ticker,pfKey))return true; // Pool 3 risk bucket retains trailing stop sell discipline
-  return false;
+  if(tr&&tr.signal==="trophy")return true; // trophy keeps its 25% trailing stop
+  return false; // all other tranches use the capital-recovery mechanic
+}
+// Pool 3 (risk bucket, non-Tier-1) fair-value anchor = 2× average cost. Tier 1 risk names
+// (e.g. CSU) are forever-hold and have no anchor. Returns null when not applicable.
+function riskRecoveryAnchor(ticker,pfKey){
+  if(!isRisk(ticker,pfKey))return null;
+  if(isOperationalTier1(ticker))return null;
+  const pos=portfolios[pfKey]?.positions?.[ticker];
+  const avg=posAvgPrice(pos);
+  return avg>0?+(avg*2).toFixed(2):null;
 }
 
 // Buffett Category: wide-moat low-growth stocks evaluated by Ten Cap + PBT only (no MOS/Sticker)
@@ -572,26 +593,25 @@ function slotWeight(t,sigKey,pfKey){
   return 1.0;
 }
 
-// ============ STAGE E (v3.68, May 27 2026): HALF-SELL-AT-FAIR-VALUE NOTIFICATION ============
-// Framework §5: non-Tier-1 positions trigger a "sell half at market + trail remainder 25%"
-// action when price crosses fair value from below. FVT = Sticker for PT/HIGHGR, Ten Cap × 1.333
-// for Buffett (operations.md §2 Key Features). Tier 1 suppressed entirely (forever-hold, §9).
-// Pool 3 (risk bucket) suppressed — those positions have their own trailing-stop discipline
-// on ALL tranches, not the half-sell-at-FV mechanic. Caca and Personal both notified — the
-// framework §5 sell mechanic now applies to both portfolios uniformly post-Stage D.
+// ============ STAGE E (v3.78, Jun 2 2026): CAPITAL-RECOVERY-AT-FAIR-VALUE NOTIFICATION ============
+// Framework §5 (June 2 2026 redesign): non-Tier-1 positions trigger a CAPITAL-RECOVERY action
+// when price crosses the fair-value anchor from below — sell exactly enough shares to recover
+// total invested capital (shares = invested capital ÷ anchor price), then hold the residual
+// forever. No half-sell fraction, no trailing stop. Anchor = Sticker for PT/HIGHGR, 20Cap
+// (OE/share × 20) for Buffett. Tier 1 suppressed entirely (forever-hold, §9). Pool 3 (risk
+// bucket) suppressed here — handled by its own 2×-cost capital-recovery path. Caca and Personal
+// both notified — the §5 mechanic applies to both portfolios uniformly.
 //
-// Scope of Stage E: client-side push notification + dismissable in-app alert. Trailing-stop
-// tracking on the Pool 1 remainder is NOT yet implemented (usesTrailingStop still false for
-// non-Tier-1 Pool 1) — that's deferred to a later stage. The user executes the half-sell
-// manually in IBKR after notification.
+// Scope of Stage E: client-side push notification + dismissable in-app alert. The user executes
+// the capital-recovery sale manually in IBKR (Highest-Cost lot matching) after notification.
 
-// Compute fair-value threshold for a position. Returns null if no FVT applies
-// (Tier 1, Pool 3 risk bucket, or missing trigger inputs).
+// Compute fair-value anchor for a position. Returns null if none applies (Tier 1, or missing
+// inputs). Pool 3 non-Tier-1 → 2× average cost. PT/HIGHGR → Sticker. Buffett → 20Cap.
 function fairValueThreshold(t,pk){
   if(isOperationalTier1(t))return null;
-  if(isRisk(t,pk))return null;
+  if(isRisk(t,pk))return riskRecoveryAnchor(t,pk); // Pool 3 non-Tier-1: 2× average cost
   const s=stocks[t];if(!s)return null;
-  if(isBuffett(t))return activationPrice(s,t); // Ten Cap × 1.333
+  if(isBuffett(t))return activationPrice(s,t); // 20Cap = OE/share × 20
   return s.cons?.mos?+(s.cons.mos*2).toFixed(2):null; // Sticker
 }
 
@@ -621,7 +641,7 @@ function checkFairValueCrossings(){
       // branch is only hit if a new position was added mid-session above FVT, in which case
       // suppressing is the correct conservative default (no false sell signal).
       if(isAbove&&wasAbove===false){
-        fires.push({pk,ticker:t,price:s.currentPrice,fvt,pfName:pf.name,buf:isBuffett(t)});
+        fires.push({pk,ticker:t,price:s.currentPrice,fvt,pfName:pf.name,buf:isBuffett(t),risk:isRisk(t,pk)});
       }
       prevAboveFVT[key]=isAbove;
     });
@@ -642,6 +662,39 @@ function seedPrevAboveFVT(){
       prevAboveFVT[`${pk}-${t}`]=s.currentPrice>fvt;
     });
   });
+}
+
+// v3.79 server-port helper: build the capital-recovery descriptor array shipped in the /triggers
+// payload so the Worker can fire the §5 sell notification closed-app. One entry per portfolio in
+// which the ticker is an OWNED, NON-Tier-1 position with a valid anchor. Tier 1 (forever-hold) and
+// any non-owned / no-anchor position contribute nothing → []. Reuses the same client functions the
+// open-app path uses (fairValueThreshold, posInvestedCapital, capitalRecoverySizing) so the two
+// paths can never diverge. anchor/invested are in the stock's NATIVE quote units (matching
+// currentPrice); the Worker applies priceMult to the anchor exactly as it does to price.
+function buildRecoveryEntries(ticker,s){
+  if(isOperationalTier1(ticker))return []; // forever-hold — no anchor, never recover
+  const out=[];
+  ["personal","nl"].forEach(pk=>{
+    const pf=portfolios[pk];if(!pf)return;
+    const pos=pf.positions?.[ticker];if(!pos)return;
+    const fvt=fairValueThreshold(ticker,pk);if(fvt==null)return; // no applicable anchor
+    const sz=capitalRecoverySizing(pos,fvt);if(!sz||sz.openShares<=0&&!(sz.sellShares>0||sz.residualShares>0))return;
+    // openShares = non-trophy open shares; recompute via sizing inputs (capitalRecoverySizing caps
+    // sellShares at openShares, so sell+residual === openShares). Guard against fully-trophy/empty.
+    const openShares=sz.sellShares+sz.residualShares;
+    if(openShares<=0)return;
+    const anchorLabel=isRisk(ticker,pk)?"2× cost":(isBuffett(ticker)?"20Cap":"Sticker");
+    out.push({
+      anchor:fvt,
+      anchorLabel,
+      invested:sz.invested,
+      openShares,
+      pf:pk,
+      pfName:pf.name,
+      currency:s.currency
+    });
+  });
+  return out;
 }
 
 // ============ STAGE F (v3.69, May 27 2026): TRIPWIRE STATUS — T1 / T3 / T6 ============
@@ -1074,20 +1127,13 @@ function pool3CostBasis(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const 
     pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)v+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});});return v;}
 // DP as % of Pool 1 market value
 function dpPctOfPool1(pfKey){const p1=pool1Value(pfKey);if(!p1)return 0;const pf=portfolios[pfKey];return(pf?.dryPowder||0)/p1*100;}
-// Position phase: 1=Accumulate, 2=Hold, 4=Trailing, 5=Sell
-// v3.59: TRAILING and SELL phases only apply to tranches that use trailing stops
-// (Pool 3 risk bucket + trophy). Pool 1 stocks never reach phase 4/5 via trailing stop;
-// gate-fail SELL is surfaced via the 4M gate badge (separate path) and the gate-fail alert.
-// v3.66 Stage C: MONITOR phase deprecated (was phase 3). For non-Tier-1 PT post-E2,
-// activation = Sticker (fair value), so no MONITOR window exists between FV and prior
-// 1.333 multiple. Above fair value is now relabeled TRAILING (price-based label only).
-// v3.68 Stage E: the half-sell-at-FV PUSH NOTIFICATION shipped — see prevAboveFVT /
-// checkFairValueCrossings / sendFairValueNotification below — but actual per-tranche
-// trailing-stop tracking on the Pool 1 remainder remains deferred: usesTrailingStop()
-// still returns false for non-Tier-1 Pool 1, so tr.ath / tr.state="stopActive" are not
-// written for these tranches. The TRAILING label here is purely price-derived. Tier 1
-// stocks (framework §5, §9) never enter TRAILING or SELL via price — only tripwires
-// (T1/T3/T6, surfaced separately in Stage F).
+// Position phase: 1=Accumulate, 2=Hold, 3=Recover, 4=Trailing(Pool3/trophy only), 5=Sell(Pool3/trophy only)
+// Pool 3 risk bucket + trophy still use trailing stops (phases 4/5). Non-Tier-1 Pool 1/Caca
+// use the capital-recovery mechanic (framework §5, Jun 2 2026): above the fair-value anchor →
+// RECOVER (sell invested÷anchor shares, hold residual forever). No trailing stop on these.
+// gate-fail SELL is surfaced via the 4M gate badge (separate path).
+// Tier 1 (framework §5, §9): forever-hold by price; only tripwires (T1/T3/T6) move it out of
+// HOLD/ACCUMULATE → TRIPWIRE FIRING (surfaced in Stage F).
 function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
   const buf=isBuffett(ticker);const isSpec=isRisk(ticker,pfKey);
@@ -1098,18 +1144,16 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   // out of HOLD/ACCUMULATE, and the action depends on which tripwire (T1/T3 audit-pending vs
   // T6 immediate half-weight sell — see operations §7).
   if(isT1&&hasAnyTripwireFiring(ticker))return{phase:6,label:"TRIPWIRE FIRING",color:"var(--red)"};
-  // Fair-value threshold = activation post-E2: Sticker for non-Tier-1 PT/HIGHGR,
-  // Ten Cap × 1.333 for Buffett, null for Tier 1 (forever-hold, no FV threshold).
-  const sticker=s.cons?.mos?s.cons.mos*2:null;
-  const fvt=buf?activationPrice(s,ticker):(isT1?null:sticker);
-  // Check if any tranche that USES trailing stops has active trailing / sell signal.
+  // Fair-value anchor: Sticker for non-Tier-1 PT/HIGHGR, 20Cap (OE×20) for Buffett,
+  // 2× average cost for Pool 3 non-Tier-1, null for Tier 1 (forever-hold, no anchor).
+  const fvt=isT1?null:fairValueThreshold(ticker,pfKey);
+  // Trophy still uses a trailing stop (phases 4/5 below).
   const hasTrailing=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||tr.ath==null)return false;return usesTrailingStop(ticker,pfKey,tr);});
   const hasSellSignal=pos?.tranches?.some(tr=>{const sh=tr.bought-tr.sold;if(sh<=0||!tr.ath)return false;if(!usesTrailingStop(ticker,pfKey,tr))return false;const base=sellBase(s,tr.signal);if(!base)return false;const dd=(tr.ath-s.currentPrice)/tr.ath*100;return dd>=25;});
   if(hasSellSignal)return{phase:5,label:"SELL",color:"var(--red)"};
   if(hasTrailing)return{phase:4,label:"TRAILING",color:"var(--accent)"};
-  // Non-Tier-1 above fair value → TRAILING label by price (sell half + trail per framework §5).
-  // Pool 3 (isSpec) handled by hasTrailing/hasSellSignal above; Tier 1 skipped (forever-hold).
-  if(fvt&&s.currentPrice>fvt&&!isSpec&&!isT1)return{phase:4,label:"TRAILING",color:"var(--accent)"};
+  // Non-Tier-1 (incl. Pool 3) above the fair-value anchor → RECOVER (capital-recovery, §5).
+  if(fvt&&s.currentPrice>fvt&&!isT1)return{phase:3,label:"RECOVER",color:"var(--red)"};
   const sig=sigCount(ticker);
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
@@ -1334,8 +1378,8 @@ function cacaAllocStatus(ticker){
   const targetTranches=Math.min(nTranches,maxTranches);
   const trBelow=nTranches; // kept in return shape for backward compat
   const target=targetTranches*ci.tranche;
-  // Buffett: sell threshold = activation (tenCap × 1.333). Phil Town: sell at sticker.
-  // v3.66 Stage C: Tier 1 in Caca → null sellRef (forever-hold, never enters sellAll).
+  // Buffett: anchor = 20Cap (OE×20). Phil Town: anchor = Sticker. At anchor → capital-recovery.
+  // Tier 1 in Caca → null sellRef (forever-hold, never enters sellAll).
   const sellRef=isT1?null:(buf?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null));
   const aboveSellRef=sellRef&&s.currentPrice>sellRef;
   const diff=costEUR-target;
@@ -1754,7 +1798,8 @@ async function fetchPrices(){
   const rlFires=checkNewRisklistFires();
   if(rlFires.length)sendRisklistNotification(rlFires);
   // v3.68 Stage E: detect non-Tier-1 owned positions crossing fair value FROM BELOW and
-  // notify "sell half at market". Tier 1 and Pool 3 suppressed inside fairValueThreshold().
+  // Stage E: detect non-Tier-1 owned positions crossing the fair-value anchor FROM BELOW and
+  // notify capital-recovery. Tier 1 suppressed inside fairValueThreshold().
   const fvFires=checkFairValueCrossings();
   if(fvFires.length)sendFairValueNotification(fvFires);
   showBuyModals();
@@ -3362,16 +3407,15 @@ function handleExcelImport(e){
   };r.readAsArrayBuffer(f);e.target.value="";
 }
 
-// v3.66 Stage C (May 27 2026 E2): Three-class activation per framework §5.
-//   Tier 1 (ticker arg provided + isOperationalTier1): null (forever-hold, framework §9).
-//   Non-Tier-1 Phil Town / HIGHGR: Sticker (was Sticker × 1.333 pre-E2).
-//   Buffett Category: Ten Cap × 1.333 (unchanged).
-// The optional `ticker` arg lets callers gate the Tier 1 check. If undefined, the function
-// falls back to category-only logic — safe for trailing-stop paths that are already
-// pre-gated by usesTrailingStop() (which returns false for non-trophy Tier 1).
+// The optional `ticker` arg lets callers gate the Tier 1 check (returns null for Tier 1).
+// Fair-value anchor (framework §5, June 2 2026 redesign):
+//   Buffett        → 20Cap = OE/share × 20  (= 2 × Ten Cap; replaces retired Ten Cap × 1.333)
+//   PT / HIGHGR    → Sticker (= MOS × 2)
+//   Tier 1         → null (forever-hold, tripwires only)
+// Derived from current-year s.cons (oe / mos), so refreshes at each annual review — never frozen.
 function activationPrice(s,ticker){
   if(ticker&&isOperationalTier1(ticker))return null;
-  if(s.category==="buffett"){const tc=s.cons?.tenCap;return tc?+(tc/0.75).toFixed(2):null;}
+  if(s.category==="buffett"){const oe=s.cons?.oe;return oe?+(oe*20).toFixed(2):null;}
   const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+stk.toFixed(2):null;
 }
 function sellBase(s,signal){
@@ -3472,13 +3516,10 @@ function checkAlerts(){
     });
   });
 
-  // HALF-SELL-AT-FAIR-VALUE — v3.68 Stage E. Non-Tier-1 owned positions above their FVT
-  // (Sticker for PT/HIGHGR, Ten Cap × 1.333 for Buffett). Persists as long as the position
-  // is above FVT and shares > 0, until dismissed. Tier 1 (forever-hold) and Pool 3 (own
-  // trailing-stop discipline) are suppressed inside fairValueThreshold(). Different from
-  // the per-tranche "ACTIVATION CROSSED" alert above: that one fires per tranche transition
-  // with trailing-stop tracking enabled (Pool 3 / trophy only); this one fires per position
-  // for Pool 1 non-Tier-1 where the user must execute the half-sell manually.
+  // CAPITAL-RECOVERY-AT-FAIR-VALUE — Stage E. Non-Tier-1 owned positions above their anchor
+  // (Sticker for PT/HIGHGR, 20Cap for Buffett, 2× cost for Pool 3). Fires per position; the
+  // user executes the capital-recovery sale manually (highest-cost first). Tier 1 (forever-hold)
+  // is suppressed inside fairValueThreshold(). Persists while above anchor until dismissed.
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
     Object.entries(pf.positions).forEach(([t,pos])=>{
@@ -3486,11 +3527,13 @@ function checkAlerts(){
       if(posShares(pos)<=0)return;
       const fvt=fairValueThreshold(t,pk);
       if(fvt==null||s.currentPrice<=fvt)return;
-      const k=`halfsell-${pk}-${t}`;
+      const k=`caprecover-${pk}-${t}`;
       if(dismissedAlerts[k])return;
-      const fvtLabel=isBuffett(t)?"Ten Cap × 1.333":"Sticker";
+      const fvtLabel=isRisk(t,pk)?"2× cost":(isBuffett(t)?"20Cap":"Sticker");
+      const szl=capitalRecoverySizing(pos,fvt);
+      const action=szl?`<strong>Sell ${szl.sellShares.toFixed(2)} shares</strong> (highest-cost first) to recover invested capital ${fmt(szl.invested,s.currency)}; hold residual ${szl.residualShares.toFixed(2)} forever.`:`<strong>Recover invested capital</strong> (sell invested ÷ anchor shares, highest-cost first); hold residual forever.`;
       alerts.push({key:k,type:"sell",icon:"🎯",
-        html:`<strong>${s.flag} ${t}</strong> crossed ${fvtLabel} in ${pf.name} — <strong>${fmt(s.currentPrice,s.currency)}</strong> > ${fmt(fvt,s.currency)}. <strong>Sell HALF at market</strong> (highest-cost first); trail remainder with 25% stop.`});
+        html:`<strong>${s.flag} ${t}</strong> crossed ${fvtLabel} in ${pf.name} — <strong>${fmt(s.currentPrice,s.currency)}</strong> > ${fmt(fvt,s.currency)}. ${action}`});
     });
   });
 
@@ -4454,21 +4497,23 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
             <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
         }else{
-        // Caca sell rules: Phil Town → sticker, Buffett → activation (Ten Cap × 1.333).
-        // No trailing stop in Caca either way — sell at the reference price.
+        // Caca sell rules (framework §5): Phil Town → Sticker, Buffett → 20Cap (OE×20).
+        // At anchor, recover invested capital and hold residual. No trailing stop.
         const _bufC=isBuffett(ticker);
-        const _refLabel=_bufC?"activation":"sticker";
+        const _refLabel=_bufC?"20Cap":"sticker";
         const stkP=_bufC?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null);
         if(stkP&&stkP>0){
           const gapPctStk=cp?((stkP-cp)/cp*100):0;
           const atOrAbove=cp>=stkP;
+          const szlC=capitalRecoverySizing(pos,stkP);
           if(atOrAbove){
             h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-              <span style="color:var(--red);font-weight:700">⚠ SELL HALF — at/above ${_refLabel}</span>
+              <span style="color:var(--red);font-weight:700">⚠ RECOVER CAPITAL — at/above ${_refLabel}</span>
               <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(stkP.toFixed(2),s.currency)}</span></div>`;
+            if(szlC)h+=`<div style="margin-top:2px;font-size:9px;color:var(--red);font-family:var(--mono)">sell ${szlC.sellShares.toFixed(2)} sh · hold ${szlC.residualShares.toFixed(2)} forever</div>`;
           }else{
             h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-              <span style="color:var(--muted)">sell half at ${fmt(stkP.toFixed(2),s.currency)} (${_refLabel})</span>
+              <span style="color:var(--muted)">recover capital at ${fmt(stkP.toFixed(2),s.currency)} (${_refLabel})</span>
               <span style="font-family:var(--mono);color:var(--muted)">+${gapPctStk.toFixed(0)}% away</span></div>`;
           }
         }
@@ -4478,6 +4523,31 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <span>25% trail from ATH</span>`;
         if(ath){h+=`<span style="font-family:var(--mono);color:${ddCol};font-weight:600">${stateIcon} ATH ${fmt(ath.toFixed(2),s.currency)} · −${dd.toFixed(1)}%</span>`;}
         h+=`</div>`;
+      }else if(!isHold&&isRisk(ticker,currentPf)){
+        // Pool 3 risk bucket (framework §5): non-Tier-1 → 2× average cost capital-recovery.
+        // Tier 1 risk names (CSU) → forever-hold, tripwires only. No trailing stop.
+        if(isOperationalTier1(ticker)){
+          h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+            <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
+            <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
+        }else{
+          const _rAnchor=riskRecoveryAnchor(ticker,currentPf);
+          if(_rAnchor&&_rAnchor>0){
+            const _rAbove=cp&&cp>=_rAnchor;
+            const _rGap=cp?((_rAnchor-cp)/cp*100):0;
+            const szlR=capitalRecoverySizing(pos,_rAnchor);
+            if(_rAbove){
+              h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+                <span style="color:var(--red);font-weight:700">⚠ RECOVER CAPITAL — at/above 2× cost</span>
+                <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(_rAnchor.toFixed(2),s.currency)}</span></div>`;
+              if(szlR)h+=`<div style="margin-top:2px;font-size:9px;color:var(--red);font-family:var(--mono)">sell ${szlR.sellShares.toFixed(2)} sh · hold ${szlR.residualShares.toFixed(2)} forever</div>`;
+            }else{
+              h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+                <span style="color:var(--muted)">recover capital at ${fmt(_rAnchor.toFixed(2),s.currency)} (2× cost)</span>
+                <span style="font-family:var(--mono);color:var(--muted)">+${_rGap.toFixed(0)}% away</span></div>`;
+            }
+          }
+        }
       }else if(!isHold&&hasSellSticker&&_usesTrail){
         // Pool 3 risk bucket (Personal): trailing stop active, show activation + ATH/state.
         h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
@@ -4501,21 +4571,22 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
             <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
         }else{
-        // Pool 1 Personal non-Tier-1 (PT/HIGHGR or Buffett): activation = fair value post-E2.
-        // At/above fair value → sell half; below → informational reference for the half-sell trigger.
-        // Trailing stop tracking on the remainder lands in Stage E with the push notification.
+        // Pool 1 Personal non-Tier-1 (PT/HIGHGR or Buffett): anchor = fair value (framework §5).
+        // At/above anchor → recover invested capital, hold residual forever. No trailing stop.
         const _bufP1=isBuffett(ticker);
-        const _refLab=_bufP1?"activation":"fair value";
+        const _refLab=_bufP1?"20Cap":"fair value";
         const _ref=_bufP1?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null);
         const _aboveFV=_ref&&cp&&cp>=_ref;
+        const szlP=_ref?capitalRecoverySizing(pos,_ref):null;
         if(_aboveFV){
           h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-            <span style="color:var(--red);font-weight:700">⚠ SELL HALF — at/above ${_refLab}</span>
+            <span style="color:var(--red);font-weight:700">⚠ RECOVER CAPITAL — at/above ${_refLab}</span>
             <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(+_ref.toFixed(2),s.currency)}</span></div>`;
+          if(szlP)h+=`<div style="margin-top:2px;font-size:9px;color:var(--red);font-family:var(--mono)">sell ${szlP.sellShares.toFixed(2)} sh · hold ${szlP.residualShares.toFixed(2)} forever</div>`;
         }else{
           h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-            <span style="color:var(--muted)">sell half at ${_ref?fmt(+_ref.toFixed(2),s.currency):"—"} (${_refLab})</span>
-            <span style="font-family:var(--mono);color:var(--muted);font-size:9px">+ trail 25% on remainder</span></div>`;
+            <span style="color:var(--muted)">recover capital at ${_ref?fmt(+_ref.toFixed(2),s.currency):"—"} (${_refLab})</span>
+            <span style="font-family:var(--mono);color:var(--muted);font-size:9px">hold residual forever</span></div>`;
         }
         }
       }
@@ -6435,12 +6506,19 @@ async function syncTriggersToCloud(){
         // Per-signal ownership snapshot — worker uses this to suppress mid-month notifications
         // for tranches that have already been bought. Re-synced every time save() runs, so the
         // worker's view stays current as soon as a buy is recorded in the app.
-        owned:{mos:hasTrancheForSignal(t,"mos"),tenCap:hasTrancheForSignal(t,"tenCap"),pbt:hasTrancheForSignal(t,"pbt"),pmos:hasTrancheForSignal(t,"pmos")}
+        owned:{mos:hasTrancheForSignal(t,"mos"),tenCap:hasTrancheForSignal(t,"tenCap"),pbt:hasTrancheForSignal(t,"pbt"),pmos:hasTrancheForSignal(t,"pmos")},
+        // v3.79 Stage E (server port): capital-recovery-at-fair-value descriptors. The Worker
+        // CANNOT derive the Buffett 20Cap anchor (needs OE/share), the risk 2×-cost anchor, invested
+        // capital, or open share counts — so we precompute them here per OWNED, NON-Tier-1 position
+        // and ship them. One ticker can be held in BOTH portfolios → array (backward-compatible with
+        // the ticker-keyed structure). Tier 1 (forever-hold) and non-owned → [] (Worker does nothing).
+        // anchor is in the stock's NATIVE quote units (same as currentPrice); Worker applies priceMult.
+        recovery:buildRecoveryEntries(t,s)
       });
     });
     const resp=await fetch(`${settings.pushWorkerUrl}/triggers`,{
       method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({stocks:alertStocks,workerUrl:settings.ibkrWorker||""})
+      body:JSON.stringify({stocks:alertStocks,workerUrl:settings.ibkrWorker||"",payloadVersion:2})
     });
     const data=await resp.json();
     if(!data.ok)throw new Error(data.error||"Sync failed");
@@ -6574,10 +6652,13 @@ function sendFairValueNotification(fires){
       const s=stocks[f.ticker];if(!s)return;
       const priceStr=fmt(f.price,s.currency);
       const fvtStr=fmt(f.fvt,s.currency);
-      const fvtLabel=f.buf?"Ten Cap × 1.333":"Sticker";
-      reg.showNotification(`🎯 Half-Sell: ${s.flag} ${f.ticker} hit fair value`,{
-        body:`${s.name||f.ticker} at ${priceStr} crossed ${fvtLabel} (${fvtStr}) in ${f.pfName}. Sell HALF at market; trail remainder with 25% stop.`,
-        tag:`ttt-halfsell-${f.pk}-${f.ticker}`,
+      const fvtLabel=f.risk?"2× cost":(f.buf?"20Cap":"Sticker");
+      const pos=portfolios[f.pk]?.positions?.[f.ticker];
+      const szl=pos?capitalRecoverySizing(pos,f.fvt):null;
+      const action=szl?`Sell ${szl.sellShares.toFixed(2)} shares (highest-cost first) to recover ${fmt(szl.invested,s.currency)}; hold residual ${szl.residualShares.toFixed(2)} forever.`:`Sell invested÷anchor shares (highest-cost first) to recover invested capital; hold residual forever.`;
+      reg.showNotification(`🎯 Recover capital: ${s.flag} ${f.ticker} hit fair value`,{
+        body:`${s.name||f.ticker} at ${priceStr} crossed ${fvtLabel} (${fvtStr}) in ${f.pfName}. ${action}`,
+        tag:`ttt-caprecover-${f.pk}-${f.ticker}`,
         renotify:true,
         requireInteraction:true
       }).catch(()=>{});
