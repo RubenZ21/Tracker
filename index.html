@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.84</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.85</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4000,8 +4000,11 @@ function signalChip(t,key,pfKey){
   if(key==='pmos'){
     const pmP=pmosPrice(s);if(!isOperationalTier1(t)||pmP==null)return "";
     const valStr=valFmt(pmP);
-    if(hasTrancheForSignal(t,'pmos',pfKey)) // P-MOS tranche held → owned (action done)
+    if(hasTrancheForSignal(t,'pmos',pfKey)){ // P-MOS tranche held → owned (action done)
+      if(pmosFiresRaw(s)) // owned AND price back at/below P-MOS → re-firing, louder treatment
+        return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${valStr}</div><div class="chip-sub" style="color:#34d399;font-weight:700">✓●fires</div>`,`background:${col}26;border-color:${col};box-shadow:0 0 6px ${col}55`,'','Owned & firing again');
       return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${valStr}</div><div class="chip-sub" style="color:#34d399">✓ owned</div>`,`background:${col}12;border-color:${col}55`);
+    }
     if(pmosFires(t))
       return wrap(`<div class="chip-lbl" style="color:#000">${lbl}</div><div class="chip-val" style="color:#000">${valStr}</div><div class="chip-sub" style="color:#000">fires</div>`,`background:${col};border-color:${col};box-shadow:0 0 8px ${col}55`);
     if(pmosFiresRaw(s)) // raw firing but suppressed by a deeper signal
