@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.80</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.81</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -558,6 +558,37 @@ function riskStickerAnchor(ticker){
 }
 // True when "sticker" mode is requested but no Sticker exists — UI shows the fallback note.
 function riskStickerUnavailable(ticker){return riskAnchorMode(ticker)==="sticker"&&!riskStickerAnchor(ticker);}
+// v3.80: render the Pool 3 risk-bucket sell-anchor block (anchor display + mode toggle) for a
+// non-Tier-1 risk position. Shared by the Personal and Caca card branches so the toggle and
+// labels stay identical in both. `pk` selects the portfolio (anchor + sizing are per-portfolio).
+function riskAnchorCardBlock(ticker,pk,s,pos,cp){
+  const _rAnchor=riskRecoveryAnchor(ticker,pk);
+  const _rMode=riskAnchorMode(ticker);
+  const _rModeLabel=_rMode==="sticker"?"Sticker":"2× cost";
+  const _rToggleLabel=_rMode==="sticker"?"→ use 2× cost (pure risk)":"→ use Sticker";
+  const _rToggleBtn=`<button class="btn-sm" style="font-size:9px;padding:2px 6px;margin-top:3px" onclick="event.stopPropagation();toggleRiskAnchorMode('${ticker}')" title="Toggle sell anchor: 2× cost (pure risk) vs Sticker">⇄ anchor: ${_rModeLabel} ${_rToggleLabel}</button>`;
+  let h="";
+  if(_rAnchor&&_rAnchor>0){
+    const _rAbove=cp&&cp>=_rAnchor;
+    const _rGap=cp?((_rAnchor-cp)/cp*100):0;
+    const szlR=capitalRecoverySizing(pos,_rAnchor);
+    if(_rAbove){
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+        <span style="color:var(--red);font-weight:700">⚠ RECOVER CAPITAL — at/above ${_rModeLabel}</span>
+        <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(_rAnchor.toFixed(2),s.currency)}</span></div>`;
+      if(szlR)h+=`<div style="margin-top:2px;font-size:9px;color:var(--red);font-family:var(--mono)">sell ${szlR.sellShares.toFixed(2)} sh · hold ${szlR.residualShares.toFixed(2)} forever</div>`;
+    }else{
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
+        <span style="color:var(--muted)">recover capital at ${fmt(_rAnchor.toFixed(2),s.currency)} (${_rModeLabel})</span>
+        <span style="font-family:var(--mono);color:var(--muted)">+${_rGap.toFixed(0)}% away</span></div>`;
+    }
+    h+=`<div>${_rToggleBtn}</div>`;
+  }else{
+    const _note=riskStickerUnavailable(ticker)?"Sticker mode set but no MOS on file — falls back to 2× cost (no cost basis yet)":"no anchor yet (no shares / no cost basis)";
+    h+=`<div style="margin-top:4px;font-size:10px;color:var(--muted)">${_note}</div><div>${_rToggleBtn}</div>`;
+  }
+  return h;
+}
 
 // Buffett Category: wide-moat low-growth stocks evaluated by Ten Cap + PBT only (no MOS/Sticker)
 function isBuffett(t){return stocks[t]?.category==="buffett";}
@@ -4521,9 +4552,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
             <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
             <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
+        }else if(isRisk(ticker,"nl")){
+          // v3.80: Caca risk-bucket position — same 2× cost ↔ Sticker toggle as Personal.
+          h+=riskAnchorCardBlock(ticker,"nl",s,pos,cp);
         }else{
-        // Caca sell rules (framework §5): Phil Town → Sticker, Buffett → 20Cap (OE×20).
-        // At anchor, recover invested capital and hold residual. No trailing stop.
+        // Caca grid sell rules (framework §5): Phil Town → Sticker, Buffett → 20Cap (OE×20).
+        // At anchor, recover invested capital and hold residual. No trailing stop. No toggle —
+        // grid positions follow the fixed retiree-fund rule.
         const _bufC=isBuffett(ticker);
         const _refLabel=_bufC?"20Cap":"sticker";
         const stkP=_bufC?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null);
@@ -4556,31 +4591,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
             <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
         }else{
-          const _rAnchor=riskRecoveryAnchor(ticker,currentPf);
-          const _rMode=riskAnchorMode(ticker);
-          const _rModeLabel=_rMode==="sticker"?"Sticker":"2× cost";
-          const _rToggleLabel=_rMode==="sticker"?"→ use 2× cost (pure risk)":"→ use Sticker";
-          const _rToggleBtn=`<button class="btn-sm" style="font-size:9px;padding:2px 6px;margin-top:3px" onclick="event.stopPropagation();toggleRiskAnchorMode('${ticker}')" title="Toggle sell anchor: 2× cost (pure risk) vs Sticker">⇄ anchor: ${_rModeLabel} ${_rToggleLabel}</button>`;
-          if(_rAnchor&&_rAnchor>0){
-            const _rAbove=cp&&cp>=_rAnchor;
-            const _rGap=cp?((_rAnchor-cp)/cp*100):0;
-            const szlR=capitalRecoverySizing(pos,_rAnchor);
-            if(_rAbove){
-              h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-                <span style="color:var(--red);font-weight:700">⚠ RECOVER CAPITAL — at/above ${_rModeLabel}</span>
-                <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(_rAnchor.toFixed(2),s.currency)}</span></div>`;
-              if(szlR)h+=`<div style="margin-top:2px;font-size:9px;color:var(--red);font-family:var(--mono)">sell ${szlR.sellShares.toFixed(2)} sh · hold ${szlR.residualShares.toFixed(2)} forever</div>`;
-            }else{
-              h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-                <span style="color:var(--muted)">recover capital at ${fmt(_rAnchor.toFixed(2),s.currency)} (${_rModeLabel})</span>
-                <span style="font-family:var(--mono);color:var(--muted)">+${_rGap.toFixed(0)}% away</span></div>`;
-            }
-            h+=`<div>${_rToggleBtn}</div>`;
-          }else{
-            // No anchor computable (e.g. Sticker mode requested but no MOS). Still show toggle.
-            const _note=riskStickerUnavailable(ticker)?"Sticker mode set but no MOS on file — falls back to 2× cost (no cost basis yet)":"no anchor yet (no shares / no cost basis)";
-            h+=`<div style="margin-top:4px;font-size:10px;color:var(--muted)">${_note}</div><div>${_rToggleBtn}</div>`;
-          }
+          h+=riskAnchorCardBlock(ticker,currentPf,s,pos,cp);
         }
       }else if(!isHold&&hasSellSticker&&_usesTrail){
         // Pool 3 risk bucket (Personal): trailing stop active, show activation + ATH/state.
