@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.81</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.82</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3474,6 +3474,15 @@ function activationPrice(s,ticker){
   if(s.category==="buffett"){const oe=s.cons?.oe;return oe?+(oe*20).toFixed(2):null;}
   const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+stk.toFixed(2):null;
 }
+// Targeted SELL price for the grid's right block. Phil Town / High-Growth: tranche Sticker = MOS×2
+// (sell activation = Sticker×1.333, but the Sticker is the headline "fair value to sell at" the user
+// tracks toward). Buffett Category: OE×20 (= activationPrice). Tier 1 compounders hold forever with
+// no price-based exit, so there is no sell target — returns null and the row shows "—".
+function sellTarget(s,ticker){
+  if(ticker&&isOperationalTier1(ticker))return null; // Tier 1: hold forever, tripwire-only exit
+  if(s.category==="buffett"){const oe=s.cons?.oe;return oe?+(oe*20).toFixed(2):null;}
+  return s.cons?.mos?+(s.cons.mos*2).toFixed(2):null;
+}
 function sellBase(s,signal){
   if(signal==="trophy")return -1; // special: always tracking, no sticker gate
   if(signal==="hold")return null; // hold — no sell tracking
@@ -4024,9 +4033,17 @@ function signalChip(t,key,pfKey){
     // Firing & NOT yet owned = action needed → solid fill + black text + glow, like the P-MOS firing chip.
     return wrap(`<div class="chip-lbl" style="color:#000">${lbl}</div><div class="chip-val" style="color:#000">${tv}</div><div class="chip-sub" style="color:#000">fires</div>`,`background:${col};border-color:${col};box-shadow:0 0 8px ${col}66`);
   }
-  if(st.cls==='filled'||st.cls==='hold'){
+  if(st.cls==='filled'){
+    // OWNED + RE-FIRING: this tranche type is held AND price is back at/below the trigger right now.
+    // Visually louder than a quiet hold — tinted fill keeps the "owned" read, but a bright caption +
+    // soft glow + dot flag that the signal is live again (add-on opportunity / piggyback territory).
     const act=activationPrice(s,t);
-    return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:#34d399">✓ owned</div>`,`background:${col}12;border-color:${col}55`,'',act?`activation ${fmt(act,s.currency)}`:'');
+    return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:#34d399;font-weight:700">✓●fires</div>`,`background:${col}26;border-color:${col};box-shadow:0 0 6px ${col}55`,'',act?`Owned & firing again — activation ${fmt(act,s.currency)}`:'Owned & firing again');
+  }
+  if(st.cls==='hold'){
+    // OWNED, QUIET: held but price is above the trigger — no live signal. Faint tint, muted caption.
+    const act=activationPrice(s,t);
+    return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:#34d399">✓ owned</div>`,`background:${col}12;border-color:${col}55`,'',act?`Owned — activation ${fmt(act,s.currency)}`:'Owned');
   }
   if(st.cls==='track')
     return wrap(`<div class="chip-lbl" style="color:#60a5fa">${lbl}</div><div class="chip-val" style="color:#60a5fa">${st.sub}</div><div class="chip-sub" style="color:#60a5fa">trail</div>`,`background:#60a5fa18;border-color:#60a5fa55`);
@@ -4081,10 +4098,30 @@ function sigRowHtml(t,pfKey,isSpec){
     countTxt=hasSell?"SELL":`${dc||0}/${vSlots}`;
   }
   const rowStyle=`${gateFail?"opacity:.4;":(notFiring&&!isSpec)?"opacity:.75;":""}${isSpec?"border-top:1px dashed #d9770644;":""}`;
+  // Sell-target line: targeted sell price + how far current price is below it (▲X% to reach sell).
+  // Tier 1 compounders have no price exit → "hold ∞". Risk-bucket rows use their own anchor logic
+  // elsewhere, so suppress here to avoid implying a mechanical Sticker they don't follow.
+  let sellStr="";
+  if(!isSpec){
+    const tgt=sellTarget(s,t);
+    if(isOperationalTier1(t)){
+      sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Tier 1 compounder — hold forever, tripwire-only exit">hold ∞</div>`;
+    }else if(tgt!=null){
+      const p=s.currentPrice;
+      let gapTxt="";
+      if(p!=null&&p>0){
+        const g=Math.round((tgt-p)/p*100);
+        if(g>0){const gc=g<=10?"#fbbf24":"#34d399";gapTxt=` <span style="color:${gc}">▲${g}%</span>`;} // below target: % up to sell
+        else if(g<0){gapTxt=` <span style="color:#f87171;font-weight:700">SELL ${Math.abs(g)}%↑</span>`;} // at/above target
+        else gapTxt=` <span style="color:#fbbf24;font-weight:700">@tgt</span>`;
+      }
+      sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Targeted sell price (${isBuffett(t)?"OE×20":"Sticker = MOS×2"})">🎯${fmt(tgt,s.currency)}${gapTxt}</div>`;
+    }
+  }
   return `<div class="sig-row" style="${rowStyle}">
     <div class="sig-ident">${ident}</div>
     <div class="chip-strip">${chipStripHtml(t,pfKey)}</div>
-    <div class="sig-right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted)">${priceStr}</div><div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${countCol}">${countTxt}</div></div>
+    <div class="sig-right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted)">${priceStr}</div><div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${countCol}">${countTxt}</div>${sellStr}</div>
   </div>`;
 }
 
@@ -4279,7 +4316,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   // Refined Grid (v3.71): flexible chip strip. Header keeps the 📋 N LO counter (now incl. P-MOS).
   // Rows render via sigRowHtml (module-level). Totals row dropped — the header "Grid x/y signals"
   // already aggregates; fixed per-column totals are meaningless once chips are category-variable.
-  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-hdr-row"><div>Signals${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div>Price · #</div></div>`;
+  h+=`<div class="signal-grid" style="margin-bottom:8px"><div class="sig-hdr-row"><div>Signals${_loCount?` <span style="font-size:9px;color:#67e8f9;font-weight:400">📋 ${_loCount} LO</span>`:""}</div><div>Price · # · 🎯sell</div></div>`;
   [...GRID].filter(t=>!isRisk(t,currentPf)).sort((a,b)=>{const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;}).forEach(t=>{h+=sigRowHtml(t,currentPf,false);});
   // Speculative / Pool 3 risk-bucket rows — same chip strip, RISK pill, dashed separator.
   // SPEC is also consumed by the position-cards section further down — keep it defined here.
