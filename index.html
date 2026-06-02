@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.79</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.80</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -370,7 +370,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 // watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
 let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
@@ -529,10 +529,35 @@ function usesTrailingStop(ticker,pfKey,tr){
 function riskRecoveryAnchor(ticker,pfKey){
   if(!isRisk(ticker,pfKey))return null;
   if(isOperationalTier1(ticker))return null;
+  // Per-ticker toggle (v3.80): "sticker" → use Sticker (MOS×2) as the sell anchor instead
+  // of the default "2x" (2× average cost). Falls back to 2× cost when no Sticker is available.
+  if(riskAnchorMode(ticker)==="sticker"){
+    const st=riskStickerAnchor(ticker);
+    if(st&&st>0)return st;
+  }
   const pos=portfolios[pfKey]?.positions?.[ticker];
   const avg=posAvgPrice(pos);
   return avg>0?+(avg*2).toFixed(2):null;
 }
+// v3.80: per-ticker risk sell-anchor mode. "2x" (default) = 2× average cost (pure risk);
+// "sticker" = use Sticker (MOS×2) as the sell trigger. Stored in settings.riskAnchorMode.
+function riskAnchorMode(ticker){return (settings.riskAnchorMode&&settings.riskAnchorMode[ticker])||"2x";}
+function setRiskAnchorMode(ticker,mode){
+  if(!settings.riskAnchorMode)settings.riskAnchorMode={};
+  settings.riskAnchorMode[ticker]=mode;
+  save();render();
+}
+function toggleRiskAnchorMode(ticker){
+  setRiskAnchorMode(ticker,riskAnchorMode(ticker)==="sticker"?"2x":"sticker");
+}
+// Sticker = MOS×2 from consensus inputs. Returns null when no MOS available (e.g. a pure
+// gut-conviction Pool 3 name with no 4M write-up) — caller falls back to 2× cost.
+function riskStickerAnchor(ticker){
+  const s=stocks[ticker];
+  return s?.cons?.mos?+(s.cons.mos*2).toFixed(2):null;
+}
+// True when "sticker" mode is requested but no Sticker exists — UI shows the fallback note.
+function riskStickerUnavailable(ticker){return riskAnchorMode(ticker)==="sticker"&&!riskStickerAnchor(ticker);}
 
 // Buffett Category: wide-moat low-growth stocks evaluated by Ten Cap + PBT only (no MOS/Sticker)
 function isBuffett(t){return stocks[t]?.category==="buffett";}
@@ -683,7 +708,7 @@ function buildRecoveryEntries(ticker,s){
     // sellShares at openShares, so sell+residual === openShares). Guard against fully-trophy/empty.
     const openShares=sz.sellShares+sz.residualShares;
     if(openShares<=0)return;
-    const anchorLabel=isRisk(ticker,pk)?"2× cost":(isBuffett(ticker)?"20Cap":"Sticker");
+    const anchorLabel=isRisk(ticker,pk)?(riskAnchorMode(ticker)==="sticker"&&riskStickerAnchor(ticker)?"Sticker":"2× cost"):(isBuffett(ticker)?"20Cap":"Sticker");
     out.push({
       anchor:fvt,
       anchorLabel,
@@ -4532,20 +4557,29 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
         }else{
           const _rAnchor=riskRecoveryAnchor(ticker,currentPf);
+          const _rMode=riskAnchorMode(ticker);
+          const _rModeLabel=_rMode==="sticker"?"Sticker":"2× cost";
+          const _rToggleLabel=_rMode==="sticker"?"→ use 2× cost (pure risk)":"→ use Sticker";
+          const _rToggleBtn=`<button class="btn-sm" style="font-size:9px;padding:2px 6px;margin-top:3px" onclick="event.stopPropagation();toggleRiskAnchorMode('${ticker}')" title="Toggle sell anchor: 2× cost (pure risk) vs Sticker">⇄ anchor: ${_rModeLabel} ${_rToggleLabel}</button>`;
           if(_rAnchor&&_rAnchor>0){
             const _rAbove=cp&&cp>=_rAnchor;
             const _rGap=cp?((_rAnchor-cp)/cp*100):0;
             const szlR=capitalRecoverySizing(pos,_rAnchor);
             if(_rAbove){
               h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-                <span style="color:var(--red);font-weight:700">⚠ RECOVER CAPITAL — at/above 2× cost</span>
+                <span style="color:var(--red);font-weight:700">⚠ RECOVER CAPITAL — at/above ${_rModeLabel}</span>
                 <span style="font-family:var(--mono);color:var(--red);font-weight:600">${fmt(_rAnchor.toFixed(2),s.currency)}</span></div>`;
               if(szlR)h+=`<div style="margin-top:2px;font-size:9px;color:var(--red);font-family:var(--mono)">sell ${szlR.sellShares.toFixed(2)} sh · hold ${szlR.residualShares.toFixed(2)} forever</div>`;
             }else{
               h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px">
-                <span style="color:var(--muted)">recover capital at ${fmt(_rAnchor.toFixed(2),s.currency)} (2× cost)</span>
+                <span style="color:var(--muted)">recover capital at ${fmt(_rAnchor.toFixed(2),s.currency)} (${_rModeLabel})</span>
                 <span style="font-family:var(--mono);color:var(--muted)">+${_rGap.toFixed(0)}% away</span></div>`;
             }
+            h+=`<div>${_rToggleBtn}</div>`;
+          }else{
+            // No anchor computable (e.g. Sticker mode requested but no MOS). Still show toggle.
+            const _note=riskStickerUnavailable(ticker)?"Sticker mode set but no MOS on file — falls back to 2× cost (no cost basis yet)":"no anchor yet (no shares / no cost basis)";
+            h+=`<div style="margin-top:4px;font-size:10px;color:var(--muted)">${_note}</div><div>${_rToggleBtn}</div>`;
           }
         }
       }else if(!isHold&&hasSellSticker&&_usesTrail){
