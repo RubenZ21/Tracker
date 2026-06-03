@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.87</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.88</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4136,7 +4136,7 @@ function sigRowHtml(t,pfKey,isSpec){
       let gapTxt="";
       if(p!=null&&p>0){
         const g=Math.round((tgt-p)/p*100);
-        if(g>0){gapTxt=` <span style="color:#8a90a6">▲${g}%</span>`;} // below target: % up to sell, same gray as target price
+        if(g>0){const gc=g<=10?"#34d399":"#8a90a6";gapTxt=` <span style="color:${gc};font-weight:${g<=10?700:400}">▲${g}%</span>`;} // within 10% = green, else gray
         else if(g<0){gapTxt=` <span style="color:#f87171;font-weight:700">SELL ${Math.abs(g)}%↑</span>`;} // at/above target
         else gapTxt=` <span style="color:#fbbf24;font-weight:700">@tgt</span>`;
       }
