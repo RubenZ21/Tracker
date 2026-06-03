@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.85</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.87</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4117,11 +4117,18 @@ function sigRowHtml(t,pfKey,isSpec){
   }
   const rowStyle=`${gateFail?"opacity:.4;":(notFiring&&!isSpec)?"opacity:.75;":""}${isSpec?"border-top:1px dashed #d9770644;":""}`;
   // Sell-target line: targeted sell price + how far current price is below it (▲X% to reach sell).
-  // Tier 1 compounders have no price exit → "hold ∞". Risk-bucket rows use their own anchor logic
-  // elsewhere, so suppress here to avoid implying a mechanical Sticker they don't follow.
+  // Tier 1 compounders (incl. risk-bucket Tier 1 like CSU) have no price exit → "hold ∞".
+  // Risk rows honor the per-ticker anchor toggle (2× cost default, or Sticker); PT/Buffett use Sticker/20Cap.
   let sellStr="";
-  if(!isSpec){
-    const tgt=sellTarget(s,t);
+  {
+    let tgt,tgtLabel;
+    if(isSpec){ // Pool 3 risk row — use the toggled anchor (2× cost or Sticker)
+      tgt=riskRecoveryAnchor(t,pfKey);
+      tgtLabel=riskAnchorMode(t)==="sticker"?"Sticker = MOS×2":"2× avg cost";
+    }else{
+      tgt=sellTarget(s,t);
+      tgtLabel=isBuffett(t)?"OE×20":"Sticker = MOS×2";
+    }
     if(isOperationalTier1(t)){
       sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Tier 1 compounder — hold forever, tripwire-only exit">hold ∞</div>`;
     }else if(tgt!=null){
@@ -4133,7 +4140,7 @@ function sigRowHtml(t,pfKey,isSpec){
         else if(g<0){gapTxt=` <span style="color:#f87171;font-weight:700">SELL ${Math.abs(g)}%↑</span>`;} // at/above target
         else gapTxt=` <span style="color:#fbbf24;font-weight:700">@tgt</span>`;
       }
-      sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Targeted sell price (${isBuffett(t)?"OE×20":"Sticker = MOS×2"})">🎯${fmt(tgt,s.currency)}${gapTxt}</div>`;
+      sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Targeted sell price (${tgtLabel})">🎯${fmt(tgt,s.currency)}${gapTxt}</div>`;
     }
   }
   return `<div class="sig-row" style="${rowStyle}">
