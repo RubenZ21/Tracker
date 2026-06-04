@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.89</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.90</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1310,6 +1310,13 @@ function syncRisklistStockStubs(){
 }
 // 5% initial entry size from Pool 1 market value
 function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
+// Per-trigger entry size (base currency). Personal: P-MOS deploys 3% of Pool 1, all other
+// triggers deploy 5%. Caca: every trigger (incl. P-MOS) deploys 3% — handled by targetTr in
+// the Caca branch, so this helper is only used by the Personal allocator.
+function entrySizeForSignal(pfKey,sigKey){
+  const pct=(pfKey==='personal'&&sigKey==='P-MOS')?0.03:0.05;
+  return Math.round(pool1Value(pfKey)*pct);
+}
 // Per-stock position cap (% of Pool 1 MV). v3.67 Stage D: Tier- and portfolio-aware.
 //   Personal: Tier 1 = 18%, non-Tier-1 PT/HIGHGR = 15%, Buffett = 10%
 //   Caca    : Tier 1 = 12%, non-Tier-1 PT/HIGHGR =  9%, Buffett =  6%
@@ -4988,11 +4995,15 @@ function renderAllocator(c){
         const buf=s.category==="buffett";
         const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
         const _t3=trigT3Label(t),_t2=trigT2Label(t);
+        // P-MOS (Tier-1 only, Sticker×0.75) is the shallowest/highest trigger — fires first on a decline.
+        const _pm=isOperationalTier1(t)?pmosPrice(s):null;
         const triggers=[];
+        if(_pm&&pmosFires(t))triggers.push("P-MOS");
         if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push(_t2);
         if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push(_t3);
         if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
         const pending=[];
+        if(_pm&&!triggers.includes("P-MOS"))pending.push({name:"P-MOS",price:_pm,gap:((s.currentPrice-_pm)/s.currentPrice*100)});
         if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
         if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
         if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
@@ -5019,12 +5030,16 @@ function renderAllocator(c){
         const firing=ready.filter(r=>r.firingCount>0);
         if(firing.length){
           h+=`<div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:4px">🔥 FIRING NOW</div>`;
-          firing.forEach(r=>{const s=stocks[r.ticker];const localDeploy=fromEUR(toEUR(entrySize,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+          firing.forEach(r=>{const s=stocks[r.ticker];
+            // Per-signal sizing: P-MOS deploys 3% of Pool 1, every other firing trigger 5%.
+            const entryEUR=r.firing.reduce((sum,sig)=>sum+entrySizeForSignal("personal",sig),0);
+            const localDeploy=fromEUR(toEUR(entryEUR,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
+            const sizeLbl=r.firing.map(sig=>(sig==="P-MOS"?"3%":"5%")).join(" + ");
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
                 <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
-              <div style="font-size:10px;color:var(--muted);margin-top:2px">5% of Pool 1 = ${_bs}${entrySize.toLocaleString()}</div></div>`;});
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">${sizeLbl} of Pool 1 = ${_bs}${entryEUR.toLocaleString()}</div></div>`;});
         }
 
         // Show pending stocks (not firing yet) — deploy 1 tranche at nearest trigger
@@ -5032,7 +5047,8 @@ function renderAllocator(c){
         if(pendingStocks.length){
           h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">WATCHLIST — closest to trigger</div>`;
           pendingStocks.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.length?r.pending.reduce((a,b)=>a.gap<b.gap?a:b):null;
-            const localDeploy=fromEUR(toEUR(entrySize,_bc),s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
+            const entryEUR=entrySizeForSignal("personal",nearestP?nearestP.name:"MOS");
+            const localDeploy=fromEUR(toEUR(entryEUR,_bc),s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--amber);margin-left:6px">${nearestP?Math.round(nearestP.gap)+"% to "+nearestP.name:"—"}</span></div>
@@ -5183,11 +5199,14 @@ function renderAllocator(c){
       const buf=s.category==="buffett";
       const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
       const _t3=trigT3Label(t),_t2=trigT2Label(t);
+      const _pm=isOperationalTier1(t)?pmosPrice(s):null;
       const triggers=[];
+      if(_pm&&pmosFires(t))triggers.push("P-MOS");
       if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push(_t2);
       if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push(_t3);
       if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
       const pending=[];
+      if(_pm&&!triggers.includes("P-MOS"))pending.push({name:"P-MOS",price:_pm,gap:((s.currentPrice-_pm)/s.currentPrice*100)});
       if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
       if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
       if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
