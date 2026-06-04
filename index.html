@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.88</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.89</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -602,13 +602,15 @@ function trigT2Label(t){return isHighgr(t)?"DMOS":"PBT";}
 function trigT3LongLabel(t){return isHighgr(t)?"20Cap":"Ten Cap";}
 function trigT2LongLabel(t){return isHighgr(t)?"DMOS — Deeper MOS":"PBT — Payback Time";}
 // ============ COMPOUNDER TIER v2 (Stages A + B, May 27 2026) ============
-// Operational Tier 1 set per framework §10.2 (g_sustainable rule, evaluated annually each January).
-// NOT a bright-line on compounderPriority — V (pending re-measurement) and HLMA (Step G demotion)
-// are operationally Tier 2 despite low compounderPriority values; do not auto-derive from CSV.
-// Current set as of May 27 2026 E2 rollout: MA, MSFT, MSCI, ASML, CSU.
-// Update this set manually when the annual January recalc or hot-update review changes membership.
-const TIER1_SET=new Set(["MA","MSFT","MSCI","ASML","CSU"]);
-function isOperationalTier1(t){return TIER1_SET.has((t||"").toUpperCase());}
+// Operational Tier 1 per framework §10.2 (g_sustainable rule, evaluated annually each January).
+// RULE (Jun 4 2026): Tier 1 ≡ compounderPriority in [1.0, 2.0). Any 1.x compounder is Tier 1 by
+// definition — forever-hold, P-MOS 4th slot, tripwires-only, no trailing stop — and the ⭐T1 star,
+// P-MOS plumbing, and tripwire shield all key off isOperationalTier1() so they follow automatically.
+// To demote a stock to Tier 2, set its compounderPriority to 2.x (tap the C-badge). To promote,
+// set it below 2.0. There is no membership list: the C-value IS the governance state.
+// NOTE: compounderPriority is localStorage-only (set via setCompounderPriority), not seeded in this
+// file. A stale 1.x value will auto-promote on load — keep C-values current.
+function isOperationalTier1(t){const c=(stocks[(t||"").toUpperCase()]||{}).compounderPriority;return c!=null&&c>=1&&c<2;}
 // Visual marker — small gold "⭐T1" badge shown next to ticker on Tier 1 rows.
 // Returns empty string for non-Tier-1 so it's safe to inject everywhere without conditional logic upstream.
 function tier1Marker(t){return isOperationalTier1(t)?`<span style="font-size:9px;color:#fbbf24;background:#fbbf2420;border:1px solid #fbbf2444;padding:1px 4px;border-radius:3px;margin-left:4px;font-family:var(--mono);font-weight:600" title="Operational Tier 1 — see framework §10.2">⭐T1</span>`:"";}
@@ -632,7 +634,7 @@ function isPmosSuppressed(t){
 }
 // Operational P-MOS firing: Tier 1 only, raw firing AND not suppressed AND gate not failed.
 // FIX v3.70: Buffett structural exclusion (framework §2.6) — Buffett never gets P-MOS, even
-// if a stock is somehow both buffett-category and in TIER1_SET. Defensive: no current stock
+// if a stock is somehow both buffett-category and operational Tier 1. Defensive: no current stock
 // satisfies both, but this hardens the invariant at the single chokepoint all callers use.
 function pmosFires(t){
   const s=stocks[t];if(!s||!isOperationalTier1(t)||isBuffett(t)||s.gate===false)return false;
@@ -771,7 +773,7 @@ function buildRecoveryEntries(ticker,s){
 //
 // FIRING ≠ DEMOTION: during the audit window, Tier 1 treatment (forever-hold, P-MOS
 // eligibility, per-stock cap) REMAINS in effect (per framework §7). Demotion is a separate
-// action — the user removes the ticker from TIER1_SET at the top of Stage A's block when
+// action — the user sets the ticker's compounderPriority to 2.x (tap the C-badge) when
 // the re-audit verdict comes back "demote". Tripwire alone does not change deployment.
 
 function tripwireState(t){
@@ -847,7 +849,7 @@ function toggleTripwire(ticker,which){
   const W=which.toUpperCase();
   const currentlyFiring=!!s[key];
   if(currentlyFiring){
-    if(!confirm(`Clear ${W} FIRING on ${ticker}?\n\nOnly clear after the 30-day 4M re-audit has reached a verdict (retain) and the firing condition has resolved. If verdict was 'demote', remove ${ticker} from TIER1_SET instead — clearing the tripwire alone does not demote.`))return;
+    if(!confirm(`Clear ${W} FIRING on ${ticker}?\n\nOnly clear after the 30-day 4M re-audit has reached a verdict (retain) and the firing condition has resolved. If verdict was 'demote', set ${ticker}'s compounderPriority to 2.x instead — clearing the tripwire alone does not demote.`))return;
     delete s[key];
   }else{
     let msg=`Mark ${W} FIRING on ${ticker}?\n\nThis initiates the §7 protocol:\n  • 4M re-audit within 30 days\n  • Log primary-source evidence to watchlist.md`;
