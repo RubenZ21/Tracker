@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.94</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.95</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -370,7 +370,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,expansionSlots:3,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 // watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
 let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
@@ -933,7 +933,7 @@ function weightedLit(t,pfKey){
   return n;
 }
 
-// === Per-lit-tranche cap (v3.94) ===
+// === Per-lit-tranche cap (v3.95) ===
 // Each lit tranche has a cost-basis target = slotWeight × 5% of base. Standard slot → 5%, P-MOS → 3%.
 // "base" is a COST-BASIS anchor (Pool1 cost + Pool3 cost + DP + new income), passed in by the caller.
 // A lit tranche's current cost basis = Σ open(bought-sold)×buyPrice over matching tranche rows, in
@@ -1391,7 +1391,7 @@ function getMOSBreakdown(pfKey){
   const GRID=getGrid(pfKey);const _bc=pfBaseCcy(pfKey);
   const firingStocks=GRID.filter(t=>sigCount(t)>0);
   const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,pfKey),0);
-  const expSlots=pfKey==="personal"?(settings.expansionSlots??3):0;
+  const expSlots=0;
   const denom=validSlots+expSlots;
   const income=pfKey==="personal"?ptIncome("personal"):0;
   const perTr=denom>0?Math.round(income/denom):0;
@@ -3147,7 +3147,6 @@ function exportExcel(){
     {key:"dryPowder_nl",value:portfolios.nl?.dryPowder||0},
     {key:"dpUSD_personal",value:portfolios.personal?.dpUSD||0},{key:"dpEUR_personal",value:portfolios.personal?.dpEUR||0},{key:"dpGBP_personal",value:portfolios.personal?.dpGBP||0},{key:"dpJPY_personal",value:portfolios.personal?.dpJPY||0},{key:"dpCAD_personal",value:portfolios.personal?.dpCAD||0},
     {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},{key:"dpGBP_nl",value:portfolios.nl?.dpGBP||0},{key:"dpJPY_nl",value:portfolios.nl?.dpJPY||0},{key:"dpCAD_nl",value:portfolios.nl?.dpCAD||0},
-    {key:"expansionSlots",value:settings.expansionSlots??3},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
     {key:"nlTranches",value:settings.nlTranches||40},
     {key:"nlTranchePct",value:settings.nlTranchePct||3},
@@ -3376,7 +3375,6 @@ function handleExcelImport(e){
           if(k==="dpGBP_nl"&&!empty(val))portfolios.nl.dpGBP=Number(val);
           if(k==="dpJPY_nl"&&!empty(val))portfolios.nl.dpJPY=Number(val);
           if(k==="dpCAD_nl"&&!empty(val))portfolios.nl.dpCAD=Number(val);
-          if(k==="expansionSlots"&&!empty(val))settings.expansionSlots=Number(val);
           if(k==="nlCapAtPersonal"&&!empty(val))settings.nlCapAtPersonal=Number(val)===1;
           if(k==="nlTranches"&&!empty(val))settings.nlTranches=Math.max(1,Number(val));
           if(k==="nlTranchePct"&&!empty(val))settings.nlTranchePct=Math.max(0.1,Math.min(20,Number(val)));
@@ -4413,7 +4411,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _cMap[t]=_wPal[_ci%_wPal.length];_ci++;});
 
     // Now render bar for current portfolio using the global color map.
-    // v3.94: Pool 3 (risk) stocks are now shown in the SAME bar as Pool 1 — they are one linked
+    // v3.95: Pool 3 (risk) stocks are now shown in the SAME bar as Pool 1 — they are one linked
     // portfolio (Pool1 + Pool3 + DP). Risk segments use a distinct reddish palette + 🎲 marker.
     const _wBase=pfBaseCcy(currentPf); // compute weights in portfolio's base currency
     const _riskPal=["#6e1d2e","#5e2d3b","#7a2d3d"];
@@ -4498,16 +4496,21 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     }
   }
 
-  // Pool 1 DP% indicator (Personal only)
+  // Pool 1+3+DP DP% indicator vs the configurable DP target (Personal only)
   if(currentPf==="personal"&&!hideValues){
-    const _p1v=pool1Value("personal");const _dpPct=dpPctOfPool1("personal");const _dp=pf.dryPowder||0;
+    const _tgt=settings.dpFloorPct??30;
+    // Same cost-basis base the allocator floor uses: Pool1 cost + Pool3 cost + DP.
+    const _dp=pf.dryPowder||0;
+    const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
+    const _dpPct=_base>0?_dp/_base*100:0;
     const _bs2=pfSym("personal");
-    const _dpCol=_dpPct<25?"var(--red)":_dpPct<30?"var(--amber)":"var(--green)";
-    const _dpIcon=_dpPct<25?"🔴":_dpPct<30?"🟡":"🟢";
+    // Red below target, amber within 5pts above, green comfortably above.
+    const _dpCol=_dpPct<_tgt?"var(--red)":_dpPct<_tgt+5?"var(--amber)":"var(--green)";
+    const _dpIcon=_dpPct<_tgt?"🔴":_dpPct<_tgt+5?"🟡":"🟢";
     h+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpIcon} DP ${Math.round(_dpPct)}% of Pool 1</span>
-      <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">floor 25% · target 30%</span>
-      ${_dpPct<25?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW FLOOR — Layer 1 trim eligible</span>`:""}
+      <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpIcon} DP ${Math.round(_dpPct)}% of P1+P3+DP</span>
+      <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">target ${_tgt}%</span>
+      ${_dpPct<_tgt?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW TARGET</span>`:""}
     </div>`;
   }
   h+=`<div class="pos-grid">`;
@@ -4763,7 +4766,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(isRisk(ticker,currentPf)){
       const specAge=s.specDate?Math.round((Date.now()-s.specDate)/86400000):null;
       const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
-      // v3.94: budget anchored to the Pool-3 cap (10% of Pool1+Pool3+DP cost basis), in base ccy → EUR.
+      // v3.95: budget anchored to the Pool-3 cap (10% of Pool1+Pool3+DP cost basis), in base ccy → EUR.
       const _rbiThis=riskBucketInfo(currentPf);const maxBudgetBase=_rbiThis.cap;
       const costBasis=shares*avg;const costBase=fromEUR(toEUR(costBasis,s.currency),pfBaseCcy(currentPf));
       const pctCost=maxBudgetBase>0?(costBase/maxBudgetBase*100):0;
@@ -4874,14 +4877,10 @@ function renderAllocator(c){
     const nFiring=firingStocks.length;
     const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,'personal'),0);            // discrete (display)
     const weightedSlotsTotal=firingStocks.reduce((n,t)=>n+weightedSlots(t,'personal'),0);        // weighted (math)
-    const expSlots=settings.expansionSlots??3;
-    const denom=validSlots+expSlots;                                                              // discrete (label only)
-    const denomW=weightedSlotsTotal+expSlots;                                                     // weighted denominator
     const totalIncome=pfIncome("personal");
     const idxAlloc=indexAllocationUSD();
     const income=totalIncome-idxAlloc; // Phil Town portion
     const _bs=pfSym("personal");const _bc=pfBaseCcy("personal");
-    const perTr=denomW>0?Math.round(income/denomW):0;                                             // tranche from weighted denom (legacy display)
     // Count lit (deploy) vs unlit signals across firing stocks — deployCount includes piggyback
     const litTotal=firingStocks.reduce((n,t)=>n+deployCount(t,'personal'),0);                    // discrete (display)
     const unlitTotal=validSlots-litTotal;                                                         // discrete (display)
@@ -4893,13 +4892,13 @@ function renderAllocator(c){
     const cappedLitWeighted=firingStocks.reduce((n,t)=>n+(atPositionCap(t,'personal')?weightedLit(t,'personal'):0),0);
     const litDeploying=litTotal-cappedLit;                                                        // discrete count (display)
     const litDeployingWeighted=litWeighted-cappedLitWeighted;                                     // weighted (math)
-    // === DP-FLOOR GATE (v3.94) ===
-    // No MOS reserve / no expansion reserve. The stock-side income is gated by a 30% DP floor
-    // measured against (Pool1 holdings MV + Pool3 holdings MV + DP), all in base ccy.
+    // === DP-FLOOR GATE (v3.95) ===
+    // No MOS reserve / no expansion reserve. The stock-side income is gated by a DP floor
+    // (settings.dpFloorPct, default 30%) measured against (Pool1 cost + Pool3 cost + DP).
     //  - If DP + income ≥ threshold → deploy the FULL income to lit signals (capped stocks still → DP).
     //  - If DP + income <  threshold → top DP up toward the threshold first; only the excess deploys.
     const _dpFloorPct=(settings.dpFloorPct??30)/100;
-    // v3.94: floor base is cost-basis throughout (Pool1 cost + Pool3 cost + DP). pool1CostBasis
+    // Floor base is cost-basis throughout (Pool1 cost + Pool3 cost + DP). pool1CostBasis
     // already includes DP, so subtract it back out of the Pool1 term to avoid double-counting.
     const _p1cost=pool1CostBasis('personal')-(pf.dryPowder||0);
     const _p3cost=pool3CostBasis('personal');
@@ -4911,7 +4910,7 @@ function renderAllocator(c){
       ? income                                              // floor already satisfied → deploy all
       : Math.max(0,income-(dpFloorThreshold-_dpNow));       // below floor → top up first, deploy excess
     const dpTopUp=income-incomeDeployable;                  // amount that stays in DP this month
-    // === PER-LIT-TRANCHE CAP (v3.94) ===
+    // === PER-LIT-TRANCHE CAP (v3.95) ===
     // Cost-basis anchor for tranche caps: Pool1 cost + Pool3 cost + DP + new income (all base ccy).
     // pool1CostBasis already includes DP, so don't add _dpNow again.
     const _capBase=pool1CostBasis('personal')+pool3CostBasis('personal')+income;
@@ -4923,7 +4922,7 @@ function renderAllocator(c){
       stockRoom[t]=tops.reduce((a,x)=>a+x.roomBase,0);
     });
     // Distribute deployable income across firing stocks by weighted-lit share, bounded by each
-    // stock's room. Leftover (income that no lit tranche has room for) flows to DP.
+    // stock's room. Leftover (capped stocks + income no lit tranche has room for) flows to DP.
     const _stockDeployBase={};                              // ticker → $ to deploy (base ccy)
     let _deployedSum=0;
     firingStocks.forEach(t=>{
@@ -4934,9 +4933,10 @@ function renderAllocator(c){
       _stockDeployBase[t]=give;_deployedSum+=give;
     });
     const deployTotal=Math.round(_deployedSum);
-    const trancheCapOverflow=Math.round(incomeDeployable-_deployedSum); // income with no tranche room → DP
-    const cappedRedirect=denomW>0?Math.round(income*cappedLitWeighted/denomW):0;
-    const toDP=dpTopUp+cappedRedirect+trancheCapOverflow;
+    // Everything deployable that no lit tranche absorbed (capped stocks + tranche-cap overflow) → DP.
+    const trancheCapOverflow=Math.round(incomeDeployable-_deployedSum);
+    const cappedRedirect=0; // folded into trancheCapOverflow (capped stocks get 0 deploy above)
+    const toDP=dpTopUp+trancheCapOverflow;
     const sliderPct=settings.dpSlider??40;
     const mosReserveTotal=0;
     const expansionTotal=0;
@@ -4970,8 +4970,8 @@ function renderAllocator(c){
     const ptPct=100-idxPct;
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>${_bs}</span><input type="number" value="${totalIncome}" onchange="settings.${_incKey}=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= ${_altSym}${_altIncome.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
-      <div class="input-box" style="flex:0 0 70px"><div class="input-label">Exp.</div><div class="input-field"><input type="number" value="${expSlots}" min="0" max="9" style="width:36px;text-align:center" onchange="settings.expansionSlots=Math.max(0,+this.value||0);save();render()"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">slots</div></div>
+      <div class="input-box" style="flex:0 0 70px"><div class="input-label">DP Target</div><div class="input-field"><input type="number" value="${settings.dpFloorPct??30}" min="0" max="100" style="width:40px;text-align:center" onchange="settings.dpFloorPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">floor</div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div>
         <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="editDP('personal')">${_bs}${Math.round(pf.dryPowder).toLocaleString()} <span style="font-size:10px;opacity:.5">✏</span></div>
         <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"$0"})()}</div>
@@ -4999,11 +4999,10 @@ function renderAllocator(c){
     const dps=getDPSplit(currentPf);
     const mosOverflowing=dps.overflowing;
     h+=`<div class="alloc-card">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">${idxAlloc>0?"Stock-Picking Allocation":"Monthly Allocation"}</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${validSlots}+${expSlots} = ${denom} slots</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">${idxAlloc>0?"Stock-Picking Allocation":"Monthly Allocation"}</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${litDeploying} lit · ${unlitTotal} unlit</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (5% / P-MOS 3% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*0.05).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litDeploying} lit signals${cappedLit>0?`, ${cappedLit} at cap → DP`:""})</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${deployTotal.toLocaleString()}</span></div>
-      ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Tranche-cap overflow → DP</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
-      ${cappedLit>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Cap redirect (${cappedLit} lit → DP)</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${cappedRedirect.toLocaleString()}</span></div>`:""}
+      ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Overflow → DP${cappedLit>0?` (incl. ${cappedLit} at cap)`:""}</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${Math.round(_dpFloorPct*100)}% of P1+P3+DP)</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${dpTopUp>0?'#34d399':'var(--muted)'}">${dpAfterIncome>=dpFloorThreshold?'Floor met — full deploy':'Below floor — DP top-up'}</span><span style="font-size:13px;font-family:var(--mono);color:${dpTopUp>0?'#34d399':'var(--muted)'}">${_bs}${Math.round(dpTopUp).toLocaleString()}</span></div>
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP <span style="font-size:9px;opacity:.6">(${Math.round(dps.sliderPct)}% MOS)</span></span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
@@ -5011,15 +5010,14 @@ function renderAllocator(c){
     // Per-stock breakdown: firing stocks show deploy + per-lit-tranche top-ups
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
       const capped=atPositionCap(t,'personal');const capPct=positionCapPct(t,'personal');const mvPct=positionMVPct(t,'personal');
-      // v3.94: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
-      const deployBase=_stockDeployBase[t]||0;const cappedBase=capped?weightedLit(t,'personal')*perTr:0;
+      // v3.95: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
+      const deployBase=_stockDeployBase[t]||0;
       const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
       const isSpec=isRisk(t,currentPf);const isBuf=isBuffett(t);
-      const unlitDest=isSpec||isBuf?"EXP":"DP";
       const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:`deploy`;
       const amtCol=capped?"#d97706":"var(--green)";
-      const amtVal=capped?fmt(Math.round(fromEUR(toEUR(cappedBase,_bc),s.currency)),s.currency):fmt(Math.round(localDeploy),s.currency);
+      const amtVal=capped?fmt(0,s.currency):fmt(Math.round(localDeploy),s.currency);
       // Per-lit-tranche top-up lines (stock ccy). Distribute the room-bounded deploy across this
       // stock's lit tranches proportional to each tranche's room (so display sums to localDeploy).
       const tops=capped?[]:litTrancheTopups(t,'personal',_capBase);
