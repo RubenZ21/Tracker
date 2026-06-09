@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.95</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.96</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -933,7 +933,7 @@ function weightedLit(t,pfKey){
   return n;
 }
 
-// === Per-lit-tranche cap (v3.95) ===
+// === Per-lit-tranche cap (v3.96) ===
 // Each lit tranche has a cost-basis target = slotWeight × 5% of base. Standard slot → 5%, P-MOS → 3%.
 // "base" is a COST-BASIS anchor (Pool1 cost + Pool3 cost + DP + new income), passed in by the caller.
 // A lit tranche's current cost basis = Σ open(bought-sold)×buyPrice over matching tranche rows, in
@@ -2562,7 +2562,7 @@ function handleCSVImport(e){
 }
 
 // ============ HOLDINGS CSV (import/export, separate from triggers CSV) ============
-// Format: portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes
+// Format: portfolio,ticker,stockType,trancheType,shares,buyPrice,buyDate,notes
 // portfolio: "personal" or "caca" (CSV) ↔ "personal" or "nl" (internal pfKey)
 // trancheType enum (CSV) ↔ tranche.signal (internal):
 //   initial ↔ "initial"        mos ↔ "MOS"
@@ -2570,6 +2570,14 @@ function handleCSVImport(e){
 //   trophy ↔ "trophy"          risk ↔ "risk" (also adds ticker to pf.riskStocks)
 //   index → writes to pf.indexPositions[us|eu] aggregate (shares/avgCost) — not as a tranche
 const HOLDINGS_TRANCHE_TYPES=["initial","mos","pmos","tenCap","pbt","buffettTenCap","buffettPbt","risk","trophy","index","cash"];
+// v3.96: stockType column — the framework classification of the stock in that portfolio.
+// "risk" is per-portfolio (pf.riskStocks); phil_town/buffett/highgr come from s.category.
+const HOLDINGS_STOCK_TYPES=["phil_town","buffett","highgr","risk","index","cash"];
+function _stockTypeForExport(t,pfKey){
+  if(isRisk(t,pfKey))return"risk";
+  const c=stocks[t]?.category;
+  return c==="buffett"?"buffett":c==="highgr"?"highgr":"phil_town";
+}
 const HOLDINGS_CASH_CCYS=["USD","EUR","GBP","JPY","CAD"];
 
 // Exchange lookup: bare ticker → currency + Yahoo/td symbols. Used by triggers CSV import
@@ -2617,7 +2625,9 @@ const _PF_KEY_TO_CSV={personal:"personal",nl:"caca"};
 
 function _trancheTypeForExport(t,pfKey,signal){
   // Index ETFs are emitted by a separate loop, so this is for stock tranches only.
-  if(isRisk(t,pfKey))return"risk";
+  // v3.96: the stock's framework type now lives in its own stockType column, so we no longer
+  // collapse every tranche of a risk stock to "risk". A tranche's type reflects its OWN signal —
+  // e.g. a risk stock can hold both an "mos" tranche and a "risk" tranche, each preserved.
   if(signal==="trophy")return"trophy";
   if(signal==="initial")return"initial";
   if(signal==="risk")return"risk";
@@ -2671,9 +2681,10 @@ function exportHoldingsCSV(){
         const sh=(tr.bought||0)-(tr.sold||0);
         if(sh<=0)return; // skip fully-sold tranches
         const tt=_trancheTypeForExport(t,pk,tr.signal);
+        const st=_stockTypeForExport(t,pk);
         const buyDate=tr.buyDate?new Date(tr.buyDate).toISOString().slice(0,10):"";
         const notes=tr.notes||"";
-        rows.push({portfolio:csvPf,ticker:t,trancheType:tt,shares:sh,buyPrice:tr.buyPrice||0,buyDate,notes});
+        rows.push({portfolio:csvPf,ticker:t,stockType:st,trancheType:tt,shares:sh,buyPrice:tr.buyPrice||0,buyDate,notes});
       });
     });
   });
@@ -2684,7 +2695,7 @@ function exportHoldingsCSV(){
       const ip=getIndexPos(pk,region);
       if(!ip||!(ip.shares>0))return;
       const ticker=indexTickerForPf(pk,region);
-      rows.push({portfolio:csvPf,ticker,trancheType:"index",shares:ip.shares,buyPrice:ip.avgCost||0,buyDate:"",notes:""});
+      rows.push({portfolio:csvPf,ticker,stockType:"index",trancheType:"index",shares:ip.shares,buyPrice:ip.avgCost||0,buyDate:"",notes:""});
     });
   });
   // 3. Cash (dry powder) per currency per portfolio (one row per non-zero leg)
@@ -2693,7 +2704,7 @@ function exportHoldingsCSV(){
     HOLDINGS_CASH_CCYS.forEach(ccy=>{
       const amt=pf["dp"+ccy];
       if(amt==null||amt<=0)return;
-      rows.push({portfolio:csvPf,ticker:ccy,trancheType:"cash",shares:amt,buyPrice:1,buyDate:"",notes:""});
+      rows.push({portfolio:csvPf,ticker:ccy,stockType:"cash",trancheType:"cash",shares:amt,buyPrice:1,buyDate:"",notes:""});
     });
   });
   // 4. Sort: portfolio asc, then ordering class (positions/index < cash), then ticker asc, then buyDate asc (empty last)
@@ -2707,9 +2718,9 @@ function exportHoldingsCSV(){
     return ad<bd?-1:ad>bd?1:0;
   });
   // 5. Build CSV (no spaces after commas; quote notes only when needed)
-  let csv="portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes\n";
+  let csv="portfolio,ticker,stockType,trancheType,shares,buyPrice,buyDate,notes\n";
   rows.forEach(r=>{
-    csv+=`${r.portfolio},${r.ticker},${r.trancheType},${r.shares},${r.buyPrice},${r.buyDate},${q(r.notes)}\n`;
+    csv+=`${r.portfolio},${r.ticker},${r.stockType},${r.trancheType},${r.shares},${r.buyPrice},${r.buyDate},${q(r.notes)}\n`;
   });
   dlFile("holdings_"+dateStr()+".csv",csv,"text/csv");
 }
@@ -2953,11 +2964,11 @@ function handleHoldingsCSVImport(e){
     const hdr=rows[0].map(h=>h.toLowerCase());
     const missing=REQUIRED.filter(c=>!hdr.includes(c));
     if(missing.length){
-      showHoldingsErrorModal([{line:1,msg:`Header missing required column${missing.length>1?"s":""}: ${missing.join(", ")}. Expected: portfolio,ticker,trancheType,shares,buyPrice,buyDate,notes`}]);
+      showHoldingsErrorModal([{line:1,msg:`Header missing required column${missing.length>1?"s":""}: ${missing.join(", ")}. Expected: portfolio,ticker,stockType,trancheType,shares,buyPrice,buyDate,notes`}]);
       e.target.value="";return;
     }
     const idx=name=>hdr.indexOf(name);
-    const iPf=idx("portfolio"),iTk=idx("ticker"),iTt=idx("tranchetype"),iSh=idx("shares"),iBp=idx("buyprice"),iBd=idx("buydate"),iNo=idx("notes");
+    const iPf=idx("portfolio"),iTk=idx("ticker"),iSt=idx("stocktype"),iTt=idx("tranchetype"),iSh=idx("shares"),iBp=idx("buyprice"),iBd=idx("buydate"),iNo=idx("notes");
     const errors=[],warnings=[],parsed=[];
     for(let i=1;i<rows.length;i++){
       const cells=rows[i];
@@ -2965,6 +2976,11 @@ function handleHoldingsCSVImport(e){
       const pfRaw=(cells[iPf]||"").toLowerCase();
       const ticker=(cells[iTk]||"").toUpperCase();
       const tt=cells[iTt]||"";
+      const stRaw=iSt>=0?String(cells[iSt]||"").trim().toLowerCase():"";
+      // stockType is optional (older CSVs omit it). Validate only when present.
+      if(stRaw&&!HOLDINGS_STOCK_TYPES.includes(stRaw)){
+        errors.push({line:lineNo,msg:`Invalid stockType "${stRaw}" — must be one of: ${HOLDINGS_STOCK_TYPES.join(", ")}`});continue;
+      }
       const shStr=cells[iSh]||"";
       const bpStr=cells[iBp]||"";
       const bdStr=iBd>=0?(cells[iBd]||""):"";
@@ -3003,7 +3019,7 @@ function handleHoldingsCSVImport(e){
       if(tt!=="index"&&tt!=="cash"&&!stocks[ticker]){
         warnings.push({line:lineNo,msg:`Ticker "${ticker}" not found in triggers data (orphan — kept anyway)`});
       }
-      parsed.push({lineNo,pfKey,pfRaw,ticker,tt,shares,buyPrice,buyDate,notes});
+      parsed.push({lineNo,pfKey,pfRaw,ticker,st:stRaw,tt,shares,buyPrice,buyDate,notes});
     }
     if(errors.length){showHoldingsErrorModal(errors);e.target.value="";return;}
     if(!parsed.length){showHoldingsErrorModal([{line:0,msg:"No valid rows found in CSV."}]);e.target.value="";return;}
@@ -3030,11 +3046,35 @@ function _applyHoldingsImport(parsed,warnings){
     });
     HOLDINGS_CASH_CCYS.forEach(ccy=>{pf["dp"+ccy]=0;});
   });
+  // 1.5 (v3.96) PRE-PASS: set framework classification from the stockType column BEFORE building
+  // tranches, so _trancheTypeToSignal sees the correct category (20Cap vs 10Cap etc.) regardless of
+  // row order. Only rebuild risk membership when at least one row carries an explicit stockType
+  // (i.e. a v3.96+ CSV); legacy CSVs fall back to per-tranche risk handling in the main loop.
+  const _hasStockTypeCol=parsed.some(r=>r.st);
+  if(_hasStockTypeCol){
+    // Clear risk membership for the portfolios being imported; it's rebuilt from stockType below.
+    Object.keys(portfolios).forEach(pk=>{if(portfolios[pk])portfolios[pk].riskStocks=[];});
+  }
+  parsed.forEach(row=>{
+    const {pfKey,ticker,st,tt}=row;
+    if(tt==="index"||tt==="cash"||!ticker)return;
+    if(!stocks[ticker])_ensureStockEntry(ticker);
+    if(!stocks[ticker])return;
+    if(st==="buffett")stocks[ticker].category="buffett";
+    else if(st==="highgr")stocks[ticker].category="highgr";
+    else if(st==="phil_town"||st==="risk")delete stocks[ticker].category; // risk stocks have no buffett/highgr category
+    if(st==="risk"){
+      const pf=portfolios[pfKey];if(!pf)return;
+      if(!pf.riskStocks)pf.riskStocks=[];
+      if(!pf.riskStocks.includes(ticker))pf.riskStocks.push(ticker);
+      if(pf.gridStocks&&pf.gridStocks.includes(ticker))pf.gridStocks=pf.gridStocks.filter(x=>x!==ticker);
+    }
+  });
   // 2. Pre-aggregate index rows by (pfKey, region) for weighted-average cost; cash rows accumulate per (pfKey, ccy)
   // Stock tranches are appended directly.
   const indexAgg={}; // key: pk+":"+region → {shares,costSum}
   parsed.forEach(row=>{
-    const {pfKey,ticker,tt,shares,buyPrice,buyDate,notes}=row;
+    const {pfKey,ticker,st,tt,shares,buyPrice,buyDate,notes}=row;
     const pf=portfolios[pfKey];if(!pf)return;
     const csvPf=_PF_KEY_TO_CSV[pfKey];
     if(tt==="index"){
@@ -3070,11 +3110,12 @@ function _applyHoldingsImport(parsed,warnings){
     if(buyDate)tr.buyDate=buyDate;
     if(notes)tr.notes=notes;
     pf.positions[ticker].tranches.push(tr);
-    // For "risk" trancheType, ensure ticker is in pf.riskStocks (auto-add)
-    if(tt==="risk"){
+    // Classification handled in the pre-pass (step 1.5) when stockType is present. For LEGACY CSVs
+    // without a stockType column, fall back to the old behavior: a "risk" tranche type implies the
+    // ticker is a risk-bucket holding in that portfolio.
+    if(!st&&tt==="risk"){
       if(!pf.riskStocks)pf.riskStocks=[];
       if(!pf.riskStocks.includes(ticker))pf.riskStocks.push(ticker);
-      // Risk and grid are mutually exclusive within a portfolio (v3.31 invariant)
       if(pf.gridStocks&&pf.gridStocks.includes(ticker))pf.gridStocks=pf.gridStocks.filter(x=>x!==ticker);
     }
     if(csvPf==="personal")stats.personal++;else stats.caca++;
@@ -4411,7 +4452,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _cMap[t]=_wPal[_ci%_wPal.length];_ci++;});
 
     // Now render bar for current portfolio using the global color map.
-    // v3.95: Pool 3 (risk) stocks are now shown in the SAME bar as Pool 1 — they are one linked
+    // v3.96: Pool 3 (risk) stocks are now shown in the SAME bar as Pool 1 — they are one linked
     // portfolio (Pool1 + Pool3 + DP). Risk segments use a distinct reddish palette + 🎲 marker.
     const _wBase=pfBaseCcy(currentPf); // compute weights in portfolio's base currency
     const _riskPal=["#6e1d2e","#5e2d3b","#7a2d3d"];
@@ -4766,7 +4807,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(isRisk(ticker,currentPf)){
       const specAge=s.specDate?Math.round((Date.now()-s.specDate)/86400000):null;
       const pvEUR=toEUR(posVal,s.currency);const pfVal=pfValueEUR(currentPf);const pctOfPf=pfVal>0?(pvEUR/pfVal*100):0;
-      // v3.95: budget anchored to the Pool-3 cap (10% of Pool1+Pool3+DP cost basis), in base ccy → EUR.
+      // v3.96: budget anchored to the Pool-3 cap (10% of Pool1+Pool3+DP cost basis), in base ccy → EUR.
       const _rbiThis=riskBucketInfo(currentPf);const maxBudgetBase=_rbiThis.cap;
       const costBasis=shares*avg;const costBase=fromEUR(toEUR(costBasis,s.currency),pfBaseCcy(currentPf));
       const pctCost=maxBudgetBase>0?(costBase/maxBudgetBase*100):0;
@@ -4892,7 +4933,7 @@ function renderAllocator(c){
     const cappedLitWeighted=firingStocks.reduce((n,t)=>n+(atPositionCap(t,'personal')?weightedLit(t,'personal'):0),0);
     const litDeploying=litTotal-cappedLit;                                                        // discrete count (display)
     const litDeployingWeighted=litWeighted-cappedLitWeighted;                                     // weighted (math)
-    // === DP-FLOOR GATE (v3.95) ===
+    // === DP-FLOOR GATE (v3.96) ===
     // No MOS reserve / no expansion reserve. The stock-side income is gated by a DP floor
     // (settings.dpFloorPct, default 30%) measured against (Pool1 cost + Pool3 cost + DP).
     //  - If DP + income ≥ threshold → deploy the FULL income to lit signals (capped stocks still → DP).
@@ -4910,7 +4951,7 @@ function renderAllocator(c){
       ? income                                              // floor already satisfied → deploy all
       : Math.max(0,income-(dpFloorThreshold-_dpNow));       // below floor → top up first, deploy excess
     const dpTopUp=income-incomeDeployable;                  // amount that stays in DP this month
-    // === PER-LIT-TRANCHE CAP (v3.95) ===
+    // === PER-LIT-TRANCHE CAP (v3.96) ===
     // Cost-basis anchor for tranche caps: Pool1 cost + Pool3 cost + DP + new income (all base ccy).
     // pool1CostBasis already includes DP, so don't add _dpNow again.
     const _capBase=pool1CostBasis('personal')+pool3CostBasis('personal')+income;
@@ -5010,7 +5051,7 @@ function renderAllocator(c){
     // Per-stock breakdown: firing stocks show deploy + per-lit-tranche top-ups
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
       const capped=atPositionCap(t,'personal');const capPct=positionCapPct(t,'personal');const mvPct=positionMVPct(t,'personal');
-      // v3.95: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
+      // v3.96: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
       const deployBase=_stockDeployBase[t]||0;
       const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
