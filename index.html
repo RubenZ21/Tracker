@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.99</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.00</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -990,7 +990,7 @@ function endOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMo
 function isSnoozed(t,sig){const s=stocks[t];if(!s?.snoozed)return false;if(sig){const exp=s.snoozed[sig];if(!exp)return false;if(Date.now()>exp){delete s.snoozed[sig];return false;}return true;}return Object.keys(s.snoozed).some(k=>isSnoozed(t,k));}
 function snoozeSignal(t,sig){if(!stocks[t].snoozed)stocks[t].snoozed={};stocks[t].snoozed[sig]=endOfMonth();save();render();}
 function toggleLimitOrder(t,sig){if(!stocks[t].limitOrders)stocks[t].limitOrders={};const cur=stocks[t].limitOrders[sig];const next=!cur?"personal":cur==="personal"?"both":cur==="both"?"caca":undefined;if(next)stocks[t].limitOrders[sig]=next;else delete stocks[t].limitOrders[sig];save();render();}
-function hasLimitOrder(t,sig,pf){const v=stocks[t]?.limitOrders?.[sig];if(!v)return false;if(!pf)return true;if(v==="both")return true;return v===pf;}
+function hasLimitOrder(t,sig,pf){const v=stocks[t]?.limitOrders?.[sig];if(!v)return false;if(!pf)return true;if(v==="both")return true;const want=pf==="nl"?"caca":pf;return v===want;}
 function loLabel(t,sig){const v=stocks[t]?.limitOrders?.[sig];if(!v)return"";if(v==="personal")return"🧑";if(v==="both")return"🧑🧓";if(v==="caca")return"🧓";return"";}
 function stockLimitOrderCount(t){const lo=stocks[t]?.limitOrders;if(!lo)return 0;return["mos","tenCap","pbt","pmos"].filter(k=>lo[k]).length;}
 function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
@@ -5140,9 +5140,9 @@ function renderAllocator(c){
         const _t3=trigT3Label(t),_t2=trigT2Label(t);
         // P-MOS (Tier-1 only, Sticker×0.75) is the shallowest/highest trigger — fires first on a decline.
         const _pm=isOperationalTier1(t)?pmosPrice(s):null;
-        // For an owned stock, a trigger is "already acted on" when its signal flag is lit
-        // (s.signals[k]). Such triggers are suppressed here so we only surface NEW unlit triggers.
-        const done=(k)=>owned&&!!s.signals?.[k];
+        // A trigger is hidden entirely if a tranche for it is already held (owned at all) —
+        // we only surface triggers the user does NOT yet own in this portfolio.
+        const done=(k)=>hasTrancheForSignal(t,k,"personal");
         const triggers=[];
         if(_pm&&pmosFires(t)&&!done("pmos"))triggers.push("P-MOS");
         if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt")&&!done("pbt"))triggers.push(_t2);
@@ -5336,7 +5336,7 @@ function renderAllocator(c){
       const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
       const _t3=trigT3Label(t),_t2=trigT2Label(t);
       const _pm=isOperationalTier1(t)?pmosPrice(s):null;
-      const done=(k)=>owned&&!!s.signals?.[k];
+      const done=(k)=>hasTrancheForSignal(t,k,"nl");
       const triggers=[];
       if(_pm&&pmosFires(t)&&!done("pmos"))triggers.push("P-MOS");
       if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt")&&!done("pbt"))triggers.push(_t2);
