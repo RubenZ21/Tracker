@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.98</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.99</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1372,19 +1372,16 @@ function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSn
 function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD);pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
 
-// DP reserved for armed limit orders (base ccy). Each armed limit order on a grid stock
-// reserves one tranche: P-MOS = 3% of Pool 1, every other trigger = 5%. Only counts limit
-// orders that apply to this portfolio (hasLimitOrder respects "personal"/"caca"/"both").
-// Capped at total dry powder so the reserve can never exceed available cash.
+// DP reserved for armed limit orders (base ccy). Each armed limit order reserves one tranche:
+// P-MOS = 3% of Pool 1, every other trigger = 5% (Personal); Caca = one 3% target tranche.
+// Counts limit orders on ALL stocks — grid AND watchlist — that apply to this portfolio
+// (hasLimitOrder respects "personal"/"caca"/"both"). Capped at total dry powder.
 function dpReservedForLimitOrders(pfKey){
   const pf=portfolios[pfKey];if(!pf)return 0;
-  const base=pfBaseCcy(pfKey);
   const sigKeys={mos:"MOS",tenCap:"10Cap",pbt:"PBT",pmos:"P-MOS"};
   let reserved=0;
-  // Caca: every trigger reserves one 3% tranche (the closed-fund target tranche).
-  // Personal: P-MOS = 3% of Pool 1, all other triggers = 5%.
   const cacaTranche=pfKey==="nl"?Math.round(pool1Value("nl")*((settings.nlTranchePct||3)/100)):0;
-  getGrid(pfKey).forEach(t=>{
+  Object.keys(stocks).forEach(t=>{
     const lo=stocks[t]?.limitOrders;if(!lo)return;
     Object.keys(sigKeys).forEach(k=>{
       if(lo[k]&&hasLimitOrder(t,k,pfKey)){
@@ -1394,10 +1391,10 @@ function dpReservedForLimitOrders(pfKey){
   });
   return Math.min(reserved,pf.dryPowder||0);
 }
-// Count of armed limit orders applicable to a portfolio.
+// Count of armed limit orders applicable to a portfolio — across ALL stocks (grid + watchlist).
 function limitOrderCount(pfKey){
   let n=0;const keys=["mos","tenCap","pbt","pmos"];
-  getGrid(pfKey).forEach(t=>{const lo=stocks[t]?.limitOrders;if(!lo)return;keys.forEach(k=>{if(lo[k]&&hasLimitOrder(t,k,pfKey))n++;});});
+  Object.keys(stocks).forEach(t=>{const lo=stocks[t]?.limitOrders;if(!lo)return;keys.forEach(k=>{if(lo[k]&&hasLimitOrder(t,k,pfKey))n++;});});
   return n;
 }
 // DP Slider: split total DP into MOS Reserve (capped) and Expansion (remainder)
@@ -4435,8 +4432,28 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     </div>`;
   }
 
+  // Limit-order summary banner (above the grid). Counts armed limit orders for BOTH portfolios
+  // across all stocks (grid + watchlist), and shows the DP reserved against them.
+  const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
+  if(!hideValues&&(_loPersonal>0||_loCaca>0)){
+    const _resP=Math.round(dpReservedForLimitOrders("personal"));
+    const _resC=Math.round(dpReservedForLimitOrders("nl"));
+    h+=`<div style="display:flex;gap:6px;margin-bottom:6px">
+      <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
+        <div style="font-size:9px;color:#67e8f9">🧑 Personal LO</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loPersonal} <span style="font-size:10px;opacity:.7">order${_loPersonal!==1?"s":""}</span></div>
+        <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">$${_resP.toLocaleString()} reserved</div>
+      </div>
+      <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
+        <div style="font-size:9px;color:#67e8f9">🧓 Caca LO</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loCaca} <span style="font-size:10px;opacity:.7">order${_loCaca!==1?"s":""}</span></div>
+        <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">€${_resC.toLocaleString()} reserved</div>
+      </div>
+    </div>`;
+  }
+
   // Signal summary grid (compact lifecycle view)
-  const _loCount=[...GRID,...getSpeculative()].reduce((n,t)=>n+stockLimitOrderCount(t),0);
+  const _loCount=limitOrderCount(currentPf);
   // Refined Grid (v3.71): flexible chip strip. Header keeps the 📋 N LO counter (now incl. P-MOS).
   // Rows render via sigRowHtml (module-level). Totals row dropped — the header "Grid x/y signals"
   // already aggregates; fixed per-column totals are meaningless once chips are category-variable.
@@ -4491,7 +4508,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         if(dpFree>0){const pct=dpFree/_wTotal*100;
           h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=8?"DP\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;}
         if(dpLO>0){const pct=dpLO/_wTotal*100;
-          h+=`<div style="width:${pct}%;background:#0e7490;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#67e8f9;white-space:nowrap;overflow:hidden">${pct>=8?"LO\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
+          h+=`<div style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden" title="DP reserved for limit orders">${pct>=8?"LO\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
       }
       h+=`</div>`;
       // Cost basis bar (faded, below market value bar)
@@ -4511,7 +4528,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         });
         if(dpBase>0){const dpLO2=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree2=Math.max(0,dpBase-dpLO2);
           if(dpFree2>0){const pct=dpFree2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
-          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#0e7490;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#67e8f9;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
         }
         h+=`</div>`;
       }
@@ -4535,7 +4552,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${pct}%</span>`;
         }
         if(_dpLOLabel){const pct=Math.round(_dpLOLabel/_wTotal*100);
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:#67e8f9"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#0e7490;margin-right:2px;vertical-align:middle"></span>LO\u2009${pct}%</span>`;
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:#67e8f9"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 1.5px,#0e7490 1.5px,#0e7490 3px);margin-right:2px;vertical-align:middle"></span>LO\u2009${pct}%</span>`;
         }
         h+=`</div>`;
       }
@@ -5025,7 +5042,6 @@ function renderAllocator(c){
       </div>`;
     }
 
-    const _dpLOreserve=dpReservedForLimitOrders(currentPf);const _loN=limitOrderCount(currentPf);
     h+=`<div class="alloc-card">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">${idxAlloc>0?"Stock-Picking Allocation":"Monthly Allocation"}</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${litDeploying} lit · ${unlitTotal} unlit</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (5% / P-MOS 3% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*0.05).toLocaleString()}</span></div>
@@ -5033,7 +5049,6 @@ function renderAllocator(c){
       ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Overflow → DP${cappedLit>0?` (incl. ${cappedLit} at cap)`:""}</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${Math.round(_dpFloorPct*100)}% of P1+P3+DP)</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${dpTopUp>0?'#34d399':'var(--muted)'}">${dpAfterIncome>=dpFloorThreshold?'Floor met — full deploy':'Below floor — DP top-up'}</span><span style="font-size:13px;font-family:var(--mono);color:${dpTopUp>0?'#34d399':'var(--muted)'}">${_bs}${Math.round(dpTopUp).toLocaleString()}</span></div>
-      ${_dpLOreserve>0?`<div style="display:flex;justify-content:space-between;margin-top:4px"><span style="font-size:11px;color:#67e8f9">📋 Limit orders reserved (${_loN})</span><span style="font-size:13px;font-family:var(--mono);color:#67e8f9">${_bs}${Math.round(_dpLOreserve).toLocaleString()}</span></div>`:""}
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + per-lit-tranche top-ups
@@ -5113,28 +5128,34 @@ function renderAllocator(c){
       };
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-      const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&!isRisk(t,"personal"));
-      // Build list of watchlist stocks with at least one trigger, sorted by gap (closest first)
+      // Include BOTH watchlist stocks (new entries) AND grid stocks (owned) that have an unlit
+      // trigger getting close to firing — e.g. you own the MOS tranche but PBT is approaching.
+      // Risk-bucket stocks are excluded (handled in their own bucket).
+      const wl=Object.keys(stocks).filter(t=>!isRisk(t,"personal"));
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
+        const owned=isOnGrid(t,"personal");
         const buf=s.category==="buffett";
         const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
         const _t3=trigT3Label(t),_t2=trigT2Label(t);
         // P-MOS (Tier-1 only, Sticker×0.75) is the shallowest/highest trigger — fires first on a decline.
         const _pm=isOperationalTier1(t)?pmosPrice(s):null;
+        // For an owned stock, a trigger is "already acted on" when its signal flag is lit
+        // (s.signals[k]). Such triggers are suppressed here so we only surface NEW unlit triggers.
+        const done=(k)=>owned&&!!s.signals?.[k];
         const triggers=[];
-        if(_pm&&pmosFires(t))triggers.push("P-MOS");
-        if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push(_t2);
-        if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push(_t3);
-        if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
+        if(_pm&&pmosFires(t)&&!done("pmos"))triggers.push("P-MOS");
+        if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt")&&!done("pbt"))triggers.push(_t2);
+        if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap")&&!done("tenCap"))triggers.push(_t3);
+        if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos&&!done("mos"))triggers.push("MOS");
         const pending=[];
-        if(_pm&&!triggers.includes("P-MOS"))pending.push({name:"P-MOS",price:_pm,gap:((s.currentPrice-_pm)/s.currentPrice*100)});
-        if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
-        if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
-        if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
+        if(_pm&&!triggers.includes("P-MOS")&&!done("pmos"))pending.push({name:"P-MOS",price:_pm,gap:((s.currentPrice-_pm)/s.currentPrice*100)});
+        if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt")&&!done("pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+        if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap")&&!done("tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+        if(!buf&&s.cons.mos&&!triggers.includes("MOS")&&!done("mos"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
         if(!triggers.length&&!pending.length)return;
         const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
-        ready.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length});});
+        ready.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length,owned});});
       // Sort: firing stocks first (most triggers), then by nearest gap ascending
       ready.sort((a,b)=>b.firingCount-a.firingCount||a.nearest-b.nearest);
 
@@ -5152,7 +5173,7 @@ function renderAllocator(c){
             <div style="font-size:9px;color:var(--muted);margin-top:2px">${canAfford?"from DP":"insufficient DP"}</div></div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Avail</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(dpAvailable).toLocaleString()}</div></div></div>`;
 
-      if(!ready.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No watchlist stocks with triggers populated.</div>`;}
+      if(!ready.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No stocks with triggers populated.</div>`;}
       else{
         // Show firing stocks first
         const firing=ready.filter(r=>r.firingCount>0);
@@ -5166,7 +5187,7 @@ function renderAllocator(c){
             const _belowFloor=toEUR(entryEUR,_bc)<toEUR(500,"USD");
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid ${_belowFloor?"var(--amber)":"var(--green)"}">
               <div style="display:flex;justify-content:space-between;align-items:center">
-                <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
+                <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span>${r.owned?`<span style="font-size:8px;font-family:var(--mono);color:#a78bfa;background:#2e1065;border-radius:3px;padding:1px 4px;margin-left:5px">ADD</span>`:""}<span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
                 <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:${_belowFloor?"var(--amber)":"var(--green)"}">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
               <div style="font-size:10px;color:var(--muted);margin-top:2px">${sizeLbl} of Pool 1 = ${_bs}${entryEUR.toLocaleString()}${_belowFloor?` <span style="color:var(--amber)">· &lt;$500 — skip</span>`:""}</div></div>`;});
         }
@@ -5174,13 +5195,13 @@ function renderAllocator(c){
         // Show pending stocks (not firing yet) — deploy 1 tranche at nearest trigger
         const pendingStocks=ready.filter(r=>r.firingCount===0);
         if(pendingStocks.length){
-          h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">WATCHLIST — closest to trigger</div>`;
+          h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">CLOSEST TO TRIGGER <span style="font-weight:400;opacity:.7">(watchlist + owned add-ons)</span></div>`;
           pendingStocks.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.length?r.pending.reduce((a,b)=>a.gap<b.gap?a:b):null;
             const entryEUR=entrySizeForSignal("personal",nearestP?nearestP.name:"MOS");
             const localDeploy=fromEUR(toEUR(entryEUR,_bc),s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
               <div style="display:flex;justify-content:space-between;align-items:center">
-                <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--amber);margin-left:6px">${nearestP?Math.round(nearestP.gap)+"% to "+nearestP.name:"—"}</span></div>
+                <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span>${r.owned?`<span style="font-size:8px;font-family:var(--mono);color:#a78bfa;background:#2e1065;border-radius:3px;padding:1px 4px;margin-left:5px">ADD</span>`:""}<span style="font-size:10px;color:var(--amber);margin-left:6px">${nearestP?Math.round(nearestP.gap)+"% to "+nearestP.name:"—"}</span></div>
                 <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
               <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.pending.map(p=>p.name+" "+fmt(p.price,s.currency)).join(" · ")}</div></div>`;});
         }
@@ -5307,26 +5328,28 @@ function renderAllocator(c){
 
     // === NEW ENTRY DEPLOYMENT (Caca 3% rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-    const wlNL=Object.keys(stocks).filter(t=>!isOnGrid(t,"nl")&&!isRisk(t,"nl"));
+    const wlNL=Object.keys(stocks).filter(t=>!isRisk(t,"nl"));
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
+      const owned=isOnGrid(t,"nl");
       const buf=s.category==="buffett";
       const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
       const _t3=trigT3Label(t),_t2=trigT2Label(t);
       const _pm=isOperationalTier1(t)?pmosPrice(s):null;
+      const done=(k)=>owned&&!!s.signals?.[k];
       const triggers=[];
-      if(_pm&&pmosFires(t))triggers.push("P-MOS");
-      if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push(_t2);
-      if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push(_t3);
-      if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos)triggers.push("MOS");
+      if(_pm&&pmosFires(t)&&!done("pmos"))triggers.push("P-MOS");
+      if(s.cons.pbt&&s.currentPrice<=s.cons.pbt&&!isTriggerMuted(s,"pbt")&&!done("pbt"))triggers.push(_t2);
+      if(s.cons.tenCap&&s.currentPrice<=s.cons.tenCap&&!isTriggerMuted(s,"tenCap")&&!done("tenCap"))triggers.push(_t3);
+      if(!buf&&s.cons.mos&&s.currentPrice<=s.cons.mos&&!done("mos"))triggers.push("MOS");
       const pending=[];
-      if(_pm&&!triggers.includes("P-MOS"))pending.push({name:"P-MOS",price:_pm,gap:((s.currentPrice-_pm)/s.currentPrice*100)});
-      if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
-      if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
-      if(!buf&&s.cons.mos&&!triggers.includes("MOS"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
+      if(_pm&&!triggers.includes("P-MOS")&&!done("pmos"))pending.push({name:"P-MOS",price:_pm,gap:((s.currentPrice-_pm)/s.currentPrice*100)});
+      if(s.cons.pbt&&!triggers.includes(_t2)&&!isTriggerMuted(s,"pbt")&&!done("pbt"))pending.push({name:_t2,price:s.cons.pbt,gap:((s.currentPrice-s.cons.pbt)/s.currentPrice*100)});
+      if(s.cons.tenCap&&!triggers.includes(_t3)&&!isTriggerMuted(s,"tenCap")&&!done("tenCap"))pending.push({name:_t3,price:s.cons.tenCap,gap:((s.currentPrice-s.cons.tenCap)/s.currentPrice*100)});
+      if(!buf&&s.cons.mos&&!triggers.includes("MOS")&&!done("mos"))pending.push({name:"MOS",price:s.cons.mos,gap:((s.currentPrice-s.cons.mos)/s.currentPrice*100)});
       if(!triggers.length&&!pending.length)return;
       const nearest=pending.length?Math.min(...pending.map(p=>p.gap)):0;
-      readyNL.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length});});
+      readyNL.push({ticker:t,firing:triggers,pending,nearest,firingCount:triggers.length,owned});});
     readyNL.sort((a,b)=>b.firingCount-a.firingCount||a.nearest-b.nearest);
 
     if(readyNL.length){
@@ -5346,19 +5369,19 @@ function renderAllocator(c){
           const fundCol=funded==="Funded"?"var(--green)":funded==="Recycle"?"var(--amber)":"var(--red)";
           h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span>${r.owned?`<span style="font-size:8px;font-family:var(--mono);color:#a78bfa;background:#2e1065;border-radius:3px;padding:1px 4px;margin-left:5px">ADD</span>`:""}<span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
               <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
             <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.firingCount} × €${targetTr.toLocaleString()} = €${Math.round(needEUR).toLocaleString()} · <span style="color:${fundCol}">${funded}</span></div></div>`;});
       }
       // Pending stocks
       const pendingNL=readyNL.filter(r=>r.firingCount===0);
       if(pendingNL.length){
-        h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">WATCHLIST — closest to trigger</div>`;
+        h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 4px">CLOSEST TO TRIGGER <span style="font-weight:400;opacity:.7">(watchlist + owned add-ons)</span></div>`;
         pendingNL.slice(0,8).forEach(r=>{const s=stocks[r.ticker];const nearestP=r.pending.reduce((a,b)=>a.gap<b.gap?a:b);
           const localDeploy=fromEUR(targetTr,s.currency);const sh=nearestP?Math.floor(localDeploy/nearestP.price):0;
           h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--amber);margin-left:6px">${Math.round(nearestP.gap)}% to ${nearestP.name}</span></div>
+              <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span>${r.owned?`<span style="font-size:8px;font-family:var(--mono);color:#a78bfa;background:#2e1065;border-radius:3px;padding:1px 4px;margin-left:5px">ADD</span>`:""}<span style="font-size:10px;color:var(--amber);margin-left:6px">${Math.round(nearestP.gap)}% to ${nearestP.name}</span></div>
               <div style="text-align:right"><span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
             <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.pending.map(p=>p.name+" "+fmt(p.price,s.currency)).join(" · ")}</div></div>`;});
       }
