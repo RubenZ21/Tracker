@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.96</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v3.98</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1372,6 +1372,34 @@ function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSn
 function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD);pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
 
+// DP reserved for armed limit orders (base ccy). Each armed limit order on a grid stock
+// reserves one tranche: P-MOS = 3% of Pool 1, every other trigger = 5%. Only counts limit
+// orders that apply to this portfolio (hasLimitOrder respects "personal"/"caca"/"both").
+// Capped at total dry powder so the reserve can never exceed available cash.
+function dpReservedForLimitOrders(pfKey){
+  const pf=portfolios[pfKey];if(!pf)return 0;
+  const base=pfBaseCcy(pfKey);
+  const sigKeys={mos:"MOS",tenCap:"10Cap",pbt:"PBT",pmos:"P-MOS"};
+  let reserved=0;
+  // Caca: every trigger reserves one 3% tranche (the closed-fund target tranche).
+  // Personal: P-MOS = 3% of Pool 1, all other triggers = 5%.
+  const cacaTranche=pfKey==="nl"?Math.round(pool1Value("nl")*((settings.nlTranchePct||3)/100)):0;
+  getGrid(pfKey).forEach(t=>{
+    const lo=stocks[t]?.limitOrders;if(!lo)return;
+    Object.keys(sigKeys).forEach(k=>{
+      if(lo[k]&&hasLimitOrder(t,k,pfKey)){
+        reserved+=pfKey==="nl"?cacaTranche:entrySizeForSignal(pfKey,sigKeys[k]);
+      }
+    });
+  });
+  return Math.min(reserved,pf.dryPowder||0);
+}
+// Count of armed limit orders applicable to a portfolio.
+function limitOrderCount(pfKey){
+  let n=0;const keys=["mos","tenCap","pbt","pmos"];
+  getGrid(pfKey).forEach(t=>{const lo=stocks[t]?.limitOrders;if(!lo)return;keys.forEach(k=>{if(lo[k]&&hasLimitOrder(t,k,pfKey))n++;});});
+  return n;
+}
 // DP Slider: split total DP into MOS Reserve (capped) and Expansion (remainder)
 function getDPSplit(pfKey){
   const pf=portfolios[pfKey];if(!pf)return{totalDP:0,mosReserveMax:0,expansionMin:0,sliderPct:40,overflowing:false};
@@ -4386,21 +4414,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       ${!hideValues?`<span style="font-size:9px;color:${pf.dpManual?"#f59e0b":"#22c55e"};cursor:pointer" onclick="editDP('${currentPf}')">${pf.dpManual?"✏":"✓"}</span>`:""}
     </div>
   </div>`;
-  // DP Slider: MOS Reserve / Expansion split
-  if(!hideValues&&pf.dryPowder>0&&currentPf!=='nl'){
-    const dps=getDPSplit(currentPf);
-    h+=`<div id="dp-slider-section" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span id="dp-mos-label" style="font-size:11px;color:#34d399;font-family:var(--mono);font-weight:600;cursor:pointer" onclick="dpManualEdit('mos','${currentPf}')">MOS ${dpCcy}${Math.round(dps.mosReserveMax).toLocaleString()}</span>
-        <span id="dp-pct-toggle" style="font-size:10px;font-family:var(--mono);color:var(--accent);cursor:pointer;padding:2px 6px;background:var(--bg);border-radius:4px" onclick="document.getElementById('dp-slider-ctrl').style.display=document.getElementById('dp-slider-ctrl').style.display==='none'?'block':'none'">${Math.round(dps.sliderPct)}%</span>
-        <span id="dp-exp-label" style="font-size:11px;color:#60a5fa;font-family:var(--mono);font-weight:600;cursor:pointer" onclick="dpManualEdit('exp','${currentPf}')">EXP ${dpCcy}${Math.round(dps.expansionMin).toLocaleString()}</span>
-      </div>
-      <div id="dp-slider-ctrl" style="display:none" class="dp-slider-wrap">
-        <input type="range" class="dp-slider" min="0" max="100" step="1" value="${Math.round(dps.sliderPct)}" style="--pct:${dps.sliderPct}%" oninput="dpSliderPreview(this,'${currentPf}')" onchange="dpSliderCommit('${currentPf}',+this.value)">
-        <div class="dp-slider-labels"><span id="dp-slider-pct-label" style="font-size:10px;color:var(--text);opacity:0.6">${(()=>{const pfc=pfCostExIndex(currentPf);if(pfc<=0)return'';const dpPct=(pf.dryPowder/pfc*100).toFixed(1);const mosPct=(dps.mosReserveMax/pfc*100).toFixed(1);return 'DP '+dpPct+'% · MOS reserve '+mosPct+'%'})()}</span></div>
-      </div>
-    </div>`;
-  }
+  // DP Slider (MOS Reserve / Expansion split) removed.
 
   // Caca-specific: total portfolio value and tranche size banner
   if(currentPf==="nl"&&!hideValues){
@@ -4473,13 +4487,11 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _wSegs.forEach(sg=>{const pct=sg.val/_wTotal*100;const _lab=(sg.risk?"\uD83C\uDFB2":"")+sg.t;
         h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=8?_lab+"\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;
       });
-      if(dpBase>0&&currentPf!=='nl'){const _dps=getDPSplit(currentPf);const dpMos=Math.round(dpBase*(_dps.sliderPct/100));const dpExp=dpBase-dpMos;
-        if(dpMos>0){const pct=dpMos/_wTotal*100;
-          h+=`<div style="width:${pct}%;background:#0d3b2e;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#34d399;white-space:nowrap;overflow:hidden">${pct>=8?"MOS\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
-        if(dpExp>0){const pct=dpExp/_wTotal*100;
-          h+=`<div style="width:${pct}%;background:#172554;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#60a5fa;white-space:nowrap;overflow:hidden">${pct>=8?"EXP\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
-      }else if(dpBase>0){const dpPct=dpBase/_wTotal*100;
-        h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=8?"DP\u2009"+Math.round(dpPct)+"%":dpPct>=5?Math.round(dpPct)+"%":""}</div>`;
+      if(dpBase>0){const dpLO=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree=Math.max(0,dpBase-dpLO);
+        if(dpFree>0){const pct=dpFree/_wTotal*100;
+          h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=8?"DP\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;}
+        if(dpLO>0){const pct=dpLO/_wTotal*100;
+          h+=`<div style="width:${pct}%;background:#0e7490;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#67e8f9;white-space:nowrap;overflow:hidden">${pct>=8?"LO\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
       }
       h+=`</div>`;
       // Cost basis bar (faded, below market value bar)
@@ -4497,24 +4509,20 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         _cbSegs.forEach(sg=>{const pct=sg.val/_cbTotal*100;
           h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
         });
-        if(dpBase>0&&currentPf!=='nl'){const _dps2=getDPSplit(currentPf);const dpMos2=Math.round(dpBase*(_dps2.sliderPct/100));const dpExp2=dpBase-dpMos2;
-          if(dpMos2>0){const pct=dpMos2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#0d3b2e;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#34d399;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
-          if(dpExp2>0){const pct=dpExp2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#172554;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#60a5fa;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
-        }else if(dpBase>0){const dpPct=dpBase/_cbTotal*100;
-          h+=`<div style="width:${dpPct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${dpPct>=10?Math.round(dpPct)+"%":""}</div>`;
+        if(dpBase>0){const dpLO2=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree2=Math.max(0,dpBase-dpLO2);
+          if(dpFree2>0){const pct=dpFree2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#0e7490;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#67e8f9;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
         }
         h+=`</div>`;
       }
       // Label row for tickers that didn't fit in bar
       const _labelTickers=new Set();
       _wSegs.forEach(sg=>{if(sg.val/_wTotal*100<8)_labelTickers.add(sg.t);});
-      const dpNeedLabel=dpBase>0&&currentPf==='nl'&&dpBase/_wTotal*100<8;
-      let _dpMosLabel=false,_dpExpLabel=false;
-      if(dpBase>0&&currentPf!=='nl'){const _dpsL=getDPSplit(currentPf);const _dpMosV=Math.round(dpBase*(_dpsL.sliderPct/100));const _dpExpV=dpBase-_dpMosV;
-        if(_dpMosV>0&&_dpMosV/_wTotal*100<8)_dpMosLabel=_dpMosV;
-        if(_dpExpV>0&&_dpExpV/_wTotal*100<8)_dpExpLabel=_dpExpV;
-      }
-      if(_labelTickers.size||dpNeedLabel||_dpMosLabel||_dpExpLabel){
+      const dpNeedLabel=dpBase>0&&dpBase/_wTotal*100<8;
+      const _dpLObase=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);
+      let _dpLOLabel=false;
+      if(_dpLObase>0&&_dpLObase/_wTotal*100<8)_dpLOLabel=_dpLObase;
+      if(_labelTickers.size||dpNeedLabel||_dpLOLabel){
         h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
         _labelTickers.forEach(t=>{
           const mSg=_wSegs.find(s=>s.t===t);
@@ -4523,14 +4531,11 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           const _lab=(mSg&&mSg.risk?"\uD83C\uDFB2":"")+t;
           h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${col};margin-right:2px;vertical-align:middle"></span>${_lab}\u2009${pct}%</span>`;
         });
-        if(_dpMosLabel){const pct=Math.round(_dpMosLabel/_wTotal*100);
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:#34d399"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#0d3b2e;margin-right:2px;vertical-align:middle"></span>MOS\u2009${pct}%</span>`;
-        }
-        if(_dpExpLabel){const pct=Math.round(_dpExpLabel/_wTotal*100);
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:#60a5fa"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#172554;margin-right:2px;vertical-align:middle"></span>EXP\u2009${pct}%</span>`;
-        }
-        if(dpNeedLabel){const pct=Math.round(dpBase/_wTotal*100);
+        if(dpNeedLabel){const dpFreeV=Math.max(0,dpBase-_dpLObase);const pct=Math.round(dpFreeV/_wTotal*100);
           h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${pct}%</span>`;
+        }
+        if(_dpLOLabel){const pct=Math.round(_dpLOLabel/_wTotal*100);
+          h+=`<span style="font-size:8px;font-family:var(--mono);color:#67e8f9"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#0e7490;margin-right:2px;vertical-align:middle"></span>LO\u2009${pct}%</span>`;
         }
         h+=`</div>`;
       }
@@ -4964,13 +4969,18 @@ function renderAllocator(c){
     });
     // Distribute deployable income across firing stocks by weighted-lit share, bounded by each
     // stock's room. Leftover (capped stocks + income no lit tranche has room for) flows to DP.
+    // v3.97: a per-stock deploy below ~$500 USD isn't worth the transaction cost — zero it and
+    // let the amount fall through to DP (captured by trancheCapOverflow below).
+    const MIN_DEPLOY_USD=500;
+    const _minDeployBase=fromEUR(toEUR(MIN_DEPLOY_USD,"USD"),_bc);
     const _stockDeployBase={};                              // ticker → $ to deploy (base ccy)
     let _deployedSum=0;
     firingStocks.forEach(t=>{
       if(atPositionCap(t,'personal')){_stockDeployBase[t]=0;return;}
       const wl=weightedLit(t,'personal');
       const want=litDeployingWeighted>0?incomeDeployable*wl/litDeployingWeighted:0;
-      const give=Math.min(want,stockRoom[t]||0);
+      let give=Math.min(want,stockRoom[t]||0);
+      if(give>0&&give<_minDeployBase)give=0;            // below transaction-cost floor → route to DP
       _stockDeployBase[t]=give;_deployedSum+=give;
     });
     const deployTotal=Math.round(_deployedSum);
@@ -4983,28 +4993,7 @@ function renderAllocator(c){
     const expansionTotal=0;
     // Per lit-deploying weighted slot share of the deployable income (drives per-stock $ + share math).
     h+=`<div class="${salaryLanded?"":"alloc-waiting"}">`;
-    // Calculate MOS reserves: ideal (cost-matched) vs actual (override or ideal).
-    // Uses WEIGHTED unlit so a suppressed P-MOS slot reserves 0.6×tranche-cost, not 1.0× — matches its eventual deploy size.
-    const mosInfo={}; // per-stock: {ideal, actual, unlit}
-    let dpMosReserved=0;
-    firingStocks.forEach(t=>{const s=stocks[t];const slots=validTriggerSlots(t,'personal');const dc=deployCount(t,'personal');const unlit=slots-dc;
-      const wSlotsStock=weightedSlots(t,'personal');const wLitStock=weightedLit(t,'personal');const wUnlit=wSlotsStock-wLitStock;
-      if(unlit<=0){mosInfo[t]={ideal:0,actual:0,unlit:0};return;}
-      const pos=pf.positions?.[t];if(!pos){mosInfo[t]={ideal:0,actual:0,unlit};return;}
-      const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
-      let ideal=0;
-      const resMult=s.currency==="GBp"?100:1;
-      if(nTr>0&&avg>0&&sh>0){ideal=Math.round(avg*sh/nTr/resMult*wUnlit);}
-      const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
-      const resCcy=s.currency==="GBp"?"GBP":s.currency;
-      mosInfo[t]={ideal,actual,unlit,resCcy};
-      dpMosReserved+=Math.round(fromEUR(toEUR(actual,resCcy),_bc));
-    });
-    const dpExpansion=Math.max(0,pf.dryPowder-dpMosReserved);
-    // Cap MOS reserves at slider percentage — overflow goes to expansion
-    const _sliderCap=Math.round(pf.dryPowder*((settings.dpSlider??40)/100));
-    const dpMosCapped=Math.min(dpMosReserved,_sliderCap);
-    const dpExpansionWithOverflow=pf.dryPowder-dpMosCapped;
+    // MOS reserve / Expansion split removed. All dry powder is available for deployment.
     const _incKey=_bc==="USD"?"monthlyIncomeUSD":"monthlyIncome";
     const _altSym=_bc==="USD"?"€":"$";const _altIncome=_bc==="USD"?Math.round(totalIncome/settings.fxRate):Math.round(totalIncome*settings.fxRate);
     const idxPct=totalIncome>0?Math.round(idxAlloc/totalIncome*100):0;
@@ -5015,8 +5004,7 @@ function renderAllocator(c){
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">floor</div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div>
         <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="editDP('personal')">${_bs}${Math.round(pf.dryPowder).toLocaleString()} <span style="font-size:10px;opacity:.5">✏</span></div>
-        <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"$0"})()}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${dpMosReserved>0?`<span style="color:#34d399">${_bs}${Math.round(dpMosCapped).toLocaleString()} MOS</span> · <span style="color:#60a5fa">${_bs}${Math.round(dpExpansionWithOverflow).toLocaleString()} EXP</span> <span style="opacity:.5">(${settings.dpSlider??40}%)</span>`:"not re-divided"}</div></div></div>`;
+        <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"$0"})()}</div></div></div>`;
 
     // === INDEX / STOCK-PICKING SPLIT ===
     if(idxAlloc>0){
@@ -5037,8 +5025,7 @@ function renderAllocator(c){
       </div>`;
     }
 
-    const dps=getDPSplit(currentPf);
-    const mosOverflowing=dps.overflowing;
+    const _dpLOreserve=dpReservedForLimitOrders(currentPf);const _loN=limitOrderCount(currentPf);
     h+=`<div class="alloc-card">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">${idxAlloc>0?"Stock-Picking Allocation":"Monthly Allocation"}</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${litDeploying} lit · ${unlitTotal} unlit</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (5% / P-MOS 3% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*0.05).toLocaleString()}</span></div>
@@ -5046,7 +5033,8 @@ function renderAllocator(c){
       ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Overflow → DP${cappedLit>0?` (incl. ${cappedLit} at cap)`:""}</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${Math.round(_dpFloorPct*100)}% of P1+P3+DP)</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${dpTopUp>0?'#34d399':'var(--muted)'}">${dpAfterIncome>=dpFloorThreshold?'Floor met — full deploy':'Below floor — DP top-up'}</span><span style="font-size:13px;font-family:var(--mono);color:${dpTopUp>0?'#34d399':'var(--muted)'}">${_bs}${Math.round(dpTopUp).toLocaleString()}</span></div>
-      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP <span style="font-size:9px;opacity:.6">(${Math.round(dps.sliderPct)}% MOS)</span></span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
+      ${_dpLOreserve>0?`<div style="display:flex;justify-content:space-between;margin-top:4px"><span style="font-size:11px;color:#67e8f9">📋 Limit orders reserved (${_loN})</span><span style="font-size:13px;font-family:var(--mono);color:#67e8f9">${_bs}${Math.round(_dpLOreserve).toLocaleString()}</span></div>`:""}
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + per-lit-tranche top-ups
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
@@ -5110,11 +5098,19 @@ function renderAllocator(c){
     }
 
     // === NEW ENTRY DEPLOYMENT (5% of Pool 1) ===
-    // dpMosReserved and dpExpansion already calculated above
-    const dpAvailable=dpExpansionWithOverflow;
+    const dpAvailable=pf.dryPowder;
     if(pf.dryPowder>0){
       const _p1val=pool1Value("personal");const entrySize=initialEntrySize("personal");
       const canAfford=entrySize>0&&dpAvailable>=entrySize;
+      // entrySize is 5% of Pool 1 in base ccy. Compute the 5% and 3% amounts in USD/EUR/GBP.
+      const _p1eur=toEUR(_p1val,_bc);
+      const _five=_p1eur*0.05;const _three=_p1eur*0.03;
+      const _fmtTri=(eur)=>{
+        const usd=Math.round(fromEUR(eur,"USD"));
+        const eu=Math.round(eur);
+        const gbp=Math.round(fromEUR(eur,"GBP"));
+        return `$${usd.toLocaleString()} · €${eu.toLocaleString()} · £${gbp.toLocaleString()}`;
+      };
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
       const wl=Object.keys(stocks).filter(t=>!isOnGrid(t,"personal")&&!isRisk(t,"personal"));
@@ -5146,12 +5142,15 @@ function renderAllocator(c){
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">5% of Pool 1</span></div>
+        <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span style="font-size:10px;color:var(--muted)">5% tranche</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${_fmtTri(_five)}</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:var(--muted)">3% tranche</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${_fmtTri(_three)}</span></div></div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Pool 1</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_p1val).toLocaleString()}</div>
             <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">DP ${Math.round(dpPctOfPool1("personal"))}%</div></div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">5% Entry</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${canAfford?"var(--accent)":"var(--red)"}">${_bs}${entrySize.toLocaleString()}</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px">${canAfford?"from EXP DP":"insufficient EXP DP"}</div></div>
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">EXP Avail</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(dpAvailable).toLocaleString()}</div></div></div>`;
+            <div style="font-size:9px;color:var(--muted);margin-top:2px">${canAfford?"from DP":"insufficient DP"}</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Avail</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(dpAvailable).toLocaleString()}</div></div></div>`;
 
       if(!ready.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No watchlist stocks with triggers populated.</div>`;}
       else{
@@ -5164,11 +5163,12 @@ function renderAllocator(c){
             const entryEUR=r.firing.reduce((sum,sig)=>sum+entrySizeForSignal("personal",sig),0);
             const localDeploy=fromEUR(toEUR(entryEUR,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
             const sizeLbl=r.firing.map(sig=>(sig==="P-MOS"?"3%":"5%")).join(" + ");
-            h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green)">
+            const _belowFloor=toEUR(entryEUR,_bc)<toEUR(500,"USD");
+            h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid ${_belowFloor?"var(--amber)":"var(--green)"}">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span><span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
-                <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
-              <div style="font-size:10px;color:var(--muted);margin-top:2px">${sizeLbl} of Pool 1 = ${_bs}${entryEUR.toLocaleString()}</div></div>`;});
+                <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:${_belowFloor?"var(--amber)":"var(--green)"}">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">${sizeLbl} of Pool 1 = ${_bs}${entryEUR.toLocaleString()}${_belowFloor?` <span style="color:var(--amber)">· &lt;$500 — skip</span>`:""}</div></div>`;});
         }
 
         // Show pending stocks (not firing yet) — deploy 1 tranche at nearest trigger
@@ -5216,23 +5216,8 @@ function renderAllocator(c){
     const MIN_FLOOR=Math.round(toEUR(MIN_FLOOR_USD,"USD"));
     const dpOk=pf.dryPowder>=MIN_FLOOR;
 
-    // MOS reserves for NL: firing stocks with unlit valid triggers
-    let nlMosReserved=0;
-    nlTickers.forEach(t=>{const s=stocks[t];if(!s||isRisk(t,'nl'))return;const dc=deployCount(t,'nl');if(dc<=0)return;
-      const slots=validTriggerSlots(t,'nl');const unlit=slots-dc;if(unlit<=0)return;
-      const pos=nlPos[t];if(!pos)return;
-      const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
-      if(nTr>0&&avg>0&&sh>0){
-        const resMult=s.currency==="GBp"?100:1;
-        const ideal=Math.round(avg*sh/nTr/resMult*unlit);
-        const actual=(pos.mosReserve!=null)?pos.mosReserve:ideal;
-        const resCcy=s.currency==="GBp"?"GBP":s.currency;
-        nlMosReserved+=Math.round(toEUR(actual,resCcy));
-      }
-    });
-    const nlSliderCap=Math.round(pf.dryPowder*((settings.dpSliderCaca??50)/100));
-    const nlMosCapped=Math.min(nlMosReserved,nlSliderCap);
-    const nlDpAvail=Math.max(0,pf.dryPowder-nlMosCapped);
+    // MOS reserve / Expansion split removed. All dry powder is available.
+    const nlDpAvail=pf.dryPowder;
     const dpCovers=targetTr>0?Math.floor(nlDpAvail/targetTr):0;
 
     // Tier 2 candidates: 0/N signals AND price > sell reference (sticker for PT, activation for Buffett)
@@ -5264,7 +5249,7 @@ function renderAllocator(c){
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"€0"})()}</div>
-          ${nlMosCapped>0?`<div style="font-size:9px;color:#34d399;margin-top:2px">−€${Math.round(nlMosCapped).toLocaleString()} MOS <span style="opacity:.5">(${settings.dpSliderCaca??50}%)</span></div><div style="font-size:9px;color:#60a5fa">€${Math.round(nlDpAvail).toLocaleString()} EXP</div>`:`<div style="font-size:9px;color:var(--muted);margin-top:2px">via IBKR sync or <span style="cursor:pointer;color:var(--accent)" onclick="editDP('nl')">✏ edit</span></div>`}</div>
+          ${pf.dryPowder<=0?`<div style="font-size:9px;color:var(--muted);margin-top:2px">via IBKR sync or <span style="cursor:pointer;color:var(--accent)" onclick="editDP('nl')">✏ edit</span></div>`:""}</div>
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Covers</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${dpCovers>=3?"var(--green)":dpCovers>=1?"var(--amber)":"var(--red)"}">${dpCovers} tranche${dpCovers!==1?"s":""}</div></div></div></div>`;
 
     // Scenario: what if N triggers fire?
