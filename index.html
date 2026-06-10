@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.03</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.04</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4999,13 +4999,14 @@ function renderAllocator(c){
     const MIN_DEPLOY_USD=500;
     const _minDeployBase=fromEUR(toEUR(MIN_DEPLOY_USD,"USD"),_bc);
     const _stockDeployBase={};                              // ticker → $ to deploy (base ccy)
+    const _flooredStocks={};                                // ticker → amount zeroed by $500 floor
     let _deployedSum=0;
     firingStocks.forEach(t=>{
       if(atPositionCap(t,'personal')){_stockDeployBase[t]=0;return;}
       const wl=weightedLit(t,'personal');
       const want=litDeployingWeighted>0?incomeDeployable*wl/litDeployingWeighted:0;
       let give=Math.min(want,stockRoom[t]||0);
-      if(give>0&&give<_minDeployBase)give=0;            // below transaction-cost floor → route to DP
+      if(give>0&&give<_minDeployBase){_flooredStocks[t]=give;give=0;}  // below transaction-cost floor → route to DP
       _stockDeployBase[t]=give;_deployedSum+=give;
     });
     const deployTotal=Math.round(_deployedSum);
@@ -5064,12 +5065,16 @@ function renderAllocator(c){
       const capped=atPositionCap(t,'personal');const capPct=positionCapPct(t,'personal');const mvPct=positionMVPct(t,'personal');
       // v3.96: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
       const deployBase=_stockDeployBase[t]||0;
+      // v4.04: surface the $500 transaction-cost floor — when a stock's share was zeroed for
+      // being too small, say so instead of showing an unexplained 0.
+      const flooredAmt=_flooredStocks[t]||0;
+      const floored=!capped&&deployBase===0&&flooredAmt>0;
       const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
       const isSpec=isRisk(t,currentPf);const isBuf=isBuffett(t);
-      const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:`deploy`;
-      const amtCol=capped?"#d97706":"var(--green)";
-      const amtVal=capped?fmt(0,s.currency):fmt(Math.round(localDeploy),s.currency);
+      const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:floored?`<span style="color:var(--amber)">DP (&lt;$500 floor)</span>`:`deploy`;
+      const amtCol=capped?"#d97706":floored?"var(--amber)":"var(--green)";
+      const amtVal=(capped||floored)?fmt(0,s.currency):fmt(Math.round(localDeploy),s.currency);
       // Per-lit-tranche top-up lines (stock ccy). Distribute the room-bounded deploy across this
       // stock's lit tranches proportional to each tranche's room (so display sums to localDeploy).
       const tops=capped?[]:litTrancheTopups(t,'personal',_capBase);
@@ -5080,7 +5085,7 @@ function renderAllocator(c){
         const full=x.roomBase<=shareBase+0.5;
         return `${x.label} ${fmt(Math.round(shareLocal),s.currency)}${full?"":" ▸"}`;
       });
-      const subline=capped?`${(capPct*100).toFixed(0)}% of Pool 1 reached — routed to DP`:`~${sh} sh`;
+      const subline=capped?`${(capPct*100).toFixed(0)}% of P1+P3+DP reached — routed to DP`:floored?`${fmt(Math.round(fromEUR(toEUR(flooredAmt,_bc),s.currency)),s.currency)} share &lt; $500 min — fees too high, routed to DP`:`~${sh} sh`;
       const trancheNote=trancheLines.length?`<div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:2px">${trancheLines.join(" · ")}</div>`:"";
       h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}${capped?' <span style="font-size:10px;color:#d97706">🔒</span>':""}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → ${litDest} · ${unlit} unlit${pbNote}</div>${trancheNote}</div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${amtCol}">${amtVal}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">${subline}</div></div></div>`;
