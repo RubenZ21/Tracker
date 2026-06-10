@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.00</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.01</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1345,14 +1345,18 @@ function syncRisklistStockStubs(){
     }
   });
 }
-// 5% initial entry size from Pool 1 market value
-function initialEntrySize(pfKey){return Math.round(pool1Value(pfKey)*0.05);}
-// Per-trigger entry size (base currency). Personal: P-MOS deploys 3% of Pool 1, all other
-// triggers deploy 5%. Caca: every trigger (incl. P-MOS) deploys 3% — handled by targetTr in
-// the Caca branch, so this helper is only used by the Personal allocator.
+// v4.01: Tranche base = TOTAL COST BASIS of Pool 1 + Pool 3 + DP (one linked portfolio).
+// pool1CostBasis already includes DP; pool3CostBasis adds risk-bucket cost. Cost basis (not
+// market value) so tranche size doesn't inflate/deflate with mark-to-market swings.
+function trancheBase(pfKey){return pool1CostBasis(pfKey)+pool3CostBasis(pfKey);}
+// 5% initial entry size from combined P1+P3+DP cost basis
+function initialEntrySize(pfKey){return Math.round(trancheBase(pfKey)*0.05);}
+// Per-trigger entry size (base currency). Personal: P-MOS deploys 3% of the tranche base,
+// all other triggers deploy 5%. Caca: every trigger (incl. P-MOS) deploys 3% — handled by
+// targetTr in the Caca branch, so this helper is only used by the Personal allocator.
 function entrySizeForSignal(pfKey,sigKey){
   const pct=(pfKey==='personal'&&sigKey==='P-MOS')?0.03:0.05;
-  return Math.round(pool1Value(pfKey)*pct);
+  return Math.round(trancheBase(pfKey)*pct);
 }
 // Per-stock position cap (% of Pool 1 MV). v3.67 Stage D: Tier- and portfolio-aware.
 //   Personal: Tier 1 = 18%, non-Tier-1 PT/HIGHGR = 15%, Buffett = 10%
@@ -1373,7 +1377,8 @@ function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD);pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
 
 // DP reserved for armed limit orders (base ccy). Each armed limit order reserves one tranche:
-// P-MOS = 3% of Pool 1, every other trigger = 5% (Personal); Caca = one 3% target tranche.
+// P-MOS = 3%, every other trigger = 5% of the P1+P3+DP cost-basis tranche base (Personal);
+// Caca = one 3% target tranche.
 // Counts limit orders on ALL stocks — grid AND watchlist — that apply to this portfolio
 // (hasLimitOrder respects "personal"/"caca"/"both"). Capped at total dry powder.
 function dpReservedForLimitOrders(pfKey){
@@ -5112,13 +5117,13 @@ function renderAllocator(c){
       }
     }
 
-    // === NEW ENTRY DEPLOYMENT (5% of Pool 1) ===
+    // === NEW ENTRY DEPLOYMENT (5% of P1+P3+DP cost basis) ===
     const dpAvailable=pf.dryPowder;
     if(pf.dryPowder>0){
-      const _p1val=pool1Value("personal");const entrySize=initialEntrySize("personal");
+      const _tb=trancheBase("personal");const entrySize=initialEntrySize("personal");
       const canAfford=entrySize>0&&dpAvailable>=entrySize;
-      // entrySize is 5% of Pool 1 in base ccy. Compute the 5% and 3% amounts in USD/EUR/GBP.
-      const _p1eur=toEUR(_p1val,_bc);
+      // entrySize is 5% of the P1+P3+DP cost-basis tranche base. Compute 5% and 3% in USD/EUR/GBP.
+      const _p1eur=toEUR(_tb,_bc);
       const _five=_p1eur*0.05;const _three=_p1eur*0.03;
       const _fmtTri=(eur)=>{
         const usd=Math.round(fromEUR(eur,"USD"));
@@ -5162,13 +5167,13 @@ function renderAllocator(c){
       h+=`<div class="alloc-card" style="margin-top:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">5% of Pool 1</span></div>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">5% of P1+P3+DP cost</span></div>
         <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span style="font-size:10px;color:var(--muted)">5% tranche</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${_fmtTri(_five)}</span></div>
           <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:var(--muted)">3% tranche</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${_fmtTri(_three)}</span></div></div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Pool 1</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_p1val).toLocaleString()}</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">DP ${Math.round(dpPctOfPool1("personal"))}%</div></div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Tranche base</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_tb).toLocaleString()}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">DP ${_tb>0?Math.round((pf.dryPowder||0)/_tb*100):0}%</div></div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">5% Entry</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${canAfford?"var(--accent)":"var(--red)"}">${_bs}${entrySize.toLocaleString()}</div>
             <div style="font-size:9px;color:var(--muted);margin-top:2px">${canAfford?"from DP":"insufficient DP"}</div></div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Avail</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(dpAvailable).toLocaleString()}</div></div></div>`;
@@ -5189,7 +5194,7 @@ function renderAllocator(c){
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div><span style="font-size:13px;font-weight:600">${s.flag} ${r.ticker}</span>${r.owned?`<span style="font-size:8px;font-family:var(--mono);color:#a78bfa;background:#2e1065;border-radius:3px;padding:1px 4px;margin-left:5px">ADD</span>`:""}<span style="font-size:10px;color:var(--green);margin-left:6px">${r.firing.join(" · ")}</span></div>
                 <div style="text-align:right"><span style="font-size:13px;font-weight:700;font-family:var(--mono);color:${_belowFloor?"var(--amber)":"var(--green)"}">${fmtAlloc(localDeploy,s.currency)}</span><span style="font-size:10px;color:var(--muted);margin-left:4px">~${sh} sh</span></div></div>
-              <div style="font-size:10px;color:var(--muted);margin-top:2px">${sizeLbl} of Pool 1 = ${_bs}${entryEUR.toLocaleString()}${_belowFloor?` <span style="color:var(--amber)">· &lt;$500 — skip</span>`:""}</div></div>`;});
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">${sizeLbl} of P1+P3+DP = ${_bs}${entryEUR.toLocaleString()}${_belowFloor?` <span style="color:var(--amber)">· &lt;$500 — skip</span>`:""}</div></div>`;});
         }
 
         // Show pending stocks (not firing yet) — deploy 1 tranche at nearest trigger
