@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.05</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.06</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3869,6 +3869,22 @@ function checkAlerts(){
    }
   }
 
+
+  // ETF 12M-HIGH DRAWDOWN BANDS (v4.06) — same data as the push notification, surfaced
+  // in the banner. Dismissal key includes the band, so a deeper band creates a fresh
+  // alert; cleanDismissed() resurfaces a persistent drawdown weekly after dismissal.
+  {const seenEtf={};
+   ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+     const ticker=indexTickerForPf(pk,rg);if(seenEtf[ticker])return;seenEtf[ticker]=true;
+     const ip=getIndexPos(pk,rg);const px=ip.currentPrice||0;if(!(px>0))return;
+     const ddp=etfDrawdownPct(ticker,px);const band=Math.floor(ddp/10)*10;
+     if(band<10)return;
+     const ccy=ip.currency||"USD";const hi=etfTrailingHigh(ticker);
+     const k=`etf-dd-${ticker}-${band}`;
+     if(!dismissedAlerts[k])alerts.push({key:k,type:"buy",icon:"📉",
+       html:`<strong>ETF dip: ${ticker} −${band}% band</strong> · ${fmt(px,ccy)} is ${ddp.toFixed(1)}% below 12m high ${fmt(hi,ccy)}. Consider an extra DCA tranche.`});
+   });});
+  }
 
   // Render
   const el=document.getElementById("alert-banner");
