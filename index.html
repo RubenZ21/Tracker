@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.04</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.05</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1202,6 +1202,83 @@ function indexReturn(pfKey){const v=indexValue(pfKey),c=indexCostBasis(pfKey);if
 function cacaIndexInfo(){const ips=getIndexPositions("nl");const deployed=(ips.us.deployLog||[]).length+(ips.eu.deployLog||[]).length;const cap=settings.nlIndexCap||10;const maxT=(settings.nlIndexMaxTranches||4)*2;const ci=cacaInfo();const ixVal=indexValue("nl");const totalWithIndex=ci.total+ixVal;const pctOfPortfolio=totalWithIndex>0?(ixVal/totalWithIndex*100):0;const capRoom=totalWithIndex>0?Math.max(0,(cap/100)*totalWithIndex-ixVal):0;const atCap=deployed>=maxT||pctOfPortfolio>=cap;return{deployed,maxT,cap,pctOfPortfolio,capRoom,atCap,ixVal};}
 function indexTickerForPf(pfKey,region){const r=region||"us";if(pfKey==="nl")return r==="us"?(settings.nlIndexTickerUS||"XZMU.L"):(settings.nlIndexTickerEU||"XZEU.DE");return r==="us"?(settings.indexTickerUS||"XZMU.L"):(settings.indexTickerEU||"XZEU.L");}
 function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).replace(/\.(L|DE|AS)$/,"");}
+// ============ v4.05: ETF 12-month trailing-high drawdown tracker ============
+// Tracks a rolling 365-day high per ETF ticker and notifies each time drawdown from that
+// high crosses a deeper 10% band (-10%, -20%, -30%...) — a prompt to consider an extra
+// DCA tranche. High = max of (a) observed daily prices (recorded on every fetch, pruned
+// at 365d), (b) Yahoo fiftyTwoWeekHigh when the worker passes it through, (c) manual seed.
+// Manual seed matters on day one: auto-tracking only knows prices seen since this shipped.
+// Bands re-arm with 2% hysteresis (must recover 2% past a boundary before that band can
+// fire again) so chop right at a boundary doesn't spam notifications.
+let etfHighs={};
+try{etfHighs=JSON.parse(localStorage.getItem("r1-etfHighs")||"{}")||{};}catch(e){etfHighs={};}
+function saveEtfHighs(){localStorage.setItem("r1-etfHighs",JSON.stringify(etfHighs));}
+function _etfRec(ticker){if(!etfHighs[ticker])etfHighs[ticker]={recs:{},q52:0,manualHigh:0,lastBand:0};const r=etfHighs[ticker];if(!r.recs)r.recs={};return r;}
+function recordEtfPrice(ticker,price,quote){
+  if(!(price>0))return;
+  const r=_etfRec(ticker);
+  const today=new Date().toISOString().slice(0,10);
+  r.recs[today]=price; // one record per day; later fetches same day overwrite
+  const cutoff=new Date(Date.now()-365*86400000).toISOString().slice(0,10);
+  Object.keys(r.recs).forEach(d=>{if(d<cutoff)delete r.recs[d];});
+  const q52=quote&&Number(quote.fiftyTwoWeekHigh||0);
+  if(q52>0)r.q52=q52;
+  saveEtfHighs();
+}
+function etfTrailingHigh(ticker){
+  const r=_etfRec(ticker);
+  let h=Math.max(r.q52||0,r.manualHigh||0);
+  Object.values(r.recs).forEach(p=>{if(p>h)h=p;});
+  return h;
+}
+function etfDrawdownPct(ticker,price){ // positive % below trailing high (0 if at/above high)
+  const hi=etfTrailingHigh(ticker);if(!(hi>0)||!(price>0))return 0;
+  return Math.max(0,(hi-price)/hi*100);
+}
+function editEtfHigh(ticker){
+  const r=_etfRec(ticker);
+  const cur=etfTrailingHigh(ticker);
+  const v=prompt(`12-month trailing high for ${ticker} (in listing currency).\nAuto-tracked from daily price fetches; set manually to seed or correct.\nEmpty = clear manual override (auto only).`,r.manualHigh||cur||"");
+  if(v===null)return;
+  r.manualHigh=v===""?0:(Number(v)||0);
+  saveEtfHighs();render();
+}
+function checkEtfDrawdowns(){
+  const seen={};const fires=[];
+  ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+    const ticker=indexTickerForPf(pk,rg);if(seen[ticker])return;seen[ticker]=true;
+    const ip=getIndexPos(pk,rg);const px=ip.currentPrice||0;if(!(px>0))return;
+    recordEtfPrice(ticker,px,null); // record regardless of price source (yahoo or ibkr)
+    const r=_etfRec(ticker);
+    const dd=etfDrawdownPct(ticker,px);
+    const band=Math.floor(dd/10)*10; // 0,10,20,30...
+    if(band>(r.lastBand||0)){
+      r.lastBand=band;saveEtfHighs();
+      if(band>=10)fires.push({ticker,dd,band,price:px,high:etfTrailingHigh(ticker),ccy:ip.currency||"USD"});
+    }else if(dd<(r.lastBand||0)-2){ // 2% hysteresis before re-arming
+      r.lastBand=band;saveEtfHighs();
+    }
+  });});
+  if(fires.length)sendEtfDrawdownNotification(fires);
+}
+function sendEtfDrawdownNotification(fires){
+  if(!fires.length)return;
+  if(typeof Notification==="undefined"||Notification.permission!=="granted")return;
+  const today=new Date().toISOString().slice(0,10);
+  const shown=JSON.parse(localStorage.getItem("r1-etfDDNotifShown")||"{}");
+  navigator.serviceWorker.ready.then(reg=>{
+    fires.forEach(f=>{
+      const key=`${f.ticker}-${f.band}`;
+      if(shown[key]===today)return; // same-day dedup per ticker+band
+      reg.showNotification(`📉 ETF dip: ${f.ticker} −${f.band}%`,{
+        body:`${f.ticker} at ${fmt(f.price,f.ccy)} — ${f.dd.toFixed(1)}% below 12m high ${fmt(f.high,f.ccy)}. Worth considering an extra DCA tranche.`,
+        tag:`ttt-etfdd-${f.ticker}-${f.band}`,renotify:true,requireInteraction:true
+      }).catch(()=>{});
+      shown[key]=today;
+    });
+    localStorage.setItem("r1-etfDDNotifShown",JSON.stringify(shown));
+  });
+}
 // Stock-picking half: total value of all PT positions + DP (excl index)
 function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
 function stockPickingCostBasis(){const pf=portfolios.personal;if(!pf)return 0;let c=0;Object.entries(pf.positions).forEach(([t,pos])=>{pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)c+=sh*tr.buyPrice;});});return c+(pf.dryPowder||0);}
@@ -1897,9 +1974,10 @@ async function fetchPrices(){
       try{
         const ir=await fetch(`${settings.ibkrWorker}/?action=quote&symbols=${encodeURIComponent(ticker)}`);
         const id=await ir.json();const iq=id[ticker];
-        if(iq&&iq.price>0){targets.forEach(t=>{const ip=getIndexPos(t.pf,t.region);ip.currentPrice=iq.price;ip.lastUpdate=Date.now();ip.priceSource="yahoo";});}
+        if(iq&&iq.price>0){targets.forEach(t=>{const ip=getIndexPos(t.pf,t.region);ip.currentPrice=iq.price;ip.lastUpdate=Date.now();ip.priceSource="yahoo";});recordEtfPrice(ticker,iq.price,iq);}
       }catch(e){}
     }
+    checkEtfDrawdowns(); // v4.05: fire -10/-20/-30% band notifications vs 12m trailing high
   }
 
   // Re-enable buy modals, then queue for signals that genuinely changed (off before refresh → on after)
@@ -4885,6 +4963,12 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const val=sh*px;const pnl=avg&&px?((px-avg)/avg*100):0;
       const label=region==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";
       const exch=region==="us"?(currentPf==="nl"?"Xetra EUR":"LSE USD"):"Xetra EUR";
+      // v4.05: 12m trailing-high drawdown line (tap to seed/correct the high)
+      const ddTicker=indexTickerForPf(currentPf,region);
+      const ddHigh=etfTrailingHigh(ddTicker);
+      const ddPct=etfDrawdownPct(ddTicker,px);
+      const ddColor=ddPct>=30?"#f87171":ddPct>=20?"#fb923c":ddPct>=10?"#facc15":"var(--muted)";
+      const ddLine=px>0?`<div onclick="editEtfHigh('${ddTicker}')" style="font-size:9px;font-family:var(--mono);color:${ddColor};margin:0 0 4px;cursor:pointer">${ddHigh>0?`12m high ${fmt(ddHigh,ccy)} · ${ddPct>=0.05?`−${ddPct.toFixed(1)}% off high`:"at high"}${ddPct>=10?` · 🔔 −${Math.floor(ddPct/10)*10}% band`:""}`:"12m high: tap to seed ✏"}</div>`:"";
       h+=`<div style="border-top:1px solid var(--border);padding:8px 0 4px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div><span style="font-size:12px;font-weight:600">${label}</span><span style="font-size:9px;color:var(--muted);margin-left:6px">${exch}</span></div>
@@ -4895,6 +4979,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${sh>0?sh.toFixed(2):"0"}</div></div>
           <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${avg>0?fmt(avg,ccy):"—"}</div></div>
           <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(val,ccy)}</div></div></div>
+        ${ddLine}
         <div class="btn-row" style="gap:4px">
           <button class="btn-sm btn-accent" style="flex:1;font-size:10px;padding:4px 8px" onclick="logIndexBuy('${currentPf}','${region}')">+ Buy</button>
           <button class="btn-sm" style="flex:0 0 auto;font-size:10px;padding:4px 8px" onclick="editIndexPosition('${currentPf}','${region}')">✏</button></div></div>`;
