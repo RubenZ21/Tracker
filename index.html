@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.06</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.07</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -887,6 +887,7 @@ function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;const buf=s.cat
 // Tier 1: P-MOS firing (when not suppressed) is included via sigCount.
 function deployCount(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
+  if(s.block)return 0; // 4M block (v4.07): firing state stays visible but deploys nothing
   const valid=sigCount(t);if(valid===0)return 0;
   let n=valid;
   ["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k,t))n++;});
@@ -922,6 +923,7 @@ function weightedSlots(t,pfKey){
 // (because MOS/PBT/TenCap firing deeper): equals the three lit weights, P-MOS unlit goes to reserve.
 function weightedLit(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
+  if(s.block)return 0; // 4M block (v4.07): no lit weight — capital never flows to a blocked stock
   let n=0;
   if(!isBuffett(t)&&s.signals?.mos)n+=slotWeight(t,'mos',pfKey);
   if(s.signals?.tenCap)n+=slotWeight(t,'tenCap',pfKey);
@@ -940,7 +942,7 @@ function weightedLit(t,pfKey){
 // stock ccy → base ccy. Room to deploy = max(0, target − current). A signal with no existing tranche
 // row is a fresh 0%-filled tranche with full room. Returns one entry per *lit* (firing/piggyback) slot.
 function litTrancheTopups(ticker,pfKey,base){
-  const s=stocks[ticker];if(!s?.cons||s.gate===false||base<=0)return [];
+  const s=stocks[ticker];if(!s?.cons||s.gate===false||s.block||base<=0)return [];
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
   const bc=pfBaseCcy(pfKey);
   // Which signals are lit (firing or piggybacking)?
@@ -995,6 +997,49 @@ function loLabel(t,sig){const v=stocks[t]?.limitOrders?.[sig];if(!v)return"";if(
 function stockLimitOrderCount(t){const lo=stocks[t]?.limitOrders;if(!lo)return 0;return["mos","tenCap","pbt","pmos"].filter(k=>lo[k]).length;}
 function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
 function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?trigT3Label(t):trigT2Label(t));return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
+
+// ============ 4M BLOCK (v4.07) — qualitative hold on buy deployment ============
+// A documented 4M failure (Meaning/Moat/Management/MOS-inputs) blocks ALL buy deployment for a
+// stock while leaving mechanical truth fully visible: triggers still calculate, signals still
+// fire, sell-side logic is COMPLETELY unaffected. The block lives in the triggers CSV (columns
+// block/blockReason/blockDate/reviewDate) so it is part of the audit trail and survives
+// CSV-driven recalcs. Sticky semantics: only an explicit "N" in the CSV or the Remove button
+// here clears it — a recalc can never silently clear an active block.
+function isBlocked(t){return !!stocks[t]?.block;}
+function blockReviewDue(t){const s=stocks[t];return !!(s?.block&&s.blockReviewDate&&Date.now()>s.blockReviewDate);}
+function blockBadge(t){
+  if(!isBlocked(t))return"";
+  const due=blockReviewDue(t);
+  return`<span style="font-size:9px;font-weight:700;color:#fbbf24;cursor:pointer;padding:1px 6px;background:#78350f33;border:1px solid #fbbf2455;border-radius:4px;font-family:var(--mono);margin-left:4px${due?";animation:twShieldPulse 1.6s ease-in-out infinite":""}" onclick="event.stopPropagation();openBlockPanel('${t}')">⛔ 4M${due?" · REVIEW DUE":""}</span>`;
+}
+function openBlockPanel(t){
+  const s=stocks[t];if(!s?.block)return;
+  const fd=(ts)=>ts?new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):"—";
+  const due=blockReviewDue(t);
+  const html=`<div id="block-panel-overlay" style="position:fixed;inset:0;background:#000a;z-index:300;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeBlockPanel()">
+    <div style="background:var(--card);border:1px solid #fbbf2455;border-radius:12px;padding:18px;max-width:420px;width:100%">
+      <div style="font-size:15px;font-weight:700;color:#fbbf24;margin-bottom:8px">⛔ ${s.flag||""} ${t} — 4M BLOCK ACTIVE</div>
+      ${due?`<div style="font-size:11px;font-weight:700;color:var(--red);background:#3b111160;border:1px solid var(--red);border-radius:6px;padding:6px 10px;margin-bottom:10px">REVIEW DUE — review date has passed. Re-run the 4M audit, then remove or extend the block.</div>`:""}
+      <div style="font-size:12px;color:var(--text);line-height:1.5;margin-bottom:10px">${esc(s.blockReason||"(no reason recorded)")}</div>
+      <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px">Blocked: ${fd(s.blockDate)}</div>
+      <div style="font-size:11px;color:${due?"var(--red)":"var(--muted)"};font-family:var(--mono);margin-bottom:12px">Review: ${fd(s.blockReviewDate)}</div>
+      <div style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:14px">Triggers still calculate and fire (mechanical truth) but ALL buy deployment is suppressed: no buy modals, no tranche allocation, no new-entry listing, push alerts labeled review-only. Sell-side signals are unaffected. The block travels with this stock in the triggers CSV until explicitly removed.</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button style="background:var(--bg);color:var(--muted);border:1px solid #ffffff22;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer" onclick="closeBlockPanel()">Close</button>
+        <button style="background:#3b1111;color:var(--red);border:1px solid var(--red);border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer" onclick="removeBlock('${t}')">Remove block</button>
+      </div>
+    </div></div>`;
+  document.body.insertAdjacentHTML("beforeend",html);
+}
+function closeBlockPanel(){const el=document.getElementById("block-panel-overlay");if(el)el.remove();}
+function removeBlock(t){
+  if(!confirm(`Remove the 4M block on ${t}?\n\nThis re-enables buy deployment on all firing signals. Only do this after a passing 4M re-audit logged to watchlist.md.`))return;
+  const s=stocks[t];if(!s)return;
+  delete s.block;delete s.blockReason;delete s.blockDate;delete s.blockReviewDate;
+  closeBlockPanel();save();render();
+  if(settings.pushSubscribed&&settings.pushWorkerUrl)syncTriggersToCloud();
+}
+
 // Returns {sticker, mos} or null if any input is missing
 // Uses settings.marr (default 10%) as discount rate: divisor = (1 + marr/100)^10
 function recalcSticker(eps,gr,pe){
@@ -1329,6 +1374,9 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   // Non-Tier-1 (incl. Pool 3) above the fair-value anchor → RECOVER (capital-recovery, §5).
   if(fvt&&s.currentPrice>fvt&&!isT1)return{phase:3,label:"RECOVER",color:"var(--red)"};
   const sig=sigCount(ticker);
+  // 4M block (v4.07): firing but qualitatively blocked — amber, never green. Mechanical truth
+  // (the firing) stays visible; deployment is suppressed elsewhere (deployCount/litTrancheTopups).
+  if(sig>0&&s.block)return{phase:1,label:"FIRING — BLOCKED (4M)",color:"#fbbf24"};
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
 // Risk bucket cap: 15% Personal, 5% Caca (more conservative for closed retiree fund) of Pool1+Pool3 combined cost basis
@@ -1498,7 +1546,9 @@ function getDPSplit(pfKey){
 function getMOSBreakdown(pfKey){
   const pf=portfolios[pfKey];if(!pf)return{stocks:[],totalMonthlyFlow:0,totalMosReserved:0,totalUnlit:0};
   const GRID=getGrid(pfKey);const _bc=pfBaseCcy(pfKey);
-  const firingStocks=GRID.filter(t=>sigCount(t)>0);
+  // 4M block (v4.07): blocked stocks are excluded from BOTH the firing set and the slot
+  // denominator — they can't receive monthly flow or MOS reserves while blocked.
+  const firingStocks=GRID.filter(t=>sigCount(t)>0&&!isBlocked(t));
   const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,pfKey),0);
   const expSlots=0;
   const denom=validSlots+expSlots;
@@ -1728,6 +1778,19 @@ function load(){
     }
   }
   if(!settings.nlIndexTickerEU)settings.nlIndexTickerEU="XZEU.DE";
+  // One-shot seed (v4.07, Jun 13 2026): ADBE 4M block. All 3 triggers firing (MOS 210.50,
+  // Ten Cap 253.54, PBT 270.19) but the 4M re-audit failed on Moat (Morningstar Wide→Narrow,
+  // Mar 5 2026) and Management (CEO+CFO dual vacancy, net insider selling). Buy deployment
+  // blocked; sell-side unaffected. The flag prevents re-seeding after a deliberate unblock.
+  if(!settings._mig407AdbeBlock){
+    settings._mig407AdbeBlock=true;
+    if(stocks.ADBE&&!stocks.ADBE.block){
+      stocks.ADBE.block=true;
+      stocks.ADBE.blockReason="4M fail: Moat (Morningstar Wide→Narrow 2026-03-05) + Management (CEO/CFO vacancy, no 2026 insider buying)";
+      stocks.ADBE.blockDate=new Date("2026-06-13").getTime();
+      stocks.ADBE.blockReviewDate=new Date("2026-09-10").getTime();
+    }
+  }
   if(settings.nlIndexCap===undefined)settings.nlIndexCap=10;
   if(settings.nlIndexTranche===undefined)settings.nlIndexTranche=1000;
   if(settings.nlIndexMaxTranches===undefined)settings.nlIndexMaxTranches=4;
@@ -2419,7 +2482,7 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing\n";
+  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate\n";
   // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
   const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
@@ -2428,7 +2491,7 @@ function exportCSV(){
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -2458,7 +2521,7 @@ const DIFF_FIELDS=[
 function snapshotStocks(){
   const snap={};
   Object.entries(stocks).forEach(([t,s])=>{
-    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null};
+    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null,block:s.block?true:null,blockReason:s.blockReason||null,blockDate:s.blockDate||null,blockReviewDate:s.blockReviewDate||null};
     if(s.cons){Object.keys(s.cons).forEach(k=>o["cons."+k]=s.cons[k]);}
     snap[t]=o;
   });
@@ -2656,6 +2719,23 @@ function handleCSVImport(e){
           if(fires)s[key]=true;else delete s[key];
         }
       });
+      // 4M block (v4.07). STICKY semantics — deliberately asymmetric with the firing flags above:
+      //   "Y" → set/refresh block (+reason/dates from the row when present)
+      //   "N" → explicit clear (surfaced in the import diff modal)
+      //   empty cell or absent columns → NO CHANGE — older CSVs load cleanly with block
+      //   defaulting to off for never-blocked stocks, and a hand-edited recalc CSV can never
+      //   silently clear an active block. The block travels with the row until explicitly removed.
+      if(hdr.includes("block")){
+        const bv=(row.block||"").toString().trim().toUpperCase();
+        if(bv==="Y"||bv==="YES"||bv==="TRUE"||bv==="1"){
+          s.block=true;
+          if(hdr.includes("blockreason")&&(row.blockreason||"").trim())s.blockReason=row.blockreason.trim();
+          if(hdr.includes("blockdate")&&(row.blockdate||"").trim()){const d=new Date(row.blockdate.trim());if(!isNaN(d))s.blockDate=d.getTime();}
+          if(hdr.includes("reviewdate")&&(row.reviewdate||"").trim()){const d=new Date(row.reviewdate.trim());if(!isNaN(d))s.blockReviewDate=d.getTime();}
+        }else if(bv==="N"||bv==="NO"||bv==="FALSE"||bv==="0"){
+          delete s.block;delete s.blockReason;delete s.blockDate;delete s.blockReviewDate;
+        }
+      }
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calc tenCap + pbt (category-aware: highgr uses 20Cap/DMOS formulas)
@@ -3839,9 +3919,30 @@ function checkAlerts(){
       if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 ${hg?"20Cap":"10Cap"} ${fmt(c.tenCap,s.currency)}`);
       if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 ${hg?"DMOS":"PBT"} ${fmt(c.pbt,s.currency)}`);
       const isSpec=isRiskAnywhere(t);const maxSigs=buf?2:3;
-      if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k])alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
-        html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":hg?"HIGH-GROWTH":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});}
+      if(fires.length){const k=`watch-fire-${t}`;if(!dismissedAlerts[k]){
+        // 4M block (v4.07): alert is NOT suppressed — price action stays visible — but it is
+        // re-labeled review-only and never invites deployment.
+        if(isBlocked(t)){
+          alerts.push({key:k,type:"watch",icon:"⛔",
+            html:`<strong>${s.flag} ${t}</strong> FIRING — <strong style="color:#fbbf24">BLOCKED (4M)</strong> — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals — review only, do not deploy</strong> <span style="cursor:pointer;text-decoration:underline" onclick="openBlockPanel('${t}')">details</span>`});
+        }else{
+          alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
+            html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":hg?"HIGH-GROWTH":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});
+        }
+      }}
     }
+  });
+
+  // 4M BLOCK REVIEW DUE (v4.07) — a blocked stock whose reviewDate has passed needs a re-audit
+  // decision: remove the block (4M passes again) or extend the review date. Not dismissable via
+  // the usual key reuse — keyed on the review date so a new date re-arms the alert.
+  Object.keys(stocks).forEach(t=>{
+    if(!blockReviewDue(t))return;
+    const s=stocks[t];
+    const k=`block-review-${t}-${new Date(s.blockReviewDate).toISOString().slice(0,10)}`;
+    if(dismissedAlerts[k])return;
+    alerts.push({key:k,type:"watch",icon:"⛔",
+      html:`<strong>${s.flag} ${t}</strong> — <strong style="color:#fbbf24">4M block review due</strong> (review date ${new Date(s.blockReviewDate).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})} passed). Re-run the 4M audit. <span style="cursor:pointer;text-decoration:underline" onclick="openBlockPanel('${t}')">details</span>`});
   });
 
   // BACKUP REMINDER — weekly prompt to export Excel backup
@@ -3900,6 +4001,7 @@ function checkAlerts(){
 let buyModalQueue=[];
 let buyModalShown={}; // session-only: tracks signals already shown this page load
 function queueBuyModal(ticker,signal){
+  if(isBlocked(ticker))return; // 4M block (v4.07): never prompt to buy a blocked stock
   const k=`${ticker}-${signal}`;
   if(buyModalShown[k])return; // already shown this session
   if(isSnoozed(ticker,signal))return; // this signal snoozed until end of month
@@ -4746,7 +4848,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const phaseBadge=s.status!=="trophy"?`<span class="pos-badge" style="background:transparent;color:${_phase.color};font-size:8px;padding:1px 4px;border:1px solid ${_phase.color}33">${_phase.label}</span>`:"";
 
     h+=`<div class="pos-card">
-      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
+      <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${blockBadge(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
         <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
     // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
@@ -5245,7 +5347,8 @@ function renderAllocator(c){
       // Include BOTH watchlist stocks (new entries) AND grid stocks (owned) that have an unlit
       // trigger getting close to firing — e.g. you own the MOS tranche but PBT is approaching.
       // Risk-bucket stocks are excluded (handled in their own bucket).
-      const wl=Object.keys(stocks).filter(t=>!isRisk(t,"personal"));
+      // 4M-blocked stocks are excluded (v4.07) — no buy deployment of any kind while blocked.
+      const wl=Object.keys(stocks).filter(t=>!isRisk(t,"personal")&&!isBlocked(t));
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
         const owned=isOnGrid(t,"personal");
@@ -5442,7 +5545,7 @@ function renderAllocator(c){
 
     // === NEW ENTRY DEPLOYMENT (Caca 3% rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
-    const wlNL=Object.keys(stocks).filter(t=>!isRisk(t,"nl"));
+    const wlNL=Object.keys(stocks).filter(t=>!isRisk(t,"nl")&&!isBlocked(t)); // 4M block excluded (v4.07)
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
       const owned=isOnGrid(t,"nl");
@@ -5553,12 +5656,13 @@ function renderWatchlist(c){
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   h+=`<div class="wl-grid">`;
   wl.forEach(t=>{const s=stocks[t];const g=gapPct(t);const sc=sigCount(t);
-    const gStr=sc>0?sc+"/"+(isBuffett(t)?2:3)+" signals":g!=null?g+"%":"—";
-    const gCol=sc>0?"var(--green)":g!=null&&g<15?"var(--amber)":"var(--muted)";
+    const _blk=isBlocked(t); // 4M block (v4.07): firing renders amber + BLOCKED, never green
+    const gStr=sc>0?sc+"/"+(isBuffett(t)?2:3)+(_blk?" FIRING — BLOCKED (4M)":" signals"):g!=null?g+"%":"—";
+    const gCol=sc>0?(_blk?"#fbbf24":"var(--green)"):g!=null&&g<15?"var(--amber)":"var(--muted)";
     const snoozed=isSnoozed(t);
     const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
     h+=`<div class="wl-card" ${snoozed?'style="opacity:0.5"':''}><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${tier1Marker(t)}${tripwireShield(t)}<span style="font-size:9px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:6px" onclick="setPriority('${t}')">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${t}')">C${s.compounderPriority||"—"}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
+      <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${tier1Marker(t)}${tripwireShield(t)}${blockBadge(t)}<span style="font-size:9px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:6px" onclick="setPriority('${t}')">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${t}')">C${s.compounderPriority||"—"}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
       <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${isBuffett(t)&&s.cons.tenCap?` · <span style="color:#38bdf8;font-weight:400">TC ${fmt(s.cons.tenCap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap">`;
@@ -6874,6 +6978,9 @@ async function syncTriggersToCloud(){
         ticker:t,symbol:s.finnhubSymbol||null,
         currency:s.currency,priceMult:s.priceMult||1,
         category:s.category||"philtown",
+        // 4M block (v4.07): worker does NOT suppress alerts for blocked stocks — it re-labels
+        // them "BLOCKED — review only" so price action stays visible without a buy prompt.
+        block:!!s.block,
         sticker:s.category==="buffett"?null:(s.cons.mos?s.cons.mos*2:null),
         // FIX v3.75: include P-MOS in cloud payload. Client gates pmos to non-Buffett Tier 1 here
         // so worker can stay dumb — if triggers.pmos is null, no P-MOS push detection happens.
