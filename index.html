@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.08</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.09</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1477,6 +1477,31 @@ function syncRisklistStockStubs(){
 function trancheBase(pfKey){return pool1CostBasis(pfKey)+pool3CostBasis(pfKey);}
 // 4% initial entry size from combined P1+P3+DP cost basis (v4.08 flat)
 function initialEntrySize(pfKey){return Math.round(trancheBase(pfKey)*0.04);}
+// === v4.09: per-position cost basis (open shares × buyPrice) in the portfolio base ccy. ===
+// Excludes trophy tranches (they're not part of the Pool 1/3 allocation math), matching the
+// invested-capital and cost-basis conventions used elsewhere. Returns base-currency amount.
+function posCostBasisBase(ticker,pfKey){
+  const pf=portfolios[pfKey];const s=stocks[ticker];const pos=pf?.positions?.[ticker];
+  if(!pf||!s||!pos)return 0;const base=pfBaseCcy(pfKey);let c=0;
+  pos.tranches.forEach(tr=>{if(tr.signal==="trophy")return;const sh=tr.bought-tr.sold;if(sh>0)c+=fromEUR(toEUR(sh*tr.buyPrice,s.currency),base);});
+  return c;}
+// This position's cost basis as a % of the P1+P3+DP cost-basis tranche base.
+function posCostPctOfBase(ticker,pfKey){const tb=trancheBase(pfKey);if(tb<=0)return 0;return posCostBasisBase(ticker,pfKey)/tb*100;}
+// === v4.09: over/under-bought relative to a flat 4%-per-tranche target. ===
+// Target = (open non-trophy tranches) × 4% × trancheBase. trancheBase uses CURRENT cost basis
+// only (Pool1 cost + Pool3 cost + DP) — no future salary/income is added. Compares the position's
+// actual cost basis to that target and reports the gap, both in the base currency.
+function trancheAllocStatus(ticker,pfKey){
+  const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];if(!pf||!pos)return null;
+  const nNonTrophy=pos.tranches.filter(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0).length;
+  if(nNonTrophy<=0)return null;                           // nothing deployed in the allocation pool
+  const tb=trancheBase(pfKey);                            // current cost base, no future income
+  const target=nNonTrophy*0.04*tb;                        // flat 4% per tranche
+  const actual=posCostBasisBase(ticker,pfKey);
+  const diff=actual-target;                               // +over / −under
+  const pct=target>0?diff/target*100:0;
+  const status=Math.abs(pct)<=10?"balanced":diff>0?"over":"under";
+  return{tranches:nNonTrophy,target,actual,diff,pct,status};}
 // Per-trigger entry size (base currency). v4.08: FLAT 4% for every signal (incl. P-MOS) in
 // both portfolios. The old Personal P-MOS=3% asymmetry is retired.
 function entrySizeForSignal(pfKey,sigKey){
@@ -4858,6 +4883,16 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above "+_refLabel:"≈ "+_refLabel}</div>`:""}</div>
       <div class="stat-box"><div class="stat-label">Invested</div><div class="stat-val">${hideValues?"•••":(s.currency==="GBp"?"£"+(shares*avg/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(shares*avg),s.currency))}</div></div></div>`;
 
+    // v4.09: position cost basis as % of the P1+P3+DP cost-basis tranche base (both portfolios).
+    if(!hideValues&&!pos.tranches.every(tr=>tr.signal==="trophy")){
+      const _cb=posCostBasisBase(ticker,currentPf);
+      const _pct=posCostPctOfBase(ticker,currentPf);
+      const _bsP=pfSym(currentPf);
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin:-2px 0 6px;padding:4px 8px;background:var(--bg);border-radius:6px">
+        <span style="font-size:10px;color:var(--muted)">Cost basis · % of P1+P3+DP</span>
+        <span style="font-size:11px;font-family:var(--mono);color:var(--text)">${_bsP}${Math.round(_cb).toLocaleString()} <span style="color:var(--accent);font-weight:700">${_pct.toFixed(1)}%</span></span></div>`;
+    }
+
     // Caca allocation indicator (between stats and notes)
     if(currentPf==="nl"){
       const ca=cacaAllocStatus(ticker);
@@ -5130,6 +5165,53 @@ function renderMonthlyBanner(){
     h+=`<div class="mo-pill ${cls}" onclick="toggleStep(${i})">${label}</div>`;
   });
   h+=`</div></div>`;return h;
+}
+// === v4.09: Tranche Balance card — over/under-bought per stock at flat 4%/tranche. ===
+// Uses CURRENT cost basis only (trancheBase = Pool1 cost + Pool3 cost + DP). No future salary
+// is added. For every owned non-trophy position the target is (open tranches × 4% × base);
+// actual is the position's cost basis. Sorted most over-allocated → most under-allocated.
+// Works for both Personal and Caca (pfKey).
+function renderTrancheBalanceCard(pfKey){
+  const pf=portfolios[pfKey];if(!pf)return"";
+  const bs=pfSym(pfKey);const tb=trancheBase(pfKey);
+  const trancheVal=tb*0.04;
+  const rows=[];
+  Object.keys(pf.positions||{}).forEach(t=>{
+    const st=trancheAllocStatus(t,pfKey);if(!st)return;
+    rows.push({ticker:t,...st});
+  });
+  if(!rows.length)return"";
+  // Most over-allocated first, then balanced, then most under-allocated.
+  rows.sort((a,b)=>b.diff-a.diff);
+  let h=`<div class="alloc-card" style="margin-top:12px;border:1px solid #60a5fa33">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:14px;font-weight:700;color:var(--accent)">⚖️ Tranche Balance</span>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">4%/tranche · current size</span></div>
+    <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:10px;color:var(--muted)">1 tranche = 4% of P1+P3+DP cost (${bs}${Math.round(tb).toLocaleString()})</span>
+      <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${bs}${Math.round(trancheVal).toLocaleString()}</span></div>`;
+  rows.forEach(r=>{
+    const s=stocks[r.ticker];const flag=s?.flag||"";
+    const col=r.status==="over"?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
+    const bg=r.status==="over"?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
+    const tag=r.status==="over"?"OVER":r.status==="under"?"UNDER":"✓ balanced";
+    const gapTxt=r.status==="balanced"
+      ? `within 10%`
+      : `${r.diff>0?"+":"−"}${bs}${Math.abs(Math.round(r.diff)).toLocaleString()} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
+    const action=r.status==="over"?"bought above target — pause adds"
+      :r.status==="under"?`room for ${bs}${Math.abs(Math.round(r.diff)).toLocaleString()} more`
+      :"on target";
+    h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><span style="font-size:13px;font-weight:600">${flag} ${r.ticker}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${r.tranches} tranche${r.tranches!==1?"s":""} · target ${bs}${Math.round(r.target).toLocaleString()}</span></div>
+        <span style="font-size:10px;font-weight:700;color:${col}">${tag}</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
+        <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">have ${bs}${Math.round(r.actual).toLocaleString()}</span>
+        <span style="font-size:10px;font-family:var(--mono);color:${col}">${gapTxt}</span></div>
+      <div style="font-size:9px;color:var(--muted);margin-top:2px">${action}</div></div>`;
+  });
+  h+=`</div>`;
+  return h;
 }
 function renderAllocator(c){
   const pf=portfolios[currentPf];const GRID=getGrid(currentPf);const gs=gridSize(currentPf);
@@ -5420,6 +5502,9 @@ function renderAllocator(c){
       }
       h+=`</div>`;
     }
+
+    // v4.09: Over/under-bought balance vs flat 4%/tranche (current portfolio size, no future salary).
+    h+=renderTrancheBalanceCard("personal");
   }else{
     // === CACA (NL) CLOSED FUND ALLOCATOR ===
     // v4.08: tranche = flat 4% × COST BASIS (Pool 1 cost + Pool 3 cost), NOT market value.
@@ -5610,6 +5695,9 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">€${Math.round(val).toLocaleString()}</span></div>`;});
     if(stockCount<TARGET_STOCKS){h+=`<div style="font-size:11px;color:var(--amber);margin-top:4px">${TARGET_STOCKS-stockCount} slot${TARGET_STOCKS-stockCount>1?"s":""} open — watchlist triggers will deploy DP</div>`;}
     h+=`</div>`;
+
+    // v4.09: Over/under-bought balance vs flat 4%/tranche (current portfolio size, no future salary).
+    h+=renderTrancheBalanceCard("nl");
 
 
   }
