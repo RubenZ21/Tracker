@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.09</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.10</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4893,34 +4893,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <span style="font-size:11px;font-family:var(--mono);color:var(--text)">${_bsP}${Math.round(_cb).toLocaleString()} <span style="color:var(--accent);font-weight:700">${_pct.toFixed(1)}%</span></span></div>`;
     }
 
-    // Caca allocation indicator (between stats and notes)
-    if(currentPf==="nl"){
-      const ca=cacaAllocStatus(ticker);
-      if(ca){
-        // Display allocation values in the stock's native currency
-        const ccy=s.currency||"EUR";
-        const sym=ccy==="EUR"?"€":ccy==="GBp"?"":ccy==="CAD"?"C$":ccy==="JPY"?"¥":"$";
-        const suf=ccy==="GBp"?"p":"";
-        const dispDiff=Math.abs(Math.round(fromEUR(Math.abs(ca.diff),ccy)));
-        const dispTarget=Math.round(fromEUR(ca.target,ccy));
-        let abg="",acol="",atxt="";
-        if(ca.status==="sellAll"){abg="#3b111180";acol="var(--red)";atxt=isBuffett(ticker)?`⚠ SELL — above activation`:`⚠ SELL — above Sticker`;}
-        else if(ca.status==="over"){
-          abg="#332d0d";acol="var(--amber)";
-          atxt=ca.aboveCost?`Over-allocated by ${sym}${dispDiff.toLocaleString()}${suf} · can trim`:`Over-allocated by ${sym}${dispDiff.toLocaleString()}${suf} · underwater — hold`;
-        }else if(ca.status==="under"){
-          abg="#0d332060";acol="var(--green)";
-          atxt=`Under-allocated by ${sym}${dispDiff.toLocaleString()}${suf} — room for ${sym}${dispDiff.toLocaleString()}${suf} more`;
-        }else if(ca.status==="balanced"){abg="#0d332040";acol="var(--green)";atxt=`✓ Balanced`;}
-        else if(ca.status==="noTarget"){abg="var(--bg)";acol="var(--muted)";atxt=`0/${validTriggerSlots(ticker,currentPf)||3} — no target allocation`;}
-        if(atxt){
-          h+=`<div style="margin:4px 0;padding:5px 8px;background:${abg};border-radius:6px;display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:10px;color:${acol};font-weight:600">${atxt}</span>
-            ${ca.target>0?`<span style="font-size:9px;font-family:var(--mono);color:var(--muted)">target ${sym}${dispTarget.toLocaleString()}${suf}</span>`:""}
-          </div>`;
-        }
-      }
-    }
+    // Caca per-card allocation indicator removed (v4.10) — tranche balance now lives in the Allocator tab.
 
     // Notes
     if(s.notes){
