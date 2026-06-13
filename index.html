@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.11</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.13</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5160,6 +5160,7 @@ function renderTrancheBalanceCard(pfKey){
   const trancheVal=tb*0.04;
   const rows=[];
   Object.keys(pf.positions||{}).forEach(t=>{
+    if(isRisk(t,pfKey))return;                            // v4.13: risk bucket (Pool 3) excluded — it has its own card
     const st=trancheAllocStatus(t,pfKey);if(!st)return;
     rows.push({ticker:t,...st});
   });
@@ -5183,19 +5184,25 @@ function renderTrancheBalanceCard(pfKey){
     const nat=(baseAmt)=>nSym+Math.round(toNative(baseAmt)).toLocaleString();
     const sameCcy=(ccy===baseC)||(ccy==="GBp"&&baseC==="GBP")||(ccy==="GBP"&&baseC==="GBp");
     const dual=(baseAmt)=>sameCcy?`${bs}${Math.round(baseAmt).toLocaleString()}`:`${bs}${Math.round(baseAmt).toLocaleString()} · ${nat(baseAmt)}`;
-    // v4.11: dim the row when every entry trigger is muted because the price has run too high.
+    // v4.11: dim when triggers are muted because price ran above sticker.
+    // v4.12: also dim when no signal is currently lit (deployCount 0) — the position may be
+    // underallocated, but it's not time to add (price is above every live trigger). The row stays
+    // visible (you still see the tranche count + gap) but greyed so it doesn't read as a buy prompt.
     const mutedHigh=allTriggersMutedHigh(r.ticker);
-    const col=mutedHigh?"var(--muted)":r.status==="over"?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
-    const bg=mutedHigh?"var(--bg)":r.status==="over"?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
+    const unlit=deployCount(r.ticker,pfKey)===0;          // nothing would deploy right now
+    const dimmed=mutedHigh||unlit;
+    const col=dimmed?"var(--muted)":r.status==="over"?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
+    const bg=dimmed?"var(--bg)":r.status==="over"?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
     const tag=r.status==="over"?"OVER":r.status==="under"?"UNDER":"✓ balanced";
     const gapTxt=r.status==="balanced"
       ? `within 10%`
       : `${r.diff>0?"+":"−"}${dual(Math.abs(r.diff))} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
     const action=mutedHigh?"price above sticker — all triggers muted"
+      :unlit?(r.status==="under"?"underallocated — no signal firing, hold":r.status==="over"?"no signal firing — hold":"no signal firing")
       :r.status==="over"?"bought above target — pause adds"
       :r.status==="under"?`room for ${dual(Math.abs(r.diff))} more`
       :"on target";
-    h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px${mutedHigh?";opacity:0.5":""}">
+    h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px${dimmed?";opacity:0.5":""}">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div><span style="font-size:13px;font-weight:600">${flag} ${r.ticker}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${r.tranches} tranche${r.tranches!==1?"s":""} · target ${dual(r.target)}</span></div>
         <span style="font-size:10px;font-weight:700;color:${col}">${tag}</span></div>
