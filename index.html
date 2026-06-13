@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.10</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.11</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -881,6 +881,16 @@ function isPiggyback(s,sigKey,ticker){
   return false;
 }
 function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;const buf=s.category==="buffett";return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+// v4.11: true when every entry trigger is unavailable because the price has run too high —
+// i.e. the price is at/above Sticker (mos×2) so MOS can't fire and the non-MOS triggers are
+// all muted by the Sticker Ceiling. Buffett stocks anchor on Ten Cap (no Sticker), so "too high"
+// means price at/above Ten Cap. Used only for display dimming in the Tranche Balance card.
+function allTriggersMutedHigh(ticker){
+  const s=stocks[ticker];if(!s?.cons||!s.currentPrice)return false;
+  if(isBuffett(ticker)){const tc=s.cons.tenCap;return tc!=null&&s.currentPrice>=tc;}
+  const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;
+  return s.currentPrice>=sticker;
+}
 // Deploy count: lit firing signals + piggybacking muted signals + Caca legacy double-MOS (non-Tier-1).
 // Tier 1: P-MOS firing (when not suppressed) is included via sigCount.
 function deployCount(t,pfKey){
@@ -5165,21 +5175,32 @@ function renderTrancheBalanceCard(pfKey){
       <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${bs}${Math.round(trancheVal).toLocaleString()}</span></div>`;
   rows.forEach(r=>{
     const s=stocks[r.ticker];const flag=s?.flag||"";
-    const col=r.status==="over"?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
-    const bg=r.status==="over"?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
+    const ccy=s?.currency||pfBaseCcy(pfKey);
+    const baseC=pfBaseCcy(pfKey);
+    // Native-currency converter + symbol. GBp shown as £ (divide pence by 100) for readability.
+    const nSym=ccy==="EUR"?"€":ccy==="GBp"?"£":ccy==="CAD"?"C$":ccy==="JPY"?"¥":ccy==="GBP"?"£":"$";
+    const toNative=(baseAmt)=>{const v=fromEUR(toEUR(baseAmt,baseC),ccy);return ccy==="GBp"?v/100:v;};
+    const nat=(baseAmt)=>nSym+Math.round(toNative(baseAmt)).toLocaleString();
+    const sameCcy=(ccy===baseC)||(ccy==="GBp"&&baseC==="GBP")||(ccy==="GBP"&&baseC==="GBp");
+    const dual=(baseAmt)=>sameCcy?`${bs}${Math.round(baseAmt).toLocaleString()}`:`${bs}${Math.round(baseAmt).toLocaleString()} · ${nat(baseAmt)}`;
+    // v4.11: dim the row when every entry trigger is muted because the price has run too high.
+    const mutedHigh=allTriggersMutedHigh(r.ticker);
+    const col=mutedHigh?"var(--muted)":r.status==="over"?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
+    const bg=mutedHigh?"var(--bg)":r.status==="over"?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
     const tag=r.status==="over"?"OVER":r.status==="under"?"UNDER":"✓ balanced";
     const gapTxt=r.status==="balanced"
       ? `within 10%`
-      : `${r.diff>0?"+":"−"}${bs}${Math.abs(Math.round(r.diff)).toLocaleString()} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
-    const action=r.status==="over"?"bought above target — pause adds"
-      :r.status==="under"?`room for ${bs}${Math.abs(Math.round(r.diff)).toLocaleString()} more`
+      : `${r.diff>0?"+":"−"}${dual(Math.abs(r.diff))} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
+    const action=mutedHigh?"price above sticker — all triggers muted"
+      :r.status==="over"?"bought above target — pause adds"
+      :r.status==="under"?`room for ${dual(Math.abs(r.diff))} more`
       :"on target";
-    h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px">
+    h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px${mutedHigh?";opacity:0.5":""}">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><span style="font-size:13px;font-weight:600">${flag} ${r.ticker}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${r.tranches} tranche${r.tranches!==1?"s":""} · target ${bs}${Math.round(r.target).toLocaleString()}</span></div>
+        <div><span style="font-size:13px;font-weight:600">${flag} ${r.ticker}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${r.tranches} tranche${r.tranches!==1?"s":""} · target ${dual(r.target)}</span></div>
         <span style="font-size:10px;font-weight:700;color:${col}">${tag}</span></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
-        <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">have ${bs}${Math.round(r.actual).toLocaleString()}</span>
+        <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">have ${dual(r.actual)}</span>
         <span style="font-size:10px;font-family:var(--mono);color:${col}">${gapTxt}</span></div>
       <div style="font-size:9px;color:var(--muted);margin-top:2px">${action}</div></div>`;
   });
