@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.14</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.15</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1229,6 +1229,19 @@ function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(
 // FIX #5: Convert any currency amount to EUR for allocation
 function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="GBP")return amount/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;if(ccy==="JPY")return amount/settings.fxJPY;return amount;}
 function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;if(ccy==="GBP")return eur*settings.fxGBP;if(ccy==="CAD")return eur*settings.fxCAD;if(ccy==="JPY")return eur*settings.fxJPY;return eur;}
+// v4.15: format a EUR amount across every currency the app trades in (USD, EUR, GBP, CAD, JPY).
+// Used by the New Entry Deployment tranche-size banners in both portfolios so the displayed
+// tranche size covers all listing currencies, not just USD/EUR/GBP.
+function fmtTrancheAllCcy(eur){
+  const parts=[
+    "$"+Math.round(fromEUR(eur,"USD")).toLocaleString(),
+    "€"+Math.round(eur).toLocaleString(),
+    "£"+Math.round(fromEUR(eur,"GBP")).toLocaleString(),
+    "C$"+Math.round(fromEUR(eur,"CAD")).toLocaleString(),
+    "¥"+Math.round(fromEUR(eur,"JPY")).toLocaleString(),
+  ];
+  return parts.join(" · ");
+}
 // FIX #8: Total portfolio value in EUR
 function pfBaseCcy(pfKey){return pfKey==="personal"?(settings.personalBaseCcy||"USD"):"EUR";}
 function pfSym(pfKey){const c=pfBaseCcy(pfKey);return c==="EUR"?"€":c==="GBp"?"p":c==="CAD"?"C$":c==="JPY"?"¥":"$";}
@@ -5410,12 +5423,7 @@ function renderAllocator(c){
       // entrySize is 4% of the P1+P3+DP cost-basis tranche base (v4.08 flat).
       const _p1eur=toEUR(_tb,_bc);
       const _four=_p1eur*0.04;
-      const _fmtTri=(eur)=>{
-        const usd=Math.round(fromEUR(eur,"USD"));
-        const eu=Math.round(eur);
-        const gbp=Math.round(fromEUR(eur,"GBP"));
-        return `$${usd.toLocaleString()} · €${eu.toLocaleString()} · £${gbp.toLocaleString()}`;
-      };
+      const _fmtTri=(eur)=>fmtTrancheAllCcy(eur);
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
       // Include BOTH watchlist stocks (new entries) AND grid stocks (owned) that have an unlit
@@ -5649,7 +5657,9 @@ function renderAllocator(c){
       h+=`<div class="alloc-card" style="margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${TRANCHE_PCT.toFixed(2).replace(/\.?0+$/,"")}% rule</span></div>`;
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${TRANCHE_PCT.toFixed(2).replace(/\.?0+$/,"")}% rule</span></div>
+        <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:var(--muted)">4% tranche${trCapped?" · capped":""}</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${fmtTrancheAllCcy(targetTr)}</span></div></div>`;
       // Firing stocks
       const firingNL=readyNL.filter(r=>r.firingCount>0);
       if(firingNL.length){
