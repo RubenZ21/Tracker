@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.13</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.14</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -899,22 +899,18 @@ function deployCount(t,pfKey){
   const valid=sigCount(t);if(valid===0)return 0;
   let n=valid;
   ["tenCap","pbt"].forEach(k=>{if(isPiggyback(s,k,t))n++;});
-  // Caca legacy: MOS counts as 2 deploy slots when firing for NON-Tier-1 PT stocks only.
-  // Tier 1 stocks in Caca use the Tier 1 slot structure (P-MOS as 4th slot, no MOS double).
-  // The legacy double-MOS for non-Tier-1 is retired in Stage D's Caca rewrite.
-  if(pfKey==="nl"&&s.signals?.mos&&!isBuffett(t)&&!isOperationalTier1(t))n++;
+  // Caca legacy MOS-double retired (framework §2.7, June 13 2026): flat 4% per trigger, one
+  // tranche per trigger, identical Personal and Caca. No MOS double-count anymore.
   return n;
 }
 // Discrete trigger slot count — for "X/Y" displays and MOS-reserve unlit counts.
-// Buffett: 2 (tenCap+pbt). Non-Tier-1 PT: 3. Tier 1 PT: 4 (adds P-MOS). Caca legacy adds 1 for non-Tier-1 MOS-double.
+// Buffett: 2 (tenCap+pbt). Non-Tier-1 PT: 3. Tier 1 PT: 4 (adds P-MOS). Identical Personal and Caca (MOS-double retired June 13 2026).
 function validTriggerSlots(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
   if(isBuffett(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
   let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});
   // Tier 1: P-MOS as 4th slot (cons.mos populated → pmos derived).
   if(isOperationalTier1(t)&&s.cons.mos!=null)n++;
-  // Caca legacy: MOS double-counts as a slot for NON-Tier-1 PT (Stage D will retire).
-  if(pfKey==="nl"&&s.cons?.mos!=null&&!isOperationalTier1(t))n++;
   return n;
 }
 // Weighted slot count for the allocation denominator. Tier 1 Personal: 3.6 (1+1+1+0.6). All others = discrete count × 1.0.
@@ -923,7 +919,6 @@ function weightedSlots(t,pfKey){
   if(isBuffett(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n+=slotWeight(t,k,pfKey);});return n;}
   let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n+=slotWeight(t,k,pfKey);});
   if(isOperationalTier1(t)&&s.cons.mos!=null)n+=slotWeight(t,'pmos',pfKey);
-  if(pfKey==="nl"&&s.cons?.mos!=null&&!isOperationalTier1(t))n+=slotWeight(t,'mos',pfKey);
   return n;
 }
 // Weighted lit count for a single stock — sum of slot weights for currently-deploying signals (firing + piggyback).
@@ -939,7 +934,7 @@ function weightedLit(t,pfKey){
   if(pmosFires(t))n+=slotWeight(t,'pmos',pfKey);
   if(isPiggyback(s,"tenCap",t))n+=slotWeight(t,'tenCap',pfKey);
   if(isPiggyback(s,"pbt",t))n+=slotWeight(t,'pbt',pfKey);
-  if(pfKey==="nl"&&s.signals?.mos&&!isBuffett(t)&&!isOperationalTier1(t))n+=slotWeight(t,'mos',pfKey);
+  // Caca legacy MOS-double retired (framework §2.7, June 13 2026).
   return n;
 }
 
