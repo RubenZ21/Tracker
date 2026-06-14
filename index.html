@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.17</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.18</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1375,21 +1375,34 @@ function sendCapeLadderNotification(capeFires){
 // without touching gate/ladder/display:
 //   • INPUT layer  — capeReadCurrent / capeRecordMonthly / capeHistory. Manual entry today;
 //                    a scraper would call capeRecordMonthly() instead. Nothing else changes.
-//   • GATE layer   — capeGate(region): pure fn of (current CAPE, history) → fraction + amounts.
+//   • GATE layer   — capeGate(region): pure fn of the LATEST CAPE reading → fixed-band amounts.
 //   • LADDER layer — capeLadderEval(): pure crossing/ratchet/gap-fill state machine on pen.
 //   • DISPLAY layer— capeMonthlyLine(region): one string per ETF.
-// region "us" = XZMU = US CAPE ; region "eu" = XZEU = Europe CAPE (own histories, shared
-// percentile thresholds). Europe usually reads low-percentile → deploy full — intended.
+// region "us" = XZMU = US CAPE ; region "eu" = XZEU = Europe CAPE. Each ETF keeps its own
+// stored history (record + scraper seed), but the GATE reads ONLY that ETF's single latest
+// CAPE value — no percentile, no history-distribution dependency. The band is absolute and
+// identical for both ETFs, so e.g. US ~41 → ≥40 band while Europe ~23 → <30 band: same logic,
+// divergent (intended) outcomes.
 //
 // === STATE (all virtual app bookkeeping; no IBKR reconciliation) ===
 //   capeState[region] = {
-//     history: [{month:"YYYY-MM", cape:Number}, ...],  // rolling monthly series, this ETF only
+//     history: [{month:"YYYY-MM", cape:Number, source?:String}, ...],  // kept as a record + for
+//                                                                       // the eventual scraper
 //     pen: Number,                                       // accumulated holding-pen balance (USD)
 //     monthlyBudget: Number,                             // new money in per month (default 3000)
 //     ladder: { ddHigh:Number, lastRung:Number,          // ladder arm state vs TTM high
 //               pending:[{rung,amount,date}] },           // fired-but-unconfirmed deployments
 //   }
 // rung values: 10,20,30,40,50 (% drawdown). lastRung = deepest rung already FIRED (ratchet).
+//
+// === FIXED ABSOLUTE CAPE BANDS (Rule 1) — edit these to retune the gate ===
+// Conceptually anchored to a long-run mean CAPE of ~20: 30 = mean×1.5, 40 = mean×2. The two
+// thresholds and three deploy amounts are hardcoded named constants for trivial later editing.
+const CAPE_BAND_LOW=30;      // CAPE < 30           → full deploy
+const CAPE_BAND_HIGH=40;     // 30 ≤ CAPE < 40      → mid deploy ; CAPE ≥ 40 → low deploy
+const CAPE_DEPLOY_BELOW=3000;   // deploy when CAPE < CAPE_BAND_LOW   (park budget − this)
+const CAPE_DEPLOY_MID=2000;     // deploy when CAPE_BAND_LOW ≤ CAPE < CAPE_BAND_HIGH
+const CAPE_DEPLOY_HIGH=1500;    // deploy when CAPE ≥ CAPE_BAND_HIGH
 let capeState={};
 try{capeState=JSON.parse(localStorage.getItem("r1-capeState")||"{}")||{};}catch(e){capeState={};}
 function saveCapeState(){localStorage.setItem("r1-capeState",JSON.stringify(capeState));}
@@ -1425,34 +1438,29 @@ function capeRecordMonthly(region,cape,month,source){
   saveCapeState();
   return true;
 }
-// Percentile of `value` within an ETF's own historical readings (inclusive rank, 0-100).
-// With <2 readings there is no distribution → return null (gate then deploys full, see capeGate).
-function capePercentile(region,value){
-  const h=_capeRec(region).history.map(e=>e.cape).filter(x=>x>0);
-  if(h.length<2)return null;
-  const v=(value!=null?Number(value):capeReadCurrent(region));
-  if(!(v>0))return null;
-  let atOrBelow=0;h.forEach(x=>{if(x<=v)atOrBelow++;});
-  return atOrBelow/h.length*100;
-}
 
-// ---------- GATE LAYER (Rule 1) — pure fn of current CAPE + own history ----------
-// Shared thresholds both ETFs: pct<75 → full deploy; 75–90 → $2k deploy / $1k park;
-// >90 → $1.5k deploy / $1.5k park. Diversion capped at 50% of budget. Insufficient history
-// (pct null) → deploy full (can't gate without a distribution). budget defaults to $3,000.
+// ---------- GATE LAYER (Rule 1) — fixed absolute CAPE band, latest reading only ----------
+// Reads ONLY this ETF's single latest CAPE value (the most recent manual entry or CSV import).
+// No percentile, no history distribution, no minimum-readings requirement. Bands (identical
+// for both ETFs), driven by the constants at the top of the module:
+//   CAPE < 30       → deploy $3,000, park $0
+//   30 ≤ CAPE < 40  → deploy $2,000, park $1,000
+//   CAPE ≥ 40       → deploy $1,500, park $1,500
+// With no reading yet (cape 0) → deploy full, park 0 (nothing to gate on).
 function capeGate(region){
   const c=_capeRec(region);
   const budget=c.monthlyBudget||3000;
   const cape=capeReadCurrent(region);
-  const pct=capePercentile(region,cape);
   let deploy,park,band;
-  if(pct===null){deploy=budget;park=0;band="no-history";}
-  else if(pct<75){deploy=budget;park=0;band="<75th";}
-  else if(pct<90){park=Math.min(1000,budget*0.5);deploy=budget-park;band="75–90th";}
-  else{park=Math.min(budget*0.5,1500);deploy=budget-park;band=">90th";}
-  // Hard 50% diversion cap (defensive; thresholds above already honor it at $3k budget).
-  if(park>budget*0.5){park=budget*0.5;deploy=budget-park;}
-  return {cape,pct,band,deploy,park,budget,penAfter:(c.pen||0)+park};
+  if(!(cape>0)){deploy=budget;park=0;band="no-reading";}
+  else if(cape<CAPE_BAND_LOW){deploy=CAPE_DEPLOY_BELOW;band="<30";}
+  else if(cape<CAPE_BAND_HIGH){deploy=CAPE_DEPLOY_MID;band="30–40";}
+  else{deploy=CAPE_DEPLOY_HIGH;band="≥40";}
+  // deploy comes from the band table; park is the remainder of the monthly budget.
+  if(deploy==null)deploy=budget;
+  if(deploy>budget)deploy=budget;            // never deploy more than the budget
+  park=Math.max(0,budget-deploy);
+  return {cape,band,deploy,park,budget,penAfter:(c.pen||0)+park};
 }
 // Apply this month's gate: divert `park` into the pen. Idempotent per month via a stamp so
 // re-running the monthly flow doesn't double-add. Returns the gate result.
@@ -1542,6 +1550,7 @@ function capeLadderStatus(region,price){
 
 // ---------- DISPLAY LAYER ----------
 // One clear line per ETF per month. Uses live price from the index position.
+// Reads "CAPE 41.3 · band ≥40 → Buy $1,500 into XZMU, park $1,500 in pen, pen now $X || [drawdown]".
 function capeMonthlyLine(region){
   const c=_capeRec(region);
   const ip=getIndexPos("personal",region);
@@ -1549,9 +1558,9 @@ function capeMonthlyLine(region){
   const label=region==="us"?"XZMU":"XZEU";
   const g=capeGate(region);
   const st=capeLadderStatus(region,px);
-  const pctTxt=g.pct===null?"n/a (need ≥2 readings)":`${g.pct.toFixed(0)}th pct`;
   const capeTxt=g.cape>0?g.cape.toFixed(1):"—";
-  let line=`CAPE ${capeTxt} · ${pctTxt} · gate ${g.band} → Buy $${Math.round(g.deploy).toLocaleString()} into ${label}, park $${Math.round(g.park).toLocaleString()} in pen, pen now $${Math.round(g.penAfter).toLocaleString()}`;
+  const bandTxt=g.band==="no-reading"?"no reading yet":`band ${g.band}`;
+  let line=`CAPE ${capeTxt} · ${bandTxt} → Buy $${Math.round(g.deploy).toLocaleString()} into ${label}, park $${Math.round(g.park).toLocaleString()} in pen, pen now $${Math.round(g.penAfter).toLocaleString()}`;
   if(st.activeRung>0){
     const frac=capeRungFraction(st.activeRung);
     const wouldDeploy=st.activeRung>=50?st.pen:st.pen*frac;
@@ -1572,7 +1581,7 @@ function promptCapeEntry(region){
   const label=region==="us"?"XZMU (US CAPE)":"XZEU (Europe CAPE)";
   const cur=capeReadCurrent(region);
   const c=_capeRec(region);
-  const v=prompt(`Enter current CAPE for ${label}.\nStored as this month's reading (${getMonthKey()}) in ${label.split(" ")[0]}'s own rolling history;\npercentile is computed against that history.\nMonthly budget per ETF: $${(c.monthlyBudget||3000).toLocaleString()}.`,cur>0?cur:"");
+  const v=prompt(`Enter current CAPE for ${label}.\nStored as this month's reading (${getMonthKey()}) in ${label.split(" ")[0]}'s history (record only).\nThe gate reads this single latest value against the fixed band:\n  CAPE < 30 → buy $3,000 · 30–40 → buy $2,000 · ≥40 → buy $1,500.\nMonthly budget per ETF: $${(c.monthlyBudget||3000).toLocaleString()}.`,cur>0?cur:"");
   if(v===null)return;
   const num=Number(v);
   if(!(num>0)){alert("Enter a positive number.");return;}
@@ -1587,20 +1596,20 @@ function promptCapeEntry(region){
   capeRecordMonthly(region,num,m);
   const g=capeApplyGate(region,m);
   saveCapeState();render();
-  alert(`${label}\nCAPE ${num.toFixed(1)} → ${g.pct===null?"insufficient history (deploy full)":g.pct.toFixed(0)+"th pct, gate "+g.band}\nBuy $${Math.round(g.deploy).toLocaleString()} now, park $${Math.round(g.park).toLocaleString()} → pen $${Math.round(g.penAfter).toLocaleString()}.`);
+  alert(`${label}\nCAPE ${num.toFixed(1)} → band ${g.band}\nBuy $${Math.round(g.deploy).toLocaleString()} now, park $${Math.round(g.park).toLocaleString()} → pen $${Math.round(g.penAfter).toLocaleString()}.`);
 }
 
-// ---------- CSV IMPORT (one-time history seed; INPUT layer only) ----------
-// Pre-seeds each ETF's rolling CAPE history so the percentile gate works immediately, instead
-// of waiting years for manual monthly readings to accumulate. Writes through the SAME store and
-// the SAME capeRecordMonthly() that manual entry uses — so import and manual entry are identical
-// in format. CRITICAL: import seeds HISTORY ONLY. It never calls capeApplyGate and never touches
-// the pen — seeding 91 months must not park 91 months of cash. The pen stays driven solely by the
-// monthly flow. After import we only render() to refresh the (pure-read) percentile/gate display.
+// ---------- CSV IMPORT (history seed; INPUT layer only) ----------
+// Seeds each ETF's stored CAPE history as a record (and for the eventual scraper). Writes through
+// the SAME store and the SAME capeRecordMonthly() that manual entry uses — so import and manual
+// entry are identical in format. CRITICAL: import seeds HISTORY ONLY. It never calls capeApplyGate
+// and never touches the pen — seeding 91 months must not park 91 months of cash. The pen stays
+// driven solely by the monthly flow. After import we only render() to refresh the gate display.
+// Note: the gate reads only the single LATEST reading per ETF, so import mainly ensures the most
+// recent month is on file; the older rows are retained purely as a record.
 //
 // CSV format: header `etf,month,cape,source`, then rows.
-//   etf    = XZMU (→ region "us") or XZEU (→ region "eu"). Rows route to that ETF's series only;
-//            the two series are never mixed when computing percentiles (capePercentile is per-region).
+//   etf    = XZMU (→ region "us") or XZEU (→ region "eu"). Rows route to that ETF's series only.
 //   month  = YYYY-MM.
 //   cape   = decimal > 0.
 //   source = free text (stored; surfaced as a footnote/tooltip).
@@ -1665,10 +1674,10 @@ function importCapeCsv(){
           return;
         }
         const counts=applyCapeCsv(parsed);
-        render();                                    // refresh percentile/gate display (pure read; pen untouched)
+        render();                                    // refresh gate display (pure read; pen untouched)
         let msg=`Imported ${counts.us} XZMU + ${counts.eu} XZEU rows, skipped ${parsed.skipped}.`;
         if(parsed.errors.length)msg+="\n\nSkipped:\n"+parsed.errors.slice(0,8).join("\n")+(parsed.errors.length>8?`\n…+${parsed.errors.length-8} more`:"");
-        msg+="\n\nHistory seeded — the percentile gate is now active. The pen was NOT touched (import seeds history only).";
+        msg+="\n\nHistory seeded as a record. The gate reads the single latest CAPE value per ETF against the fixed band. The pen was NOT touched (import seeds history only).";
         alert(msg);
       }catch(e){alert("Import failed: "+(e&&e.message||e));}
     };
@@ -5453,11 +5462,16 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const cst=capeLadderStatus(region,px);
         const cgate=capeGate(region);
         const curCape=capeReadCurrent(region);
-        const capeColor=cgate.pct===null?"var(--muted)":cgate.pct>=90?"#f87171":cgate.pct>=75?"#facc15":"var(--green)";
+        // Band-based colour: ≥40 red, 30–40 amber, <30 green, no reading muted.
+        const capeColor=cgate.band==="no-reading"?"var(--muted)":cgate.band==="≥40"?"#f87171":cgate.band==="30–40"?"#facc15":"var(--green)";
         const capeHist=capeHistory(region);
         const histN=capeHist.length;
         // Source footnote: most-recent reading's provenance label, if stored (from CSV import).
         const lastSrc=histN&&capeHist[histN-1].source?capeHist[histN-1].source:"";
+        // Per-ETF reference link to where the current CAPE number is read each month.
+        const srcLink=region==="us"
+          ?{url:"https://www.multpl.com/shiller-pe",label:"US Shiller CAPE — multpl",cadence:"monthly"}
+          :{url:"https://siblisresearch.com/data/europe-pe-ratio/",label:"Europe CAPE — Siblis (STOXX 600)",cadence:"yearly"};
         capeBlock=`<div style="background:#0b1220;border:1px solid #1e3a5f;border-radius:6px;padding:6px 7px;margin:2px 0 4px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
             <span style="font-size:9px;font-weight:700;color:#67e8f9;letter-spacing:.3px">CAPE GATE + PEN</span>
@@ -5467,11 +5481,12 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             </span>
           </div>
           <div style="font-size:9px;font-family:var(--mono);color:${capeColor};line-height:1.5">${cline}</div>
-          <div style="font-size:8px;color:var(--muted);margin-top:3px">${histN} reading${histN===1?"":"s"} in history${lastSrc?` · <span title="${lastSrc.replace(/"/g,"&quot;")}">latest: ${lastSrc.length>34?lastSrc.slice(0,34)+"…":lastSrc}</span>`:""}</div>`;
-        // Europe series is a lower-frequency year-end proxy → percentile is approximate.
-        if(region==="eu"){
-          capeBlock+=`<div style="font-size:8px;color:#fbbf24;margin-top:2px">⚠ Europe CAPE is a lower-frequency year-end proxy (STOXX 600 / MSCI Europe) — percentile is approximate until more readings accumulate.</div>`;
-        }
+          <div style="font-size:8px;color:var(--muted);margin-top:3px">${histN} reading${histN===1?"":"s"} in history${lastSrc?` · <span title="${lastSrc.replace(/"/g,"&quot;")}">latest: ${lastSrc.length>34?lastSrc.slice(0,34)+"…":lastSrc}</span>`:""}</div>
+          <div style="font-size:8px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:5px">
+            <span>🔗 Read ${label} CAPE here:</span>
+            <a href="${srcLink.url}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;text-decoration:underline">${srcLink.label}</a>
+          </div>
+          <div style="font-size:8px;color:var(--muted);margin-top:1px">Check ${region==="us"?"monthly (US)":"yearly (Europe)"}, then enter above.${region==="eu"?" Read the “CAPE ratio is XX.XX” figure on the page.":""}</div>`;
         if(cst.pending&&cst.pending.length){
           capeBlock+=`<div style="margin-top:5px;border-top:1px dashed #1e3a5f;padding-top:4px">
             <div style="font-size:8px;color:#fb923c;font-weight:700;margin-bottom:3px">⚠ PENDING PEN DEPLOYMENTS (cumulative $${Math.round(cst.pendingTotal).toLocaleString()} — pen $${Math.round(cst.pen).toLocaleString()})</div>`;
