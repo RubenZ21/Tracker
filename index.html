@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.16</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.17</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1411,13 +1411,16 @@ function _capeRec(region){
 function capeHistory(region){return _capeRec(region).history.slice();}
 function capeReadCurrent(region){const h=_capeRec(region).history;return h.length?h[h.length-1].cape:0;}
 // Record (or overwrite) THIS month's reading for one ETF's series. One entry per calendar month.
-function capeRecordMonthly(region,cape,month){
+// `source` is an optional free-text provenance label (manual entry omits it; CSV import sets it).
+// Dedupe is by (region, month): an existing month is overwritten in place, preserving array order.
+function capeRecordMonthly(region,cape,month,source){
   const c=_capeRec(region);
   const m=month||getMonthKey();
   const v=Number(cape);
   if(!(v>0))return false;
   const existing=c.history.find(e=>e.month===m);
-  if(existing)existing.cape=v; else c.history.push({month:m,cape:v});
+  if(existing){existing.cape=v;if(source!=null)existing.source=source;}
+  else c.history.push(source!=null?{month:m,cape:v,source}:{month:m,cape:v});
   c.history.sort((a,b)=>a.month<b.month?-1:1);
   saveCapeState();
   return true;
@@ -1585,6 +1588,94 @@ function promptCapeEntry(region){
   const g=capeApplyGate(region,m);
   saveCapeState();render();
   alert(`${label}\nCAPE ${num.toFixed(1)} → ${g.pct===null?"insufficient history (deploy full)":g.pct.toFixed(0)+"th pct, gate "+g.band}\nBuy $${Math.round(g.deploy).toLocaleString()} now, park $${Math.round(g.park).toLocaleString()} → pen $${Math.round(g.penAfter).toLocaleString()}.`);
+}
+
+// ---------- CSV IMPORT (one-time history seed; INPUT layer only) ----------
+// Pre-seeds each ETF's rolling CAPE history so the percentile gate works immediately, instead
+// of waiting years for manual monthly readings to accumulate. Writes through the SAME store and
+// the SAME capeRecordMonthly() that manual entry uses — so import and manual entry are identical
+// in format. CRITICAL: import seeds HISTORY ONLY. It never calls capeApplyGate and never touches
+// the pen — seeding 91 months must not park 91 months of cash. The pen stays driven solely by the
+// monthly flow. After import we only render() to refresh the (pure-read) percentile/gate display.
+//
+// CSV format: header `etf,month,cape,source`, then rows.
+//   etf    = XZMU (→ region "us") or XZEU (→ region "eu"). Rows route to that ETF's series only;
+//            the two series are never mixed when computing percentiles (capePercentile is per-region).
+//   month  = YYYY-MM.
+//   cape   = decimal > 0.
+//   source = free text (stored; surfaced as a footnote/tooltip).
+// Pure parser: returns {rows:[{region,month,cape,source}], skipped, total, errors:[...]}.
+// Tolerates trailing newline, blank lines, surrounding whitespace, and commas inside the source
+// field (everything after the 3rd comma is treated as source).
+const CAPE_ETF_TO_REGION={XZMU:"us",XZEU:"eu"};
+function parseCapeCsv(text){
+  const out={rows:[],skipped:0,total:0,errors:[]};
+  if(!text)return out;
+  const lines=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n");
+  let started=false;
+  for(let i=0;i<lines.length;i++){
+    const raw=lines[i];
+    if(raw==null)continue;
+    const line=raw.trim();
+    if(line==="")continue;                          // tolerate blank / trailing-newline lines
+    // Header detection: first non-empty line beginning with "etf" (case-insensitive) is the header.
+    if(!started){started=true;if(/^etf\s*,/i.test(line))continue;} // skip header; if no header, fall through
+    out.total++;
+    // Split into at most 4 fields so commas inside `source` are preserved.
+    const parts=line.split(",");
+    const etfRaw=(parts[0]||"").trim().toUpperCase();
+    const monthRaw=(parts[1]||"").trim();
+    const capeRaw=(parts[2]||"").trim();
+    const source=parts.slice(3).join(",").trim();   // rejoin any commas in the source label
+    const region=CAPE_ETF_TO_REGION[etfRaw];
+    if(!region){out.skipped++;out.errors.push(`row ${i+1}: unknown etf "${parts[0]||""}"`);continue;}
+    if(!/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(monthRaw)){out.skipped++;out.errors.push(`row ${i+1}: bad month "${monthRaw}"`);continue;}
+    const cape=Number(capeRaw);
+    if(!(cape>0)||!isFinite(cape)){out.skipped++;out.errors.push(`row ${i+1}: bad cape "${capeRaw}"`);continue;}
+    out.rows.push({region,month:monthRaw,cape,source});
+  }
+  return out;
+}
+// Apply parsed rows to the store via capeRecordMonthly (dedupe-by-(region,month) overwrite is
+// inherent to capeRecordMonthly). Returns per-region counts for the summary.
+function applyCapeCsv(parsed){
+  const counts={us:0,eu:0};
+  parsed.rows.forEach(r=>{
+    if(capeRecordMonthly(r.region,r.cape,r.month,r.source||undefined))counts[r.region]++;
+  });
+  return counts;
+}
+// Hidden-file-input flow. Reads client-side (FileReader), parses, applies, summarizes, refreshes.
+function importCapeCsv(){
+  let inp=document.getElementById("cape-csv-input");
+  if(!inp){
+    inp=document.createElement("input");
+    inp.type="file";inp.accept=".csv,text/csv";inp.id="cape-csv-input";inp.style.display="none";
+    document.body.appendChild(inp);
+  }
+  inp.value="";                                     // allow re-importing the same filename
+  inp.onchange=()=>{
+    const f=inp.files&&inp.files[0];if(!f)return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const parsed=parseCapeCsv(String(rd.result||""));
+        if(!parsed.rows.length){
+          alert(`No valid rows found.\nParsed ${parsed.total} data rows, skipped ${parsed.skipped}.${parsed.errors.length?"\n\n"+parsed.errors.slice(0,8).join("\n"):""}`);
+          return;
+        }
+        const counts=applyCapeCsv(parsed);
+        render();                                    // refresh percentile/gate display (pure read; pen untouched)
+        let msg=`Imported ${counts.us} XZMU + ${counts.eu} XZEU rows, skipped ${parsed.skipped}.`;
+        if(parsed.errors.length)msg+="\n\nSkipped:\n"+parsed.errors.slice(0,8).join("\n")+(parsed.errors.length>8?`\n…+${parsed.errors.length-8} more`:"");
+        msg+="\n\nHistory seeded — the percentile gate is now active. The pen was NOT touched (import seeds history only).";
+        alert(msg);
+      }catch(e){alert("Import failed: "+(e&&e.message||e));}
+    };
+    rd.onerror=()=>alert("Could not read the file.");
+    rd.readAsText(f);
+  };
+  inp.click();
 }
 
 // Stock-picking half: total value of all PT positions + DP (excl index)
@@ -5363,12 +5454,24 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const cgate=capeGate(region);
         const curCape=capeReadCurrent(region);
         const capeColor=cgate.pct===null?"var(--muted)":cgate.pct>=90?"#f87171":cgate.pct>=75?"#facc15":"var(--green)";
+        const capeHist=capeHistory(region);
+        const histN=capeHist.length;
+        // Source footnote: most-recent reading's provenance label, if stored (from CSV import).
+        const lastSrc=histN&&capeHist[histN-1].source?capeHist[histN-1].source:"";
         capeBlock=`<div style="background:#0b1220;border:1px solid #1e3a5f;border-radius:6px;padding:6px 7px;margin:2px 0 4px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
             <span style="font-size:9px;font-weight:700;color:#67e8f9;letter-spacing:.3px">CAPE GATE + PEN</span>
-            <button class="btn-sm" style="font-size:9px;padding:2px 7px" onclick="promptCapeEntry('${region}')">${curCape>0?`CAPE ${curCape.toFixed(1)} ✏`:"Enter CAPE ✏"}</button>
+            <span style="display:flex;gap:4px">
+              <button class="btn-sm" style="font-size:9px;padding:2px 7px" onclick="importCapeCsv()" title="Import CAPE history from a .csv file (header: etf,month,cape,source). Seeds history only — never touches the pen.">⇪ Import CSV</button>
+              <button class="btn-sm" style="font-size:9px;padding:2px 7px" onclick="promptCapeEntry('${region}')">${curCape>0?`CAPE ${curCape.toFixed(1)} ✏`:"Enter CAPE ✏"}</button>
+            </span>
           </div>
-          <div style="font-size:9px;font-family:var(--mono);color:${capeColor};line-height:1.5">${cline}</div>`;
+          <div style="font-size:9px;font-family:var(--mono);color:${capeColor};line-height:1.5">${cline}</div>
+          <div style="font-size:8px;color:var(--muted);margin-top:3px">${histN} reading${histN===1?"":"s"} in history${lastSrc?` · <span title="${lastSrc.replace(/"/g,"&quot;")}">latest: ${lastSrc.length>34?lastSrc.slice(0,34)+"…":lastSrc}</span>`:""}</div>`;
+        // Europe series is a lower-frequency year-end proxy → percentile is approximate.
+        if(region==="eu"){
+          capeBlock+=`<div style="font-size:8px;color:#fbbf24;margin-top:2px">⚠ Europe CAPE is a lower-frequency year-end proxy (STOXX 600 / MSCI Europe) — percentile is approximate until more readings accumulate.</div>`;
+        }
         if(cst.pending&&cst.pending.length){
           capeBlock+=`<div style="margin-top:5px;border-top:1px dashed #1e3a5f;padding-top:4px">
             <div style="font-size:8px;color:#fb923c;font-weight:700;margin-bottom:3px">⚠ PENDING PEN DEPLOYMENTS (cumulative $${Math.round(cst.pendingTotal).toLocaleString()} — pen $${Math.round(cst.pen).toLocaleString()})</div>`;
