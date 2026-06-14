@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.15</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.16</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1306,7 +1306,7 @@ function editEtfHigh(ticker){
   saveEtfHighs();render();
 }
 function checkEtfDrawdowns(){
-  const seen={};const fires=[];
+  const seen={};const fires=[];const capeFires=[];
   ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
     const ticker=indexTickerForPf(pk,rg);if(seen[ticker])return;seen[ticker]=true;
     const ip=getIndexPos(pk,rg);const px=ip.currentPrice||0;if(!(px>0))return;
@@ -1320,8 +1320,14 @@ function checkEtfDrawdowns(){
     }else if(dd<(r.lastBand||0)-2){ // 2% hysteresis before re-arming
       r.lastBand=band;saveEtfHighs();
     }
+    // v4.16: CAPE drawdown LADDER (Rule 2) — continuous crossing detection, region-keyed
+    // (pen is per-ETF, not per-portfolio), so evaluate once per region via the seen-ticker guard.
+    const rg2=rg; // region passed straight through (us/eu)
+    const newRungs=capeLadderEval(rg2,px);
+    newRungs.forEach(nr=>capeFires.push({region:rg2,ticker,ccy:ip.currency||"USD",price:px,...nr}));
   });});
   if(fires.length)sendEtfDrawdownNotification(fires);
+  if(capeFires.length)sendCapeLadderNotification(capeFires);
 }
 function sendEtfDrawdownNotification(fires){
   if(!fires.length)return;
@@ -1341,6 +1347,246 @@ function sendEtfDrawdownNotification(fires){
     localStorage.setItem("r1-etfDDNotifShown",JSON.stringify(shown));
   });
 }
+// v4.16: CAPE ladder firing notification — notify-only (pen drawn down on user confirmation).
+function sendCapeLadderNotification(capeFires){
+  if(!capeFires.length)return;
+  if(typeof Notification==="undefined"||Notification.permission!=="granted")return;
+  navigator.serviceWorker.ready.then(reg=>{
+    capeFires.forEach(f=>{
+      const label=f.region==="us"?"XZMU":"XZEU";
+      reg.showNotification(`🪜 Pen deploy: ${label} −${f.rung}% rung`,{
+        body:`${label} hit −${f.rung}% from TTM high. Buy $${Math.round(f.amount).toLocaleString()} from the holding pen, then confirm in-app to draw the pen down.`,
+        tag:`ttt-cape-${f.region}-${f.rung}`,renotify:true,requireInteraction:true,
+        data:{url:`#capepen:${f.region}`}
+      }).catch(()=>{});
+    });
+  });
+}
+
+// ============ v4.16: CAPE-GATED DEPLOYMENT MODULE (Pool 2 passive ETF layer) ============
+// Two INDEPENDENT rules that STACK. Both can act in the same month.
+//   Rule 1 (CAPE gate): governs each month's NEW $3,000/ETF — deploy now vs. park in pen,
+//                        by where current CAPE sits in that ETF's OWN rolling monthly history.
+//   Rule 2 (drawdown ladder): governs the ACCUMULATED pen OUT, keyed to each ETF's TTM
+//                        closing high (reuses etfTrailingHigh/etfDrawdownPct as price source).
+// Pen balance is the only shared state: gate adds to it, confirmed ladder buys subtract.
+//
+// Architecture is layered so a Cloudflare Worker scraper can later replace manual CAPE entry
+// without touching gate/ladder/display:
+//   • INPUT layer  — capeReadCurrent / capeRecordMonthly / capeHistory. Manual entry today;
+//                    a scraper would call capeRecordMonthly() instead. Nothing else changes.
+//   • GATE layer   — capeGate(region): pure fn of (current CAPE, history) → fraction + amounts.
+//   • LADDER layer — capeLadderEval(): pure crossing/ratchet/gap-fill state machine on pen.
+//   • DISPLAY layer— capeMonthlyLine(region): one string per ETF.
+// region "us" = XZMU = US CAPE ; region "eu" = XZEU = Europe CAPE (own histories, shared
+// percentile thresholds). Europe usually reads low-percentile → deploy full — intended.
+//
+// === STATE (all virtual app bookkeeping; no IBKR reconciliation) ===
+//   capeState[region] = {
+//     history: [{month:"YYYY-MM", cape:Number}, ...],  // rolling monthly series, this ETF only
+//     pen: Number,                                       // accumulated holding-pen balance (USD)
+//     monthlyBudget: Number,                             // new money in per month (default 3000)
+//     ladder: { ddHigh:Number, lastRung:Number,          // ladder arm state vs TTM high
+//               pending:[{rung,amount,date}] },           // fired-but-unconfirmed deployments
+//   }
+// rung values: 10,20,30,40,50 (% drawdown). lastRung = deepest rung already FIRED (ratchet).
+let capeState={};
+try{capeState=JSON.parse(localStorage.getItem("r1-capeState")||"{}")||{};}catch(e){capeState={};}
+function saveCapeState(){localStorage.setItem("r1-capeState",JSON.stringify(capeState));}
+function _capeRec(region){
+  const r=region||"us";
+  if(!capeState[r])capeState[r]={history:[],pen:0,monthlyBudget:3000,ladder:{ddHigh:0,lastRung:0,pending:[]}};
+  const c=capeState[r];
+  if(!Array.isArray(c.history))c.history=[];
+  if(typeof c.pen!=="number")c.pen=0;
+  if(typeof c.monthlyBudget!=="number")c.monthlyBudget=3000;
+  if(!c.ladder)c.ladder={ddHigh:0,lastRung:0,pending:[]};
+  if(typeof c.ladder.ddHigh!=="number")c.ladder.ddHigh=0;
+  if(typeof c.ladder.lastRung!=="number")c.ladder.lastRung=0;
+  if(!Array.isArray(c.ladder.pending))c.ladder.pending=[];
+  return c;
+}
+
+// ---------- INPUT LAYER (manual today; Worker scraper drops in here later) ----------
+function capeHistory(region){return _capeRec(region).history.slice();}
+function capeReadCurrent(region){const h=_capeRec(region).history;return h.length?h[h.length-1].cape:0;}
+// Record (or overwrite) THIS month's reading for one ETF's series. One entry per calendar month.
+function capeRecordMonthly(region,cape,month){
+  const c=_capeRec(region);
+  const m=month||getMonthKey();
+  const v=Number(cape);
+  if(!(v>0))return false;
+  const existing=c.history.find(e=>e.month===m);
+  if(existing)existing.cape=v; else c.history.push({month:m,cape:v});
+  c.history.sort((a,b)=>a.month<b.month?-1:1);
+  saveCapeState();
+  return true;
+}
+// Percentile of `value` within an ETF's own historical readings (inclusive rank, 0-100).
+// With <2 readings there is no distribution → return null (gate then deploys full, see capeGate).
+function capePercentile(region,value){
+  const h=_capeRec(region).history.map(e=>e.cape).filter(x=>x>0);
+  if(h.length<2)return null;
+  const v=(value!=null?Number(value):capeReadCurrent(region));
+  if(!(v>0))return null;
+  let atOrBelow=0;h.forEach(x=>{if(x<=v)atOrBelow++;});
+  return atOrBelow/h.length*100;
+}
+
+// ---------- GATE LAYER (Rule 1) — pure fn of current CAPE + own history ----------
+// Shared thresholds both ETFs: pct<75 → full deploy; 75–90 → $2k deploy / $1k park;
+// >90 → $1.5k deploy / $1.5k park. Diversion capped at 50% of budget. Insufficient history
+// (pct null) → deploy full (can't gate without a distribution). budget defaults to $3,000.
+function capeGate(region){
+  const c=_capeRec(region);
+  const budget=c.monthlyBudget||3000;
+  const cape=capeReadCurrent(region);
+  const pct=capePercentile(region,cape);
+  let deploy,park,band;
+  if(pct===null){deploy=budget;park=0;band="no-history";}
+  else if(pct<75){deploy=budget;park=0;band="<75th";}
+  else if(pct<90){park=Math.min(1000,budget*0.5);deploy=budget-park;band="75–90th";}
+  else{park=Math.min(budget*0.5,1500);deploy=budget-park;band=">90th";}
+  // Hard 50% diversion cap (defensive; thresholds above already honor it at $3k budget).
+  if(park>budget*0.5){park=budget*0.5;deploy=budget-park;}
+  return {cape,pct,band,deploy,park,budget,penAfter:(c.pen||0)+park};
+}
+// Apply this month's gate: divert `park` into the pen. Idempotent per month via a stamp so
+// re-running the monthly flow doesn't double-add. Returns the gate result.
+function capeApplyGate(region,monthKey){
+  const c=_capeRec(region);
+  const m=monthKey||getMonthKey();
+  const g=capeGate(region);
+  if(c._gateApplied!==m){
+    c.pen=(c.pen||0)+g.park;
+    c._gateApplied=m;
+    saveCapeState();
+  }
+  return g;
+}
+
+// ---------- LADDER LAYER (Rule 2) — crossing / ratchet-down / gap-fill state machine ----------
+// Fraction of CURRENT pen per rung: -10→10%, -20→20%, -30→30%, -40→45%, -50→ALL remaining.
+// The 45% at -40 is the one deliberate deviation (keeps each rung's ABSOLUTE deploy ≥ the
+// previous as the pen shrinks). Evaluated continuously (every fetch via checkEtfDrawdowns).
+// Fire-once per rung; ratchet down only (passed rungs never re-fire on a bounce); gap-fill
+// (one move crossing several rungs fires each in sequence on the shrinking balance); reset &
+// re-arm all rungs on a new TTM high.
+const CAPE_LADDER_RUNGS=[10,20,30,40,50];
+function capeRungFraction(rung){return rung>=50?1:(rung===40?0.45:rung/100);}
+// Notify-only: firing AUTO-ADVANCES the rung (so it can never re-fire) and snapshots the
+// computed deploy amount into pending[]; the PEN IS NOT DRAWN DOWN until the user confirms.
+// Gap-fill amounts are computed on the balance AS IF prior pending draws had occurred, so the
+// arithmetic matches the spec even though the real pen only decrements on confirmation.
+function capeLadderEval(region,price){
+  const c=_capeRec(region);
+  const L=c.ladder;
+  const ticker=indexTickerForPf("personal",region); // US/EU ticker identical across portfolios for pen purposes
+  const hi=etfTrailingHigh(ticker);
+  const fired=[];
+  if(!(hi>0)||!(price>0))return fired;
+  // Reset & re-arm on a new TTM high.
+  if(hi>(L.ddHigh||0)){
+    L.ddHigh=hi;
+    if(price>=hi){L.lastRung=0;} // genuinely at a fresh high → all rungs re-armed
+    saveCapeState();
+  }
+  const dd=etfDrawdownPct(ticker,price); // % below trailing high
+  // Effective balance for gap-fill math = current pen minus already-pending (unconfirmed) draws.
+  let pendingSum=(L.pending||[]).reduce((s,p)=>s+p.amount,0);
+  let effBal=Math.max(0,(c.pen||0)-pendingSum);
+  // Fire every armed rung now satisfied, deepest-eligible in sequence (ratchet: only > lastRung).
+  CAPE_LADDER_RUNGS.forEach(rung=>{
+    if(dd>=rung && rung>(L.lastRung||0)){
+      const frac=capeRungFraction(rung);
+      const amt=rung>=50?effBal:effBal*frac;
+      L.lastRung=rung;                 // auto-advance immediately — can never re-fire
+      if(amt>0.005){
+        const rec={rung,amount:amt,date:new Date().toISOString().slice(0,10)};
+        L.pending.push(rec);
+        effBal-=amt;                   // shrink the working balance for the next gap-filled rung
+        fired.push(rec);
+      }
+    }
+  });
+  if(fired.length)saveCapeState();
+  return fired;
+}
+// User confirms a pending ladder deployment (after manually buying): draw it from the pen.
+function capeConfirmPending(region,idx){
+  const c=_capeRec(region);const L=c.ladder;
+  const p=L.pending[idx];if(!p)return;
+  c.pen=Math.max(0,(c.pen||0)-p.amount);
+  L.pending.splice(idx,1);
+  saveCapeState();render();
+}
+function capeDismissPending(region,idx){
+  const c=_capeRec(region);const L=c.ladder;
+  if(!L.pending[idx])return;
+  L.pending.splice(idx,1); // dismiss without drawing pen (rung stays fired — ratchet preserved)
+  saveCapeState();render();
+}
+// Current ladder status descriptor for display.
+function capeLadderStatus(region,price){
+  const c=_capeRec(region);const L=c.ladder;
+  const ticker=indexTickerForPf("personal",region);
+  const hi=etfTrailingHigh(ticker);
+  const dd=(hi>0&&price>0)?etfDrawdownPct(ticker,price):0;
+  let activeRung=0;CAPE_LADDER_RUNGS.forEach(r=>{if(dd>=r)activeRung=r;});
+  const pendingTotal=(L.pending||[]).reduce((s,p)=>s+p.amount,0);
+  return {dd,hi,activeRung,lastRung:L.lastRung||0,pending:L.pending||[],pendingTotal,pen:c.pen||0};
+}
+
+// ---------- DISPLAY LAYER ----------
+// One clear line per ETF per month. Uses live price from the index position.
+function capeMonthlyLine(region){
+  const c=_capeRec(region);
+  const ip=getIndexPos("personal",region);
+  const px=ip.currentPrice||0;
+  const label=region==="us"?"XZMU":"XZEU";
+  const g=capeGate(region);
+  const st=capeLadderStatus(region,px);
+  const pctTxt=g.pct===null?"n/a (need ≥2 readings)":`${g.pct.toFixed(0)}th pct`;
+  const capeTxt=g.cape>0?g.cape.toFixed(1):"—";
+  let line=`CAPE ${capeTxt} · ${pctTxt} · gate ${g.band} → Buy $${Math.round(g.deploy).toLocaleString()} into ${label}, park $${Math.round(g.park).toLocaleString()} in pen, pen now $${Math.round(g.penAfter).toLocaleString()}`;
+  if(st.activeRung>0){
+    const frac=capeRungFraction(st.activeRung);
+    const wouldDeploy=st.activeRung>=50?st.pen:st.pen*frac;
+    const rungTxt=st.activeRung>(st.lastRung)?`−${st.activeRung}% rung ARMED → deploy $${Math.round(wouldDeploy).toLocaleString()} from pen`:`−${st.activeRung}% (rung already fired; pen accumulating)`;
+    line+=` || −${st.dd.toFixed(0)}% from TTM high, ${rungTxt}`;
+  }else if(st.dd>0){
+    line+=` || −${st.dd.toFixed(1)}% from TTM high, no rung active`;
+  }else{
+    line+=` || at TTM high, ladder armed`;
+  }
+  return line;
+}
+// Manual CAPE entry (this is the swappable INPUT seam — a Worker scraper would call
+// capeRecordMonthly + capeApplyGate directly with no other change). Records THIS month's
+// reading for one ETF, then applies the gate (idempotent per month: re-entering the same
+// month overwrites the reading and re-applies without double-parking).
+function promptCapeEntry(region){
+  const label=region==="us"?"XZMU (US CAPE)":"XZEU (Europe CAPE)";
+  const cur=capeReadCurrent(region);
+  const c=_capeRec(region);
+  const v=prompt(`Enter current CAPE for ${label}.\nStored as this month's reading (${getMonthKey()}) in ${label.split(" ")[0]}'s own rolling history;\npercentile is computed against that history.\nMonthly budget per ETF: $${(c.monthlyBudget||3000).toLocaleString()}.`,cur>0?cur:"");
+  if(v===null)return;
+  const num=Number(v);
+  if(!(num>0)){alert("Enter a positive number.");return;}
+  const m=getMonthKey();
+  // Overwrite-safe re-entry: if re-entering the current month after the gate already parked,
+  // roll back this month's park before re-recording + re-applying, so park isn't double-counted.
+  if(c._gateApplied===m){
+    const prev=capeGate(region); // gate from the reading currently on file
+    c.pen=Math.max(0,(c.pen||0)-prev.park);
+    c._gateApplied=null;
+  }
+  capeRecordMonthly(region,num,m);
+  const g=capeApplyGate(region,m);
+  saveCapeState();render();
+  alert(`${label}\nCAPE ${num.toFixed(1)} → ${g.pct===null?"insufficient history (deploy full)":g.pct.toFixed(0)+"th pct, gate "+g.band}\nBuy $${Math.round(g.deploy).toLocaleString()} now, park $${Math.round(g.park).toLocaleString()} → pen $${Math.round(g.penAfter).toLocaleString()}.`);
+}
+
 // Stock-picking half: total value of all PT positions + DP (excl index)
 function stockPickingValue(){const pf=portfolios.personal;if(!pf)return 0;let v=0;Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=posShares(pos)*(s.currentPrice||0);});return v+(pf.dryPowder||0);}
 function stockPickingCostBasis(){const pf=portfolios.personal;if(!pf)return 0;let c=0;Object.entries(pf.positions).forEach(([t,pos])=>{pos.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)c+=sh*tr.buyPrice;});});return c+(pf.dryPowder||0);}
@@ -5109,6 +5355,35 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const ddPct=etfDrawdownPct(ddTicker,px);
       const ddColor=ddPct>=30?"#f87171":ddPct>=20?"#fb923c":ddPct>=10?"#facc15":"var(--muted)";
       const ddLine=px>0?`<div onclick="editEtfHigh('${ddTicker}')" style="font-size:9px;font-family:var(--mono);color:${ddColor};margin:0 0 4px;cursor:pointer">${ddHigh>0?`12m high ${fmt(ddHigh,ccy)} · ${ddPct>=0.05?`−${ddPct.toFixed(1)}% off high`:"at high"}${ddPct>=10?` · 🔔 −${Math.floor(ddPct/10)*10}% band`:""}`:"12m high: tap to seed ✏"}</div>`:"";
+      // v4.16: CAPE-gated deployment UI (Personal tab only — pen is region-keyed, not per-portfolio).
+      let capeBlock="";
+      if(currentPf==="personal"){
+        const cline=capeMonthlyLine(region);
+        const cst=capeLadderStatus(region,px);
+        const cgate=capeGate(region);
+        const curCape=capeReadCurrent(region);
+        const capeColor=cgate.pct===null?"var(--muted)":cgate.pct>=90?"#f87171":cgate.pct>=75?"#facc15":"var(--green)";
+        capeBlock=`<div style="background:#0b1220;border:1px solid #1e3a5f;border-radius:6px;padding:6px 7px;margin:2px 0 4px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+            <span style="font-size:9px;font-weight:700;color:#67e8f9;letter-spacing:.3px">CAPE GATE + PEN</span>
+            <button class="btn-sm" style="font-size:9px;padding:2px 7px" onclick="promptCapeEntry('${region}')">${curCape>0?`CAPE ${curCape.toFixed(1)} ✏`:"Enter CAPE ✏"}</button>
+          </div>
+          <div style="font-size:9px;font-family:var(--mono);color:${capeColor};line-height:1.5">${cline}</div>`;
+        if(cst.pending&&cst.pending.length){
+          capeBlock+=`<div style="margin-top:5px;border-top:1px dashed #1e3a5f;padding-top:4px">
+            <div style="font-size:8px;color:#fb923c;font-weight:700;margin-bottom:3px">⚠ PENDING PEN DEPLOYMENTS (cumulative $${Math.round(cst.pendingTotal).toLocaleString()} — pen $${Math.round(cst.pen).toLocaleString()})</div>`;
+          cst.pending.forEach((p,i)=>{
+            capeBlock+=`<div style="display:flex;justify-content:space-between;align-items:center;gap:5px;margin:2px 0">
+              <span style="font-size:9px;font-family:var(--mono)">−${p.rung}% → buy $${Math.round(p.amount).toLocaleString()} <span style="opacity:.5">${p.date}</span></span>
+              <span style="display:flex;gap:3px">
+                <button class="btn-sm btn-accent" style="font-size:8px;padding:2px 6px" onclick="capeConfirmPending('${region}',${i})">✓ Bought</button>
+                <button class="btn-sm" style="font-size:8px;padding:2px 6px" onclick="capeDismissPending('${region}',${i})">✕</button>
+              </span></div>`;
+          });
+          capeBlock+=`</div>`;
+        }
+        capeBlock+=`</div>`;
+      }
       h+=`<div style="border-top:1px solid var(--border);padding:8px 0 4px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div><span style="font-size:12px;font-weight:600">${label}</span><span style="font-size:9px;color:var(--muted);margin-left:6px">${exch}</span></div>
@@ -5120,6 +5395,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${avg>0?fmt(avg,ccy):"—"}</div></div>
           <div class="stat-box"><div class="stat-label">Value</div><div class="stat-val">${hideValues?"•••":fmt(val,ccy)}</div></div></div>
         ${ddLine}
+        ${capeBlock}
         <div class="btn-row" style="gap:4px">
           <button class="btn-sm btn-accent" style="flex:1;font-size:10px;padding:4px 8px" onclick="logIndexBuy('${currentPf}','${region}')">+ Buy</button>
           <button class="btn-sm" style="flex:0 0 auto;font-size:10px;padding:4px 8px" onclick="editIndexPosition('${currentPf}','${region}')">✏</button></div></div>`;
@@ -7276,6 +7552,15 @@ startRefreshTimer();
 // posts a message to the focused client; the app then switches to the Watch tab in
 // Risklist mode and scrolls to the card.
 function handleRisklistDeeplink(hash){
+  // v4.16: CAPE pen-deployment deeplink → Personal portfolio tab (where the CAPE block renders).
+  const cp=hash.match(/^#capepen:(us|eu)$/);
+  if(cp){
+    currentTab="portfolio";localStorage.setItem("r1-tab","portfolio");
+    currentPf="personal";localStorage.setItem("r1-pf","personal");
+    render();
+    history.replaceState(null,"",location.pathname+location.search);
+    return;
+  }
   const m=hash.match(/^#risklist:(.+)$/);if(!m)return;
   const ticker=m[1].toUpperCase();
   currentTab="watchlist";localStorage.setItem("r1-tab","watchlist");
