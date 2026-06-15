@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.22</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.23</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1771,6 +1771,16 @@ function posCostBasisBase(ticker,pfKey){
   return c;}
 // This position's cost basis as a % of the P1+P3+DP cost-basis tranche base.
 function posCostPctOfBase(ticker,pfKey){const tb=trancheBase(pfKey);if(tb<=0)return 0;return posCostBasisBase(ticker,pfKey)/tb*100;}
+// True when the position is in profit on a weighted-average basis (current price > avg cost/share),
+// i.e. it could be trimmed without realising a loss. Compares like-for-like in native currency.
+function posInProfit(ticker,pfKey){
+  const pf=portfolios[pfKey];const s=stocks[ticker];const pos=pf?.positions?.[ticker];
+  if(!pf||!s||!pos||s.currentPrice==null)return false;
+  let sh=0,cost=0;                                         // native-currency shares + cost
+  pos.tranches.forEach(tr=>{if(tr.signal==="trophy")return;const n=tr.bought-tr.sold;if(n>0){sh+=n;cost+=n*tr.buyPrice;}});
+  if(sh<=0)return false;
+  const avg=cost/sh;                                       // weighted avg buy price, native ccy
+  return s.currentPrice>avg;}
 // === v4.09: over/under-bought relative to a flat 4%-per-tranche target. ===
 // Target = (open non-trophy tranches) × 4% × trancheBase. trancheBase uses CURRENT cost basis
 // only (Pool1 cost + Pool3 cost + DP) — no future salary/income is added. Compares the position's
@@ -5440,16 +5450,21 @@ function renderTrancheBalanceCard(pfKey){
     // visible (you still see the tranche count + gap) but greyed so it doesn't read as a buy prompt.
     const mutedHigh=allTriggersMutedHigh(r.ticker);
     const unlit=deployCount(r.ticker,pfKey)===0;          // nothing would deploy right now
-    const dimmed=mutedHigh||unlit;
-    const col=dimmed?"var(--muted)":r.status==="over"?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
-    const bg=dimmed?"var(--bg)":r.status==="over"?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
+    // v4.23: an OVER position only highlights yellow if current price is above avg cost — i.e.
+    // it can be trimmed without realising a loss. OVER-but-underwater stays neutral/dim.
+    const overInProfit=r.status==="over"&&posInProfit(r.ticker,pfKey);
+    const overUnderwater=r.status==="over"&&!overInProfit;
+    const dimmed=mutedHigh||unlit||overUnderwater;
+    const col=dimmed?"var(--muted)":overInProfit?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
+    const bg=dimmed?"var(--bg)":overInProfit?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
     const tag=r.status==="over"?"OVER":r.status==="under"?"UNDER":"✓ balanced";
     const gapTxt=r.status==="balanced"
       ? `within 10%`
       : `${r.diff>0?"+":"−"}${dual(Math.abs(r.diff))} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
     const action=mutedHigh?"price above sticker — all triggers muted"
-      :unlit?(r.status==="under"?"underallocated — no signal firing, hold":r.status==="over"?"no signal firing — hold":"no signal firing")
-      :r.status==="over"?"bought above target — pause adds"
+      :overUnderwater?"over target but below avg cost — trim would book a loss"
+      :overInProfit?"over target, in profit — trim possible without loss"
+      :unlit?(r.status==="under"?"underallocated — no signal firing, hold":"no signal firing")
       :r.status==="under"?`room for ${dual(Math.abs(r.diff))} more`
       :"on target";
     h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px${dimmed?";opacity:0.5":""}">
