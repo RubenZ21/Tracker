@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.21</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.22</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5577,7 +5577,7 @@ function renderAllocator(c){
           <span style="font-size:13px;font-family:var(--mono);color:#67e8f9;font-weight:600">${_bs}${idxAlloc.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:2px;padding-left:12px">
           <span style="font-size:10px;color:var(--muted)">🇪🇺 XZEU <span style="opacity:.6">50%</span></span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${euB.toLocaleString()}/mo</span></div>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${euB.toLocaleString()}/mo <span style="opacity:.55">≈ €${Math.round(euB/(settings.fxRate||1.185)).toLocaleString()}/mo</span></span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:2px;padding-left:12px">
           <span style="font-size:10px;color:var(--muted)">🇺🇸 XZMU <span style="opacity:.6">25%</span></span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${usB.toLocaleString()}/mo</span></div>
