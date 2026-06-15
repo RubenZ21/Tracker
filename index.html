@@ -161,12 +161,6 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 @keyframes buyFadeIn{from{opacity:0}to{opacity:1}}
 @keyframes buyPulseGlow{0%,100%{box-shadow:0 0 40px #34d39940,0 0 80px #34d39920}50%{box-shadow:0 0 60px #34d39960,0 0 120px #34d39940}}
 @keyframes buyBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-/* DP Slider */
-.dp-slider-wrap{margin-top:6px;padding:8px 0 4px}
-.dp-slider{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;background:linear-gradient(to right,#0d3b2e 0%,#0d3b2e var(--pct),#172554 var(--pct),#172554 100%);outline:none;cursor:pointer}
-.dp-slider::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--text);border:2px solid var(--accent);cursor:pointer;box-shadow:0 0 6px rgba(0,0,0,.4)}
-.dp-slider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--text);border:2px solid var(--accent);cursor:pointer}
-.dp-slider-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px;padding:0 2px}
 /* Import diff modal */
 .diff-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:200;animation:buyFadeIn .3s ease-out}
 .diff-modal{width:92%;max-width:520px;max-height:82vh;background:var(--card);border-radius:16px;border:1px solid var(--border);overflow:hidden;display:flex;flex-direction:column}
@@ -270,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.20</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.21</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -998,7 +992,6 @@ function snoozeSignal(t,sig){if(!stocks[t].snoozed)stocks[t].snoozed={};stocks[t
 function toggleLimitOrder(t,sig){if(!stocks[t].limitOrders)stocks[t].limitOrders={};const cur=stocks[t].limitOrders[sig];const next=!cur?"personal":cur==="personal"?"both":cur==="both"?"caca":undefined;if(next)stocks[t].limitOrders[sig]=next;else delete stocks[t].limitOrders[sig];save();render();}
 function hasLimitOrder(t,sig,pf){const v=stocks[t]?.limitOrders?.[sig];if(!v)return false;if(!pf)return true;if(v==="both")return true;const want=pf==="nl"?"caca":pf;return v===want;}
 function loLabel(t,sig){const v=stocks[t]?.limitOrders?.[sig];if(!v)return"";if(v==="personal")return"🧑";if(v==="both")return"🧑🧓";if(v==="caca")return"🧓";return"";}
-function stockLimitOrderCount(t){const lo=stocks[t]?.limitOrders;if(!lo)return 0;return["mos","tenCap","pbt","pmos"].filter(k=>lo[k]).length;}
 function unsnoozeStock(t){delete stocks[t].snoozed;save();render();}
 function snoozeLabel(t){const s=stocks[t];if(!s?.snoozed)return"";const sigs=Object.entries(s.snoozed).filter(([k,v])=>Date.now()<=v);if(!sigs.length)return"";const d=new Date(Math.max(...sigs.map(([k,v])=>v)));const names=sigs.map(([k])=>k==="mos"?"MOS":k==="tenCap"?trigT3Label(t):trigT2Label(t));return names.join("+")+"\u2009until\u2009"+d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
 
@@ -1267,15 +1260,11 @@ function indexRegionBudgetUSD(region){return Math.round((indexAllocationUSD()||0
 const _emptyIx=(ccy)=>({shares:0,avgCost:0,currency:ccy||"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
 function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR"),ffe:_emptyIx("USD")};if(!pf.indexPositions)pf.indexPositions={};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx("USD");if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");if(!pf.indexPositions.ffe)pf.indexPositions.ffe=_emptyIx("USD");return pf.indexPositions;}
 function getIndexPos(pfKey,region){return getIndexPositions(pfKey)[region||"us"];}
-function indexValueSingle(pfKey,region){const ip=getIndexPos(pfKey,region);return(ip.shares||0)*(ip.currentPrice||0);}
 function indexValue(pfKey){const base=pfBaseCcy(pfKey||"personal");let v=0;INDEX_REGIONS.forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.currentPrice||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
-function indexCostSingle(pfKey,region){const ip=getIndexPos(pfKey,region);return(ip.shares||0)*(ip.avgCost||0);}
 function indexCostBasis(pfKey){let v=0;INDEX_REGIONS.forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.avgCost||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
-function indexReturn(pfKey){const v=indexValue(pfKey),c=indexCostBasis(pfKey);if(!c)return null;return((v-c)/c*100);}
 // Caca index: how many tranches deployed (across both ETFs), % of portfolio, cap check
 function cacaIndexInfo(){const ips=getIndexPositions("nl");const deployed=(ips.us.deployLog||[]).length+(ips.eu.deployLog||[]).length+(ips.ffe.deployLog||[]).length;const cap=settings.nlIndexCap||10;const maxT=(settings.nlIndexMaxTranches||4)*2;const ci=cacaInfo();const ixVal=indexValue("nl");const totalWithIndex=ci.total+ixVal;const pctOfPortfolio=totalWithIndex>0?(ixVal/totalWithIndex*100):0;const capRoom=totalWithIndex>0?Math.max(0,(cap/100)*totalWithIndex-ixVal):0;const atCap=deployed>=maxT||pctOfPortfolio>=cap;return{deployed,maxT,cap,pctOfPortfolio,capRoom,atCap,ixVal};}
 function indexTickerForPf(pfKey,region){const r=region||"us";if(pfKey==="nl"){if(r==="ffe")return settings.nlIndexTickerFFE||"XFFE.L";return r==="us"?(settings.nlIndexTickerUS||"XZMU.L"):(settings.nlIndexTickerEU||"XZEU.DE");}if(r==="ffe")return settings.indexTickerFFE||"XFFE.L";return r==="us"?(settings.indexTickerUS||"XZMU.L"):(settings.indexTickerEU||"XZEU.L");}
-function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).replace(/\.(L|DE|AS)$/,"");}
 // ============ v4.05: ETF 12-month trailing-high drawdown tracker ============
 // Tracks a rolling 365-day high per ETF ticker and notifies each time drawdown from that
 // high crosses a deeper 10% band (-10%, -20%, -30%...) — a prompt to consider an extra
@@ -1817,7 +1806,6 @@ function positionMVPct(ticker,pfKey){const pf=portfolios[pfKey];if(!pf)return 0;
 function atPositionCap(ticker,pfKey){return positionMVPct(ticker,pfKey)>=positionCapPct(ticker,pfKey);}
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
-function getPerfSnaps(){return JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");}
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD);pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
 
 // DP reserved for armed limit orders (base ccy). Each armed limit order reserves one tranche:
@@ -1845,59 +1833,7 @@ function limitOrderCount(pfKey){
   Object.keys(stocks).forEach(t=>{const lo=stocks[t]?.limitOrders;if(!lo)return;keys.forEach(k=>{if(lo[k]&&hasLimitOrder(t,k,pfKey))n++;});});
   return n;
 }
-// DP Slider: split total DP into MOS Reserve (capped) and Expansion (remainder)
-function getDPSplit(pfKey){
-  const pf=portfolios[pfKey];if(!pf)return{totalDP:0,mosReserveMax:0,expansionMin:0,sliderPct:40,overflowing:false};
-  const sliderPct=pfKey==="nl"?(settings.dpSliderCaca??50):(settings.dpSlider??40);
-  const totalDP=pf.dryPowder||0;
-  if(totalDP<=0)return{totalDP:0,mosReserveMax:0,expansionMin:0,sliderPct,overflowing:false};
-  const mosReserveMax=Math.round(totalDP*(sliderPct/100));
-  const expansionMin=totalDP-mosReserveMax;
-  // Check if monthly MOS flow would overflow
-  const mb=getMOSBreakdown(pfKey);
-  return{totalDP,mosReserveMax,expansionMin,sliderPct,overflowing:mb.totalMosReserved>=mosReserveMax,mosFlowPerMonth:mb.totalMonthlyFlow,totalMosReserved:mb.totalMosReserved};
-}
 
-// Per-stock unlit signal counts and MOS reserve breakdown
-function getMOSBreakdown(pfKey){
-  const pf=portfolios[pfKey];if(!pf)return{stocks:[],totalMonthlyFlow:0,totalMosReserved:0,totalUnlit:0};
-  const GRID=getGrid(pfKey);const _bc=pfBaseCcy(pfKey);
-  // 4M block (v4.07): blocked stocks are excluded from BOTH the firing set and the slot
-  // denominator — they can't receive monthly flow or MOS reserves while blocked.
-  const firingStocks=GRID.filter(t=>sigCount(t)>0&&!isBlocked(t));
-  const validSlots=firingStocks.reduce((n,t)=>n+validTriggerSlots(t,pfKey),0);
-  const expSlots=0;
-  const denom=validSlots+expSlots;
-  const income=pfKey==="personal"?ptIncome("personal"):0;
-  const perTr=denom>0?Math.round(income/denom):0;
-  const result=[];let totalMonthlyFlow=0;let totalUnlit=0;let totalMosReserved=0;
-  firingStocks.forEach(t=>{
-    const s=stocks[t];const slots=validTriggerSlots(t,pfKey);const dc=deployCount(t,pfKey);const unlit=slots-dc;
-    if(unlit<=0)return;
-    // Skip risk-bucket stocks in this portfolio (MOS reserves suppressed)
-    if(isRisk(t,pfKey))return;
-    // Buffett stocks: unlit goes to expansion, not MOS
-    if(isBuffett(t))return;
-    const monthlyFlow=unlit*perTr;
-    // Calculate actual MOS reserved from position data
-    const pos=pf.positions?.[t];let reserved=0;
-    if(pos){
-      const nTr=posTranchesOwned(pos);const avg=posAvgPrice(pos);const sh=posShares(pos);
-      if(nTr>0&&avg>0&&sh>0){
-        const resMult=s.currency==="GBp"?100:1;
-        reserved=Math.round(avg*sh/nTr/resMult*unlit);
-      }
-      if(pos.mosReserve!=null)reserved=pos.mosReserve;
-    }
-    const resCcy=s.currency==="GBp"?"GBP":s.currency;
-    const reservedBase=Math.round(fromEUR(toEUR(reserved,resCcy),_bc));
-    totalMonthlyFlow+=monthlyFlow;totalUnlit+=unlit;totalMosReserved+=reservedBase;
-    result.push({ticker:t,unlit,monthlyFlow,reserved:reservedBase,pctOfFlow:0});
-  });
-  // Calculate percentage shares
-  if(totalUnlit>0)result.forEach(r=>r.pctOfFlow=Math.round(r.unlit/totalUnlit*100));
-  return{stocks:result,totalMonthlyFlow,totalMosReserved,totalUnlit};
-}
 function pfValueEUR(pfKey){const pf=portfolios[pfKey];if(!pf)return 0;let v=0;
   Object.entries(pf.positions).forEach(([t,pos])=>{const s=stocks[t];if(!s)return;v+=toEUR(posShares(pos)*s.currentPrice,s.currency);});
   // Include index positions for personal portfolio (indexValue returns USD base)
@@ -1936,39 +1872,6 @@ function cacaInfo(){
 // 16% cap intent, 3×4% with non-Tier-1 PT/HIGHGR, and 2×4% with Buffett. (Category MV caps in
 // positionCapPct are unchanged; this is the tranche-count alignment only.)
 //   Tier 1 (PT/HIGHGR): max 4 tranches (incl. P-MOS) → 16% target
-//   Non-Tier-1 PT/HIGHGR: max 3 tranches → 12% target
-//   Buffett: max 2 tranches → 8% target
-function cacaAllocStatus(ticker){
-  const pf=portfolios.nl;if(!pf)return null;
-  const pos=pf.positions?.[ticker];if(!pos)return null;
-  const s=stocks[ticker];if(!s)return null;
-  const sh=posShares(pos);if(sh<=0)return null;
-  const avg=posAvgPrice(pos);
-  const costEUR=toEUR(avg*sh,s.currency);
-  const ci=cacaInfo();
-  const sig=sigCount(ticker);
-  // Target = min(deployed tranches, category max) × tranche size. Aligns with per-stock cap.
-  const cons=s.cons||{};const buf=isBuffett(ticker);
-  const isT1=isOperationalTier1(ticker);
-  const nTranches=posTranchesOwned(pos);
-  const maxTranches=buf?2:isT1?4:3;
-  const targetTranches=Math.min(nTranches,maxTranches);
-  const trBelow=nTranches; // kept in return shape for backward compat
-  const target=targetTranches*ci.tranche;
-  // Buffett: anchor = 20Cap (OE×20). Phil Town: anchor = Sticker. At anchor → capital-recovery.
-  // Tier 1 in Caca → null sellRef (forever-hold, never enters sellAll).
-  const sellRef=isT1?null:(buf?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null));
-  const aboveSellRef=sellRef&&s.currentPrice>sellRef;
-  const diff=costEUR-target;
-  const aboveCost=s.currentPrice>=avg;
-  // Status: sellAll (above sell reference, 0/N), overAllocated, underAllocated, balanced
-  let status="balanced";
-  if(sig===0&&aboveSellRef)status="sellAll";
-  else if(target===0&&sig===0)status="noTarget";
-  else if(diff>ci.tranche*0.15)status="over";
-  else if(diff<-ci.tranche*0.15)status="under";
-  return{costEUR,target,diff,status,aboveCost,aboveSticker:aboveSellRef,tranche:ci.tranche,trBelow,targetTranches};
-}
 
 function load(){
   try{
@@ -6730,46 +6633,6 @@ function dpPreviewTotal(pfKey){
   const total=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);
   const sym=base==="USD"?"$":"€";
   document.getElementById("dp-total").textContent=sym+total.toLocaleString();
-}
-function dpSliderPreview(el,pfKey){
-  const val=+el.value;
-  el.style.setProperty('--pct',val+'%');
-  const pf=portfolios[pfKey];if(!pf)return;
-  const totalDP=pf.dryPowder||0;
-  if(totalDP<=0)return;
-  const mosAmt=Math.round(totalDP*(val/100));
-  const expAmt=Math.round(totalDP-mosAmt);
-  const ccy=pfKey==='nl'?'€':'$';
-  const mosEl=document.getElementById('dp-mos-label');
-  if(mosEl)mosEl.textContent='MOS '+ccy+mosAmt.toLocaleString();
-  const pctEl=document.getElementById('dp-pct-toggle');
-  if(pctEl)pctEl.textContent=val+'%';
-  const expEl=document.getElementById('dp-exp-label');
-  if(expEl)expEl.textContent='EXP '+ccy+expAmt.toLocaleString();
-  const lbl=document.getElementById('dp-slider-pct-label');
-  if(lbl){const pfc=pfCostExIndex(pfKey);if(pfc>0){const dpPct=(totalDP/pfc*100).toFixed(1);const mosPct=(mosAmt/pfc*100).toFixed(1);lbl.textContent='DP '+dpPct+'% · MOS reserve '+mosPct+'%';}}
-}
-function dpManualEdit(which,pfKey){
-  const pf=portfolios[pfKey];if(!pf)return;
-  const totalDP=pf.dryPowder||0;
-  if(totalDP<=0)return;
-  const ccy=pfKey==='nl'?'€':'$';
-  const dps=getDPSplit(pfKey);
-  const current=which==='mos'?Math.round(dps.mosReserveMax):Math.round(dps.expansionMin);
-  const label=which==='mos'?'MOS reserve':'Expansion';
-  const input=prompt(label+' amount ('+ccy+'):',current);
-  if(input==null)return;
-  const amt=Math.max(0,Math.min(totalDP,+input||0));
-  const exactPct=which==='mos'?(amt/totalDP*100):((totalDP-amt)/totalDP*100);
-  const clamped=Math.max(0,Math.min(100,exactPct));
-  dpSliderCommit(pfKey,clamped);
-}
-function dpSliderCommit(pfKey,val){
-  if(pfKey==="nl")settings.dpSliderCaca=val;else settings.dpSlider=val;
-  save();render();
-  // Reopen slider after render
-  const ctrl=document.getElementById('dp-slider-ctrl');
-  if(ctrl)ctrl.style.display='block';
 }
 
 // ============ DEPLOYMENT LOG ============
