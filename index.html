@@ -270,7 +270,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.19</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.20</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -370,7 +370,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",indexTickerFFE:"XFFE.L",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexTickerFFE:"XFFE.L",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 // watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
 let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
@@ -1251,18 +1251,30 @@ function pfIncome(pfKey){if(pfKey!=="personal")return 0;return pfBaseCcy("person
 function indexAllocationUSD(){const pct=settings.indexAllocationPct;if(pct==null||pct<=0)return 0;return Math.round((pfIncome("personal")||0)*pct/100);}
 // Phil Town income: total income minus index allocation (only for personal)
 function ptIncome(pfKey){if(pfKey!=="personal")return pfIncome(pfKey);return pfIncome(pfKey)-indexAllocationUSD();}
-// Index position helpers — dual tracker (XZMU=US, XZEU=EU)
+// Index position helpers — three-leg tracker:
+//   us  = XZMU  (US CAPE equity leg, 25% of index budget)
+//   eu  = XZEU  (Europe CAPE equity leg, 50% of index budget)
+//   ffe = XFFE  (short-term USD bond ETF — the holding-pen vehicle, 25% of index budget)
+// XFFE is a REAL tracked holding (shares/avgCost) populated from the Holdings CSV, not a
+// virtual counter. It carries NO CAPE gate or drawdown ladder of its own — it is purely the
+// pen vehicle: high-CAPE park money buys XFFE; ladder fires sell XFFE to fund equity buys.
+const INDEX_REGIONS=["us","eu","ffe"];
+const INDEX_EQUITY_REGIONS=["us","eu"]; // CAPE gate/ladder apply only to these
+// Fixed strategic budget weights (fraction of the index budget per leg). CAPE bands then
+// adjust each EQUITY leg's deploy-vs-park WITHIN its own share; XFFE receives the parked flow.
+const INDEX_REGION_WEIGHT={us:0.25,eu:0.50,ffe:0.25};
+function indexRegionBudgetUSD(region){return Math.round((indexAllocationUSD()||0)*(INDEX_REGION_WEIGHT[region]||0));}
 const _emptyIx=(ccy)=>({shares:0,avgCost:0,currency:ccy||"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
-function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR")};const ccyUS="USD";if(!pf.indexPositions)pf.indexPositions={us:_emptyIx(ccyUS),eu:_emptyIx("EUR")};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx(ccyUS);if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");return pf.indexPositions;}
+function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR"),ffe:_emptyIx("USD")};if(!pf.indexPositions)pf.indexPositions={};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx("USD");if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");if(!pf.indexPositions.ffe)pf.indexPositions.ffe=_emptyIx("USD");return pf.indexPositions;}
 function getIndexPos(pfKey,region){return getIndexPositions(pfKey)[region||"us"];}
 function indexValueSingle(pfKey,region){const ip=getIndexPos(pfKey,region);return(ip.shares||0)*(ip.currentPrice||0);}
-function indexValue(pfKey){const base=pfBaseCcy(pfKey||"personal");let v=0;["us","eu"].forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.currentPrice||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
+function indexValue(pfKey){const base=pfBaseCcy(pfKey||"personal");let v=0;INDEX_REGIONS.forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.currentPrice||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
 function indexCostSingle(pfKey,region){const ip=getIndexPos(pfKey,region);return(ip.shares||0)*(ip.avgCost||0);}
-function indexCostBasis(pfKey){let v=0;["us","eu"].forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.avgCost||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
+function indexCostBasis(pfKey){let v=0;INDEX_REGIONS.forEach(r=>{const ip=getIndexPos(pfKey,r);const raw=(ip.shares||0)*(ip.avgCost||0);v+=toBase(raw,ip.currency||"USD",pfKey||"personal");});return v;}
 function indexReturn(pfKey){const v=indexValue(pfKey),c=indexCostBasis(pfKey);if(!c)return null;return((v-c)/c*100);}
 // Caca index: how many tranches deployed (across both ETFs), % of portfolio, cap check
-function cacaIndexInfo(){const ips=getIndexPositions("nl");const deployed=(ips.us.deployLog||[]).length+(ips.eu.deployLog||[]).length;const cap=settings.nlIndexCap||10;const maxT=(settings.nlIndexMaxTranches||4)*2;const ci=cacaInfo();const ixVal=indexValue("nl");const totalWithIndex=ci.total+ixVal;const pctOfPortfolio=totalWithIndex>0?(ixVal/totalWithIndex*100):0;const capRoom=totalWithIndex>0?Math.max(0,(cap/100)*totalWithIndex-ixVal):0;const atCap=deployed>=maxT||pctOfPortfolio>=cap;return{deployed,maxT,cap,pctOfPortfolio,capRoom,atCap,ixVal};}
-function indexTickerForPf(pfKey,region){const r=region||"us";if(pfKey==="nl")return r==="us"?(settings.nlIndexTickerUS||"XZMU.L"):(settings.nlIndexTickerEU||"XZEU.DE");return r==="us"?(settings.indexTickerUS||"XZMU.L"):(settings.indexTickerEU||"XZEU.L");}
+function cacaIndexInfo(){const ips=getIndexPositions("nl");const deployed=(ips.us.deployLog||[]).length+(ips.eu.deployLog||[]).length+(ips.ffe.deployLog||[]).length;const cap=settings.nlIndexCap||10;const maxT=(settings.nlIndexMaxTranches||4)*2;const ci=cacaInfo();const ixVal=indexValue("nl");const totalWithIndex=ci.total+ixVal;const pctOfPortfolio=totalWithIndex>0?(ixVal/totalWithIndex*100):0;const capRoom=totalWithIndex>0?Math.max(0,(cap/100)*totalWithIndex-ixVal):0;const atCap=deployed>=maxT||pctOfPortfolio>=cap;return{deployed,maxT,cap,pctOfPortfolio,capRoom,atCap,ixVal};}
+function indexTickerForPf(pfKey,region){const r=region||"us";if(pfKey==="nl"){if(r==="ffe")return settings.nlIndexTickerFFE||"XFFE.L";return r==="us"?(settings.nlIndexTickerUS||"XZMU.L"):(settings.nlIndexTickerEU||"XZEU.DE");}if(r==="ffe")return settings.indexTickerFFE||"XFFE.L";return r==="us"?(settings.indexTickerUS||"XZMU.L"):(settings.indexTickerEU||"XZEU.L");}
 function indexTickerShort(pfKey,region){return indexTickerForPf(pfKey,region).replace(/\.(L|DE|AS)$/,"");}
 // ============ v4.05: ETF 12-month trailing-high drawdown tracker ============
 // Tracks a rolling 365-day high per ETF ticker and notifies each time drawdown from that
@@ -1307,7 +1319,7 @@ function editEtfHigh(ticker){
 }
 function checkEtfDrawdowns(){
   const seen={};const fires=[];const capeFires=[];
-  ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+  ["personal","nl"].forEach(pk=>{INDEX_REGIONS.forEach(rg=>{
     const ticker=indexTickerForPf(pk,rg);if(seen[ticker])return;seen[ticker]=true;
     const ip=getIndexPos(pk,rg);const px=ip.currentPrice||0;if(!(px>0))return;
     recordEtfPrice(ticker,px,null); // record regardless of price source (yahoo or ibkr)
@@ -1322,6 +1334,8 @@ function checkEtfDrawdowns(){
     }
     // v4.16: CAPE drawdown LADDER (Rule 2) — continuous crossing detection, region-keyed
     // (pen is per-ETF, not per-portfolio), so evaluate once per region via the seen-ticker guard.
+    // XFFE (ffe) is the pen VEHICLE, not a CAPE leg — it has no ladder of its own.
+    if(rg==="ffe")return;
     const rg2=rg; // region passed straight through (us/eu)
     const newRungs=capeLadderEval(rg2,px);
     newRungs.forEach(nr=>capeFires.push({region:rg2,ticker,ccy:ip.currency||"USD",price:px,...nr}));
@@ -1475,6 +1489,11 @@ function capeApplyGate(region,monthKey){
   }
   return g;
 }
+// Aggregate holding-pen balance (USD) across both equity legs. This is the INTENT ledger: it
+// says how much money is "parked" awaiting deployment. The XFFE leg is where that money physically
+// sits — XFFE shares/avgCost are driven by the Holdings CSV (source of truth), and this counter is
+// reconciled against XFFE market value in the pen-vehicle UI block.
+function penTotalUSD(){return (_capeRec("us").pen||0)+(_capeRec("eu").pen||0);}
 
 // ---------- LADDER LAYER (Rule 2) — crossing / ratchet-down / gap-fill state machine ----------
 // Fraction of CURRENT pen per rung: -10→10%, -20→20%, -30→30%, -40→45%, -50→ALL remaining.
@@ -2049,16 +2068,19 @@ function load(){
   }
   if(!settings.indexTickerUS)settings.indexTickerUS="XZMU.L";
   if(!settings.indexTickerEU)settings.indexTickerEU="XZEU.L";
-  // Migration: single indexPosition → dual indexPositions (XZMU+XZEU)
+  if(!settings.indexTickerFFE)settings.indexTickerFFE="XFFE.L"; // short-term USD bond ETF (pen vehicle)
+  // Migration: dual indexPositions (XZMU+XZEU) → three legs (+ XFFE pen vehicle, USD)
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];const ccyUS=pk==="nl"?"EUR":"USD";const ccyEU="EUR";
     if(!pf.indexPositions)pf.indexPositions={us:{shares:0,avgCost:0,currency:ccyUS,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]},eu:{shares:0,avgCost:0,currency:ccyEU,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]}};
     if(!pf.indexPositions.us)pf.indexPositions.us={shares:0,avgCost:0,currency:ccyUS,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
     if(!pf.indexPositions.eu)pf.indexPositions.eu={shares:0,avgCost:0,currency:ccyEU,currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
+    if(!pf.indexPositions.ffe)pf.indexPositions.ffe={shares:0,avgCost:0,currency:"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]};
     // Migrate old single indexPosition into US slot if it had shares and dual hasn't been set up yet
     if(pf.indexPosition&&pf.indexPosition.shares>0&&pf.indexPositions.us.shares===0&&pf.indexPositions.eu.shares===0){pf.indexPositions.us=pf.indexPosition;delete pf.indexPosition;}
     else if(pf.indexPosition){delete pf.indexPosition;}
   });
+  if(!settings.nlIndexTickerFFE)settings.nlIndexTickerFFE="XFFE.L";
   // Migrate old single ticker settings
   if(settings.indexTicker&&settings.indexTicker!=="XZW0.L"){settings.indexTickerUS=settings.indexTicker;}delete settings.indexTicker;
   if(settings.nlIndexTicker&&settings.nlIndexTicker!=="XZW0.DE"){settings.nlIndexTickerUS=settings.nlIndexTicker;}delete settings.nlIndexTicker;
@@ -2327,7 +2349,7 @@ async function fetchPrices(){
   // 3b. Fetch index ETF prices (XZMU+XZEU for Personal and Caca) — not in stocks object
   if(settings.ibkrWorker){
     const indexEntries=[];
-    ["personal","nl"].forEach(pk=>{["us","eu"].forEach(r=>{indexEntries.push({ticker:indexTickerForPf(pk,r),pf:pk,region:r});});});
+    ["personal","nl"].forEach(pk=>{INDEX_REGIONS.forEach(r=>{indexEntries.push({ticker:indexTickerForPf(pk,r),pf:pk,region:r});});});
     // Deduplicate fetches by ticker, but track all targets
     const tickerMap={};indexEntries.forEach(e=>{if(!tickerMap[e.ticker])tickerMap[e.ticker]=[];tickerMap[e.ticker].push(e);});
     for(const [ticker,targets] of Object.entries(tickerMap)){
@@ -2359,7 +2381,7 @@ async function fetchPrices(){
 
   settings.lastFetch=Date.now();save();render();
   // Record daily performance snapshot for index vs stock-picking comparison
-  if(indexAllocationUSD()>0&&(getIndexPos("personal","us").shares>0||getIndexPos("personal","eu").shares>0))recordSnapshot();
+  if(indexAllocationUSD()>0&&(getIndexPos("personal","us").shares>0||getIndexPos("personal","eu").shares>0||getIndexPos("personal","ffe").shares>0))recordSnapshot();
   // Check for new signals and celebrate
   const newFires=checkNewSignals();
   if(newFires.length){
@@ -3146,12 +3168,15 @@ function _indexRegionForTicker(ticker,pfKey){
   // Match against configured tickers for this portfolio (full form, e.g. XZMU.L)
   const us=indexTickerForPf(pfKey,"us").toUpperCase();
   const eu=indexTickerForPf(pfKey,"eu").toUpperCase();
+  const ffe=indexTickerForPf(pfKey,"ffe").toUpperCase();
   if(tup===us)return"us";
   if(tup===eu)return"eu";
-  // Also match by short prefix (XZMU/XZEU/XZW0) for resilience to .L/.DE variations
+  if(tup===ffe)return"ffe";
+  // Also match by short prefix (XZMU/XZEU/XFFE/XZW0) for resilience to .L/.DE variations
   const short=tup.replace(/\.(L|DE|AS|TO|T)$/,"");
   if(short==="XZMU")return"us";
   if(short==="XZEU")return"eu";
+  if(short==="XFFE")return"ffe";
   if(short==="XZW0")return"us"; // legacy world ticker → US slot
   return null;
 }
@@ -3178,7 +3203,7 @@ function exportHoldingsCSV(){
   // 2. Index ETF aggregate positions (one row per non-zero leg per portfolio)
   Object.keys(portfolios).forEach(pk=>{
     const csvPf=_PF_KEY_TO_CSV[pk];if(!csvPf)return;
-    ["us","eu"].forEach(region=>{
+    INDEX_REGIONS.forEach(region=>{
       const ip=getIndexPos(pk,region);
       if(!ip||!(ip.shares>0))return;
       const ticker=indexTickerForPf(pk,region);
@@ -3247,7 +3272,7 @@ function _fmtCash(v,ccy){
 // Compute holdings diff: compares current state vs proposed (parsed) state.
 // Returns {diff:{stocks,index,cash}, totals:{stocks,index,cash,total}}.
 function _computeHoldingsDiff(parsed){
-  const after={personal:{stocks:{},index:{us:null,eu:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null},cash:{}}};
+  const after={personal:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}}};
   Object.keys(after).forEach(pk=>HOLDINGS_CASH_CCYS.forEach(c=>after[pk].cash[c]=0));
   const indexAgg={};
   parsed.forEach(row=>{
@@ -3273,7 +3298,7 @@ function _computeHoldingsDiff(parsed){
     after[pk].index[r]={shares:agg.shares,avgCost:agg.shares>0?+(agg.costSum/agg.shares).toFixed(4):0};
   });
   // Build "before" snapshot from current portfolios
-  const before={personal:{stocks:{},index:{us:null,eu:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null},cash:{}}};
+  const before={personal:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}}};
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
     HOLDINGS_CASH_CCYS.forEach(c=>before[pk].cash[c]=pf["dp"+c]||0);
@@ -3281,7 +3306,7 @@ function _computeHoldingsDiff(parsed){
       const trs=(pos.tranches||[]).filter(tr=>((tr.bought||0)-(tr.sold||0))>0);
       if(trs.length)before[pk].stocks[t]=trs.map(tr=>({signal:tr.signal,shares:(tr.bought||0)-(tr.sold||0),buyPrice:tr.buyPrice,buyDate:tr.buyDate||null,notes:tr.notes||""}));
     });
-    ["us","eu"].forEach(r=>{const ip=getIndexPos(pk,r);if(ip&&ip.shares>0)before[pk].index[r]={shares:ip.shares,avgCost:ip.avgCost};});
+    INDEX_REGIONS.forEach(r=>{const ip=getIndexPos(pk,r);if(ip&&ip.shares>0)before[pk].index[r]={shares:ip.shares,avgCost:ip.avgCost};});
   });
   // Compute diff per portfolio
   const out={stocks:{personal:[],nl:[]},index:{personal:[],nl:[]},cash:{personal:[],nl:[]}};
@@ -3298,7 +3323,7 @@ function _computeHoldingsDiff(parsed){
         if(key(b)!==key(a))out.stocks[pk].push({ticker:t,kind:"changed",before:b,after:a});
       }
     });
-    ["us","eu"].forEach(r=>{
+    INDEX_REGIONS.forEach(r=>{
       const b=before[pk].index[r],a=after[pk].index[r];
       if(!b&&a)out.index[pk].push({region:r,kind:"new",before:null,after:a});
       else if(b&&!a)out.index[pk].push({region:r,kind:"removed",before:b,after:null});
@@ -3527,7 +3552,7 @@ function _applyHoldingsImport(parsed,warnings){
   Object.keys(portfolios).forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
     pf.positions={};
-    ["us","eu"].forEach(r=>{
+    INDEX_REGIONS.forEach(r=>{
       const ip=getIndexPos(pk,r); // ensures it exists
       ip.shares=0;ip.avgCost=0;
     });
@@ -3725,12 +3750,12 @@ function exportExcel(){
   // Sheet 5: Index Log — per-region per-portfolio DCA history (v3.40)
   const ixRows=[];
   ["personal","nl"].forEach(pk=>{
-    ["us","eu"].forEach(region=>{
+    INDEX_REGIONS.forEach(region=>{
       const ip=getIndexPos(pk,region);
       (ip.deployLog||[]).forEach(entry=>{
         ixRows.push({portfolio:pk,region,date:entry.date,
           shares:entry.shares,price:entry.price,amount:entry.amount,
-          currency:ip.currency||(region==="us"?"USD":"EUR")});
+          currency:ip.currency||(region==="eu"?"EUR":"USD")});
       });
     });
   });
@@ -3986,13 +4011,13 @@ function handleExcelImport(e){
         const rows=XLSX.utils.sheet_to_json(wb.Sheets["IndexLog"]);
         // Build per-(portfolio,region) sets of existing keys so we can merge without duplicates
         const seen={};
-        ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+        ["personal","nl"].forEach(pk=>{INDEX_REGIONS.forEach(rg=>{
           const ip=getIndexPos(pk,rg);if(!ip.deployLog)ip.deployLog=[];
           seen[pk+"|"+rg]=new Set(ip.deployLog.map(e=>(e.date||"")+"|"+(e.shares||0)+"|"+(e.price||0)));
         });});
         rows.forEach(row=>{
           const pk=String(row.portfolio||"personal");const rg=String(row.region||"us");
-          if(!portfolios[pk]||(rg!=="us"&&rg!=="eu"))return;
+          if(!portfolios[pk]||!INDEX_REGIONS.includes(rg))return;
           const ip=getIndexPos(pk,rg);
           const key=(row.date||"")+"|"+(Number(row.shares)||0)+"|"+(Number(row.price)||0);
           if(seen[pk+"|"+rg].has(key))return;
@@ -4004,7 +4029,7 @@ function handleExcelImport(e){
           seen[pk+"|"+rg].add(key);
         });
         // Sort each log oldest-first to match in-app push order
-        ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+        ["personal","nl"].forEach(pk=>{INDEX_REGIONS.forEach(rg=>{
           const ip=getIndexPos(pk,rg);if(ip.deployLog)ip.deployLog.sort((a,b)=>new Date(a.date)-new Date(b.date));
         });});
       }
@@ -4272,8 +4297,9 @@ function checkAlerts(){
   // in the banner. Dismissal key includes the band, so a deeper band creates a fresh
   // alert; cleanDismissed() resurfaces a persistent drawdown weekly after dismissal.
   {const seenEtf={};
-   ["personal","nl"].forEach(pk=>{["us","eu"].forEach(rg=>{
+   ["personal","nl"].forEach(pk=>{INDEX_REGIONS.forEach(rg=>{
      const ticker=indexTickerForPf(pk,rg);if(seenEtf[ticker])return;seenEtf[ticker]=true;
+     if(rg==="ffe")return; // XFFE is the short-term bond pen vehicle — no equity-style dip alert
      const ip=getIndexPos(pk,rg);const px=ip.currentPrice||0;if(!(px>0))return;
      const ddp=etfDrawdownPct(ticker,px);const band=Math.floor(ddp/10)*10;
      if(band<10)return;
@@ -5339,28 +5365,28 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   });
 
   // INDEX POSITION CARD (Personal or Caca — at bottom after all stock cards)
-  const _hasIdxShares=getIndexPos(currentPf,"us").shares>0||getIndexPos(currentPf,"eu").shares>0;
+  const _hasIdxShares=getIndexPos(currentPf,"us").shares>0||getIndexPos(currentPf,"eu").shares>0||getIndexPos(currentPf,"ffe").shares>0;
   const _showIdx=(currentPf==="personal"&&(indexAllocationUSD()>0||_hasIdxShares))||(currentPf==="nl");
   if(_showIdx){
     const totalIxVal=indexValue(currentPf);const totalIxCost=indexCostBasis(currentPf);
     const totalIxPnl=totalIxCost>0?((totalIxVal-totalIxCost)/totalIxCost*100):0;
     const baseSym=currentPf==="nl"?"€":"$";const baseCcy=pfBaseCcy(currentPf);
     let ixSubtext="";
-    if(currentPf==="personal"){const half=indexAllocationUSD()/2;ixSubtext=`$${half.toLocaleString()} US + $${half.toLocaleString()}→€ EU · Never sold · DCA on salary day`;}
+    if(currentPf==="personal"){ixSubtext=`XZEU 50% · XZMU 25% · XFFE 25% (pen) · Never sold · DCA on salary day`;}
     else{const cii=cacaIndexInfo();ixSubtext=`${cii.deployed}/${cii.maxT} tranches · ${cii.pctOfPortfolio.toFixed(1)}% of portfolio · cap ${cii.cap}%${cii.atCap?" ✓ filled":""}`;}
     h+=`<div class="pos-card" style="border-color:#0e7490">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">
         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0e7490,#164e63);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#67e8f9;flex-shrink:0">IDX</div>
-        <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 XZMU + XZEU</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
-          <div class="pos-sub">MSCI ESG · 50/50 US + EU</div></div></div>
+        <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 XZEU + XZMU + XFFE</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
+          <div class="pos-sub">MSCI ESG · 50 EU / 25 US / 25 bond-pen</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${hideValues?"•••":baseSym+Math.round(totalIxVal).toLocaleString()}</div>
           ${totalIxPnl?`<div class="pos-pnl" style="color:${totalIxPnl>=0?"var(--accent)":"var(--green)"}">${totalIxPnl>=0?"+":""}${totalIxPnl.toFixed(1)}%</div>`:""}</div></div>`;
-    ["us","eu"].forEach(region=>{
+    INDEX_REGIONS.forEach(region=>{
       const ip=getIndexPos(currentPf,region);const sh=ip.shares||0;const avg=ip.avgCost||0;const px=ip.currentPrice||0;
       const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
       const val=sh*px;const pnl=avg&&px?((px-avg)/avg*100):0;
-      const label=region==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";
-      const exch=region==="us"?(currentPf==="nl"?"Xetra EUR":"LSE USD"):"Xetra EUR";
+      const label=region==="us"?"🇺🇸 XZMU":region==="eu"?"🇪🇺 XZEU":"🏦 XFFE";
+      const exch=region==="ffe"?"LSE USD · bond pen":region==="us"?(currentPf==="nl"?"Xetra EUR":"LSE USD"):"Xetra EUR";
       // v4.05: 12m trailing-high drawdown line (tap to seed/correct the high)
       const ddTicker=indexTickerForPf(currentPf,region);
       const ddHigh=etfTrailingHigh(ddTicker);
@@ -5368,8 +5394,18 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const ddColor=ddPct>=30?"#f87171":ddPct>=20?"#fb923c":ddPct>=10?"#facc15":"var(--muted)";
       const ddLine=px>0?`<div onclick="editEtfHigh('${ddTicker}')" style="font-size:9px;font-family:var(--mono);color:${ddColor};margin:0 0 4px;cursor:pointer">${ddHigh>0?`12m high ${fmt(ddHigh,ccy)} · ${ddPct>=0.05?`−${ddPct.toFixed(1)}% off high`:"at high"}${ddPct>=10?` · 🔔 −${Math.floor(ddPct/10)*10}% band`:""}`:"12m high: tap to seed ✏"}</div>`:"";
       // v4.16: CAPE-gated deployment UI (Personal tab only — pen is region-keyed, not per-portfolio).
+      // XFFE (ffe) is the pen VEHICLE — it shows the aggregate parked balance instead of a CAPE gate.
       let capeBlock="";
-      if(currentPf==="personal"){
+      if(currentPf==="personal"&&region==="ffe"){
+        const penUS=_capeRec("us").pen||0,penEU=_capeRec("eu").pen||0;const penTot=penUS+penEU;
+        const ffeMV=sh*px;
+        capeBlock=`<div style="background:#0b1220;border:1px solid #1e3a5f;border-radius:6px;padding:6px 7px;margin:2px 0 4px">
+          <div style="font-size:9px;font-weight:700;color:#67e8f9;letter-spacing:.3px;margin-bottom:3px">HOLDING-PEN VEHICLE</div>
+          <div style="font-size:9px;font-family:var(--mono);color:var(--muted);line-height:1.5">Parks the high-CAPE overflow from XZEU + XZMU. Park money buys XFFE; ladder-fires sell XFFE to fund the equity buy.</div>
+          <div style="font-size:9px;font-family:var(--mono);color:#67e8f9;margin-top:4px">Pen owed: $${Math.round(penTot).toLocaleString()} <span style="opacity:.6">(EU $${Math.round(penEU).toLocaleString()} · US $${Math.round(penUS).toLocaleString()})</span></div>
+          <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:1px">XFFE held: $${Math.round(ffeMV).toLocaleString()}</div>
+        </div>`;
+      } else if(currentPf==="personal"){
         const cline=capeMonthlyLine(region);
         const cst=capeLadderStatus(region,px);
         const cgate=capeGate(region);
@@ -5435,7 +5471,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 }
 
 // ============ ALLOCATOR ============
-function MONTHLY_STEPS(){const s=["Salary","Transfer"];if(indexAllocationUSD()>0)s.push("Buy XZMU+XZEU");s.push("Execute");return s;}
+function MONTHLY_STEPS(){const s=["Salary","Transfer"];if(indexAllocationUSD()>0)s.push("Buy XZEU+XZMU+XFFE");s.push("Execute");return s;}
 function getMonthKey(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
 function lastDayOfMonth(){const d=new Date();return new Date(d.getFullYear(),d.getMonth()+1,0).getDate();}
 function monthLabel(){const d=new Date();return d.toLocaleString("en",{month:"short"})+" "+d.getFullYear();}
@@ -5627,14 +5663,24 @@ function renderAllocator(c){
 
     // === INDEX / STOCK-PICKING SPLIT ===
     if(idxAlloc>0){
+      const euB=indexRegionBudgetUSD("eu"),usB=indexRegionBudgetUSD("us"),ffeB=indexRegionBudgetUSD("ffe");
       h+=`<div class="alloc-card" style="border-color:#0e7490;margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:700">Income Split</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${idxPct}% index · ${ptPct}% stocks</span></div>
         <div style="display:flex;gap:3px;height:8px;border-radius:4px;overflow:hidden;margin-bottom:10px">
           <div style="flex:${idxPct};background:#0e7490;border-radius:4px 0 0 4px"></div>
           <div style="flex:${ptPct};background:var(--accent);border-radius:0 4px 4px 0"></div></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:11px;color:#67e8f9">📈 Index (XZMU+XZEU)</span>
+          <span style="font-size:11px;color:#67e8f9">📈 Index</span>
           <span style="font-size:13px;font-family:var(--mono);color:#67e8f9;font-weight:600">${_bs}${idxAlloc.toLocaleString()}/mo</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:2px;padding-left:12px">
+          <span style="font-size:10px;color:var(--muted)">🇪🇺 XZEU <span style="opacity:.6">50%</span></span>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${euB.toLocaleString()}/mo</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:2px;padding-left:12px">
+          <span style="font-size:10px;color:var(--muted)">🇺🇸 XZMU <span style="opacity:.6">25%</span></span>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${usB.toLocaleString()}/mo</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;padding-left:12px">
+          <span style="font-size:10px;color:var(--muted)">🏦 XFFE <span style="opacity:.6">25% · pen</span></span>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${ffeB.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
           <span style="font-size:11px;color:var(--accent)">📊 Stocks</span>
           <span style="font-size:13px;font-family:var(--mono);color:var(--accent);font-weight:600">${_bs}${income.toLocaleString()}/mo</span></div>
@@ -6868,8 +6914,8 @@ function renderSettings(c){
     <button class="settings-save" onclick="const v=document.getElementById('risk-add-n').value;if(v){currentPf='nl';promoteToSpec(v);}">Add</button></div>`;
   h+=`</div>
 
-    <div class="settings-card"><div class="settings-title">📈 Index Allocation (XZMU + XZEU)</div>
-      <div class="settings-desc">Percentage of monthly salary that flows to ETFs (XZMU US ESG + XZEU EU ESG, 50/50). Scales automatically with income — bonuses, variable pay, and salary changes are tracked proportionally. Set to 0% to disable.</div>
+    <div class="settings-card"><div class="settings-title">📈 Index Allocation (XZEU + XZMU + XFFE)</div>
+      <div class="settings-desc">Percentage of monthly salary that flows to ETFs. Split fixed at XZEU 50% (EU ESG) · XZMU 25% (US ESG) · XFFE 25% (short-term USD bond — the holding-pen vehicle). CAPE bands still adjust each equity leg's deploy-vs-park within its share. Scales automatically with income. Set to 0% to disable.</div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <input class="settings-input" type="number" min="0" max="100" step="1" style="width:80px;margin-bottom:0" value="${settings.indexAllocationPct??50}" onchange="settings.indexAllocationPct=Math.max(0,Math.min(100,+this.value||0));save();render()">
         <span style="font-size:12px;color:var(--muted)">% of salary</span>
@@ -6878,9 +6924,9 @@ function renderSettings(c){
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
         ${[0,25,50,75].map(p=>`<button class="settings-save" style="padding:6px 12px;${(settings.indexAllocationPct??50)===p?"background:var(--blue-bg);color:var(--accent)":"background:var(--bg);color:var(--muted)"}" onclick="settings.indexAllocationPct=${p};save();render()">${p===0?"Off":p+"%"}</button>`).join("")}
       </div>
-      ${(function(){const ips=getIndexPositions("personal");let out="";["us","eu"].forEach(r=>{const ip=ips[r];const sym=ip.currency==="EUR"?"€":"$";const label=r==="us"?"🇺🇸 XZMU (USD)":"🇪🇺 XZEU (EUR)";if(ip.shares>0)out+=`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label}: ${ip.shares.toFixed(2)} sh @ ${sym}${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`;});if(out)out=`<div style="margin-top:6px">${out}</div>`;out+=`<div style="display:flex;gap:8px;margin-top:8px"><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','us')">✏ XZMU</button><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','eu')">✏ XZEU</button></div>`;return out;})()}</div>
+      ${(function(){const ips=getIndexPositions("personal");let out="";INDEX_REGIONS.forEach(r=>{const ip=ips[r];const sym=ip.currency==="EUR"?"€":"$";const label=r==="us"?"🇺🇸 XZMU (USD)":r==="eu"?"🇪🇺 XZEU (EUR)":"🏦 XFFE (USD)";if(ip.shares>0)out+=`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label}: ${ip.shares.toFixed(2)} sh @ ${sym}${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`;});if(out)out=`<div style="margin-top:6px">${out}</div>`;out+=`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','eu')">✏ XZEU</button><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','us')">✏ XZMU</button><button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('personal','ffe')">✏ XFFE</button></div>`;return out;})()}</div>
 
-    <div class="settings-card"><div class="settings-title">🧓 Caca Index (XZMU.L USD + XZEU.DE EUR)</div>
+    <div class="settings-card"><div class="settings-title">🧓 Caca Index (XZMU.L USD + XZEU.DE EUR + XFFE)</div>
       <div class="settings-desc">Permanent index positions capped at ${settings.nlIndexCap||10}% of Caca portfolio. €${((settings.nlIndexTranche||1000)/2).toLocaleString()} per tranche per ETF (XZMU.L converted to USD at current rate ≈ $${Math.round(((settings.nlIndexTranche||1000)/2)*(settings.fxRate||1)).toLocaleString()}; max ${settings.nlIndexMaxTranches||4}×2). Never sold.</div>
       ${(function(){const cii=cacaIndexInfo();return `
       <div style="display:flex;gap:8px;margin-top:8px">
@@ -6893,10 +6939,11 @@ function renderSettings(c){
           <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${cii.pctOfPortfolio>=cii.cap?"var(--amber)":"var(--accent)"}">${cii.pctOfPortfolio.toFixed(1)}% / ${cii.cap}%</div>
         </div>
       </div>` +
-      ["us","eu"].map(r=>{const ip=getIndexPos("nl",r);const label=r==="us"?"🇺🇸 XZMU":"🇪🇺 XZEU";const sym=ip.currency==="USD"?"$":"€";return ip.shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label} (${ip.currency||"EUR"}): ${ip.shares.toFixed(2)} sh @ ${sym}${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`:"";}).join("") + `
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','us')">✏ XZMU</button>
+      INDEX_REGIONS.map(r=>{const ip=getIndexPos("nl",r);const label=r==="us"?"🇺🇸 XZMU":r==="eu"?"🇪🇺 XZEU":"🏦 XFFE";const sym=ip.currency==="USD"?"$":"€";return ip.shares>0?`<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${label} (${ip.currency||"EUR"}): ${ip.shares.toFixed(2)} sh @ ${sym}${ip.avgCost.toFixed(2)} · ${(ip.deployLog||[]).length} buys</div>`:"";}).join("") + `
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
         <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','eu')">✏ XZEU</button>
+        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','us')">✏ XZMU</button>
+        <button class="settings-save" style="padding:6px 12px;background:var(--bg);color:var(--muted)" onclick="editIndexPosition('nl','ffe')">✏ XFFE</button>
       </div>`;})()}</div>
 
     <div class="settings-card"><div class="settings-title">💱 Personal Base Currency</div>
@@ -7035,7 +7082,7 @@ function logIndexBuy(pfKey,region){
   pfKey=pfKey||"personal";region=region||"us";
   const ip=getIndexPos(pfKey,region);
   const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
-  const label=region==="us"?"XZMU":"XZEU";
+  const label=region==="us"?"XZMU":region==="eu"?"XZEU":"XFFE";
   // Caca per-tranche is nominally EUR (nlIndexTranche/2 = €500). If the target position is
   // USD-denominated (XZMU.L on LSE in USD), convert €500 → USD at the current EUR/USD rate.
   let defAmt;
@@ -7043,7 +7090,12 @@ function logIndexBuy(pfKey,region){
     const perTrancheEUR=(settings.nlIndexTranche||1000)/2;
     defAmt=ccy==="USD"?Math.round(perTrancheEUR*(settings.fxRate||1)):perTrancheEUR;
   }else{
-    defAmt=pfKey==="personal"&&region==="eu"?Math.round((indexAllocationUSD()||6000)/2/settings.fxRate):((indexAllocationUSD()||6000)/2);
+    // Personal: weighted leg budget (XZEU 50% / XZMU 25% / XFFE 25%). EU is EUR-denominated → convert.
+    // XFFE is the pen vehicle — default its buy to the current parked pen balance (USD) so the held
+    // XFFE position tracks the intent ledger; falls back to the 25% weight if the pen is empty.
+    if(region==="ffe"){const pen=penTotalUSD();defAmt=pen>0?Math.round(pen):Math.round(indexRegionBudgetUSD("ffe")||(indexAllocationUSD()||6000)*0.25);}
+    else{const legUSD=indexRegionBudgetUSD(region)||(indexAllocationUSD()||6000)*(INDEX_REGION_WEIGHT[region]||0.25);
+    defAmt=region==="eu"?Math.round(legUSD/settings.fxRate):Math.round(legUSD);}
   }
   // Caca cap check
   if(pfKey==="nl"){const cii=cacaIndexInfo();if(cii.atCap){alert(`Cap reached: ${cii.deployed}/${cii.maxT} tranches, ${cii.pctOfPortfolio.toFixed(1)}% of portfolio (cap ${cii.cap}%)`);return;}}
@@ -7069,7 +7121,7 @@ function editIndexPosition(pfKey,region){
   pfKey=pfKey||"personal";region=region||"us";
   const ip=getIndexPos(pfKey,region);
   const ccy=ip.currency||"USD";const sym=ccy==="EUR"?"€":"$";
-  const label=region==="us"?"XZMU":"XZEU";
+  const label=region==="us"?"XZMU":region==="eu"?"XZEU":"XFFE";
   const ticker=indexTickerForPf(pfKey,region);
   showModal(`Edit ${label} Position`+(pfKey==="nl"?" (Caca)":""),[
     {id:"ix-shares",label:"Shares",val:ip.shares,type:"number"},
@@ -7079,8 +7131,8 @@ function editIndexPosition(pfKey,region){
   ],()=>{
     ip.shares=nv("ix-shares")??ip.shares;ip.avgCost=nv("ix-avg")??ip.avgCost;ip.currentPrice=nv("ix-price")??ip.currentPrice;
     const newTicker=gv("ix-ticker");
-    if(pfKey==="nl"){if(region==="us")settings.nlIndexTickerUS=newTicker||settings.nlIndexTickerUS;else settings.nlIndexTickerEU=newTicker||settings.nlIndexTickerEU;}
-    else{if(region==="us")settings.indexTickerUS=newTicker||settings.indexTickerUS;else settings.indexTickerEU=newTicker||settings.indexTickerEU;}
+    if(pfKey==="nl"){if(region==="us")settings.nlIndexTickerUS=newTicker||settings.nlIndexTickerUS;else if(region==="eu")settings.nlIndexTickerEU=newTicker||settings.nlIndexTickerEU;else settings.nlIndexTickerFFE=newTicker||settings.nlIndexTickerFFE;}
+    else{if(region==="us")settings.indexTickerUS=newTicker||settings.indexTickerUS;else if(region==="eu")settings.indexTickerEU=newTicker||settings.indexTickerEU;else settings.indexTickerFFE=newTicker||settings.indexTickerFFE;}
     save();render();
   });
 }
