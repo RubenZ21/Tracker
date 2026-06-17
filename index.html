@@ -4943,13 +4943,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _cbTotal+=dpBase;
       if(_cbTotal>0){
         _cbSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
-        h+=`<div style="display:flex;height:10px;margin:2px 0 1px;border-radius:3px;overflow:hidden;gap:1px;opacity:0.55">`;
+        h+=`<div style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;opacity:0.55">`;
         _cbSegs.forEach(sg=>{const pct=sg.val/_cbTotal*100;
-          h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
+          h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
         });
         if(dpBase>0){const dpLO2=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree2=Math.max(0,dpBase-dpLO2);
-          if(dpFree2>0){const pct=dpFree2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
-          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+          if(dpFree2>0){const pct=dpFree2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
         }
         h+=`</div>`;
       }
@@ -4988,13 +4988,15 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
     const _dpPct=_base>0?_dp/_base*100:0;
     const _bs2=pfSym("personal");
-    // Red below target, amber within 5pts above, green comfortably above.
-    const _dpCol=_dpPct<_tgt?"var(--red)":_dpPct<_tgt+5?"var(--amber)":"var(--green)";
-    const _dpIcon=_dpPct<_tgt?"🔴":_dpPct<_tgt+5?"🟡":"🟢";
+    // v4.24: green at/above target; orange from target down to 1/3 of target (e.g. 30%→10%);
+    // red below 1/3 of target. DP measured on cost basis (P1 cost + P3 cost + DP).
+    const _dpThird=_tgt/3;
+    const _dpCol=_dpPct>=_tgt?"var(--green)":_dpPct>=_dpThird?"var(--amber)":"var(--red)";
+    const _dpIcon=_dpPct>=_tgt?"🟢":_dpPct>=_dpThird?"🟡":"🔴";
     h+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpIcon} DP ${Math.round(_dpPct)}% of P1+P3+DP</span>
+      <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpIcon} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
       <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">target ${_tgt}%</span>
-      ${_dpPct<_tgt?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW TARGET</span>`:""}
+      ${_dpPct<_dpThird?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW TARGET</span>`:""}
     </div>`;
   }
   // Limit-order summary banner (v4.03: below the weight bars). Counts armed limit orders for
