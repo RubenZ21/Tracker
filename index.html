@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.23</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.24</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1662,8 +1662,8 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   if(sig>0&&s.block)return{phase:1,label:"FIRING — BLOCKED (4M)",color:"#fbbf24"};
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
-// Risk bucket cap: 15% Personal, 5% Caca (more conservative for closed retiree fund) of Pool1+Pool3 combined cost basis
-function riskBucketCapPct(pfKey){return pfKey==="nl"?0.05:0.10;}
+// Risk bucket cap: 20% Personal, 5% Caca (more conservative for closed retiree fund) of Pool1+Pool3 combined cost basis
+function riskBucketCapPct(pfKey){return pfKey==="nl"?0.05:0.20;}
 // riskBucketInfo now includes fired Risklist tranches in the used total so both
 // the existing risk-bucket cards and the Risklist tab cap indicator agree on the number.
 function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const rlCost=pfKey==="personal"?risklistFiredCostBasis():0;const used=p3cost+rlCost;const capPct=riskBucketCapPct(pfKey);const cap=(p1cost+used)*capPct;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0,capPct,p3legacy:p3cost,p3risklist:rlCost};}
@@ -1694,7 +1694,7 @@ function risklistFiredCostBasis(){
   });
   return total;
 }
-// Cost basis for one Risklist entry — used for per-stock 5% cap check.
+// Cost basis for one Risklist entry — used for per-stock 6% cap check.
 function risklistEntryCostBasis(entry){
   const base=pfBaseCcy("personal");let total=0;
   for(let i=1;i<=3;i++){
@@ -5661,9 +5661,14 @@ function renderAllocator(c){
     const specStocks=getSpeculative("personal");
     {
       const _rbi2=riskBucketInfo(currentPf);
-      const _rbi2Pct=Math.round((_rbi2.capPct||0.15)*100);
+      const _rbi2Pct=Math.round((_rbi2.capPct||0.20)*100);
       const specInPf=specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
       const specValBase=specInPf.reduce((v,t)=>{const s=stocks[t];const pos=pf.positions[t];return v+fromEUR(toEUR(posShares(pos)*posAvgPrice(pos),s.currency),_bc);},0);
+      // 2%-per-chunk risk tranche, shown across every listing currency. Promotion to a
+      // non-risk (Pool 1) name reverts sizing to the standard 4% entry tranche.
+      const _riskTbEur=toEUR(trancheBase(currentPf),_bc);
+      const _riskChunkEur=_riskTbEur*0.02;
+      const _nonRiskChunkEur=_riskTbEur*0.04;
       if(specStocks.length||specInPf.length){
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -5672,7 +5677,12 @@ function renderAllocator(c){
           <div style="display:flex;gap:8px;margin-bottom:8px">
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">${_rbi2Pct}% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_rbi2.cap).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbi2.used>0?"#d97706":"var(--muted)"}">${_bs}${Math.round(_rbi2.used).toLocaleString()}</div></div>
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${_bs}${Math.round(_rbi2.available).toLocaleString()}</div></div></div>`;
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">${_bs}${Math.round(_rbi2.available).toLocaleString()}</div></div></div>
+          <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Risk chunk — 2% per buy · max 6% per stock</div>
+            <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${fmtTrancheAllCcy(_riskChunkEur)}</div>
+            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:4px">On promotion to non-risk → 4% tranche: ${fmtTrancheAllCcy(_nonRiskChunkEur)}</div>
+          </div>`;
         specInPf.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
           h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
             <div style="display:flex;justify-content:space-between;align-items:center">
@@ -6076,7 +6086,7 @@ function renderRisklistInto(c){
   let h=`<div class="section-pad" style="padding-top:6px">
     <div class="rl-cap-bar${capWarn?' warn':''}">
       <div class="rl-cap-row">
-        <span>Pool 3 cap (15% of Pool 1 cost basis)</span>
+        <span>Pool 3 cap (20% of Pool 1 cost basis)</span>
         <span class="rl-cap-val${capWarn?' over':rbi.pct>80?' warn':''}">${baseSym}${Math.round(rbi.used).toLocaleString()} / ${baseSym}${Math.round(rbi.cap).toLocaleString()} · ${rbi.pct.toFixed(1)}%</span>
       </div>
       <div class="rl-cap-track"><div class="rl-cap-fill ${capFillCls}" style="width:${fillPct}%"></div></div>
@@ -6205,13 +6215,13 @@ function openRisklistEdit(ticker){
 function openRisklistAddEditModal(entry){
   const isEdit=!!entry;
   const e=entry||{ticker:"",name:"",currency:"USD",priority:null,
-    trigger1:null,trigger2:null,trigger3:null,size1:1.0,size2:1.0,size3:1.0,
+    trigger1:null,trigger2:null,trigger3:null,size1:2.0,size2:2.0,size3:2.0,
     reasoning:"",notes:"",fired1:false,fired2:false,fired3:false};
   const base=pfBaseCcy("personal");const baseSym=base==="USD"?"$":"€";
   const p1=trancheBase("personal");
   // Pre-compute size display rows — these update live via input handler below.
   const sizeRow=(i)=>{
-    const sz=e["size"+i]||1.0;
+    const sz=e["size"+i]||2.0;
     let amt=p1*(sz/100);
     const floorBase=fromEUR(toEUR(1000,"USD"),base);
     if(amt<floorBase)amt=floorBase;
@@ -6227,23 +6237,23 @@ function openRisklistAddEditModal(entry){
       ${["USD","EUR","GBp","CAD","JPY"].map(c=>`<option value="${c}" ${c===e.currency?"selected":""}>${c}</option>`).join("")}
     </select></div>
     <div class="modal-field"><label>Priority * (lower = higher conviction, decimals OK)</label><input type="number" step="any" id="rl-pri" value="${e.priority??""}" placeholder="1.5"></div>
-    <div class="modal-field"><label>Triggers & Sizes (T1 ≥ T2 ≥ T3, total size ≤ 5%)</label>
+    <div class="modal-field"><label>Triggers & Sizes (T1 ≥ T2 ≥ T3, 2% per chunk, total ≤ 6%)</label>
       <div class="rl-edit-trigger-row">
         <div class="rl-edit-label">T1</div>
         <input type="number" step="any" id="rl-trig1" value="${e.trigger1??""}" placeholder="price" oninput="rlRecomputeSizeRows()">
-        <input type="number" step="any" id="rl-size1" value="${e.size1??1.0}" placeholder="1.0" oninput="rlRecomputeSizeRows()">
+        <input type="number" step="any" id="rl-size1" value="${e.size1??2.0}" placeholder="2.0" oninput="rlRecomputeSizeRows()">
       </div>
       <div class="rl-edit-size-display" id="rl-sz-disp-1">${sizeRow(1)}</div>
       <div class="rl-edit-trigger-row">
         <div class="rl-edit-label">T2</div>
         <input type="number" step="any" id="rl-trig2" value="${e.trigger2??""}" placeholder="price" oninput="rlRecomputeSizeRows()">
-        <input type="number" step="any" id="rl-size2" value="${e.size2??1.0}" placeholder="1.0" oninput="rlRecomputeSizeRows()">
+        <input type="number" step="any" id="rl-size2" value="${e.size2??2.0}" placeholder="2.0" oninput="rlRecomputeSizeRows()">
       </div>
       <div class="rl-edit-size-display" id="rl-sz-disp-2">${sizeRow(2)}</div>
       <div class="rl-edit-trigger-row">
         <div class="rl-edit-label">T3</div>
         <input type="number" step="any" id="rl-trig3" value="${e.trigger3??""}" placeholder="price" oninput="rlRecomputeSizeRows()">
-        <input type="number" step="any" id="rl-size3" value="${e.size3??1.0}" placeholder="1.0" oninput="rlRecomputeSizeRows()">
+        <input type="number" step="any" id="rl-size3" value="${e.size3??2.0}" placeholder="2.0" oninput="rlRecomputeSizeRows()">
       </div>
       <div class="rl-edit-size-display" id="rl-sz-disp-3">${sizeRow(3)}</div>
       <div class="rl-edit-size-display" id="rl-sz-disp-total" style="margin-top:4px;font-weight:600"></div>
@@ -6279,9 +6289,9 @@ function rlRecomputeSizeRows(){
   }
   const tdisp=document.getElementById("rl-sz-disp-total");
   if(tdisp){
-    const over=total>5.0;
+    const over=total>6.0;
     tdisp.style.color=over?"var(--red)":"var(--muted)";
-    tdisp.textContent=`Total: ${total.toFixed(2)}% / 5.0% max${over?" — OVER LIMIT":""}`;
+    tdisp.textContent=`Total: ${total.toFixed(2)}% / 6.0% max${over?" — OVER LIMIT":""}`;
   }
 }
 
@@ -6325,7 +6335,7 @@ function rlHandleSave(originalEntry,ov){
   const s2=parseFloat(document.getElementById("rl-size2").value)||0;
   const s3=parseFloat(document.getElementById("rl-size3").value)||0;
   if(s1<=0||s2<=0||s3<=0){showErr("All three tranche sizes must be > 0.");return;}
-  if(s1+s2+s3>5.0){showErr("Total size ("+(s1+s2+s3).toFixed(2)+"%) exceeds 5% cap.");return;}
+  if(s1+s2+s3>6.0){showErr("Total size ("+(s1+s2+s3).toFixed(2)+"%) exceeds 6% per-stock cap.");return;}
   // For edits: if a fired tranche's trigger is being changed, confirm.
   if(originalEntry){
     for(let i=1;i<=3;i++){
@@ -6371,15 +6381,15 @@ function openRisklistBuyModal(ticker,n){
   const projectedTotal=rbi.used+amtBase;
   const projectedPct=rbi.cap>0?(projectedTotal/rbi.cap*100):0;
   const overPool3=projectedTotal>rbi.cap;
-  // Per-stock 5% cap (against same Pool1+Pool3 denominator)
+  // Per-stock 6% cap (against same Pool1+Pool3 denominator)
   const thisStockCost=risklistEntryCostBasis(e);
-  const perStockCap=(pool1CostBasis("personal")+rbi.used)*0.05;
+  const perStockCap=(pool1CostBasis("personal")+rbi.used)*0.06;
   const overPerStock=(thisStockCost+amtBase)>perStockCap;
   // Default shares: amtLocal/trigger. User can adjust.
   const defaultShares=trig>0?Math.floor((amtLocal/trig)*100)/100:0;
   let warnHTML="";
-  if(overPool3)warnHTML+=`<div class="rl-warn-banner">⚠ This fire would push Pool 3 to ${projectedPct.toFixed(1)}% (cap is 100%). You'll be over the 15% limit.</div>`;
-  if(overPerStock)warnHTML+=`<div class="rl-warn-banner">⚠ This fire would push ${ticker}'s position to ${baseSym}${Math.round(thisStockCost+amtBase).toLocaleString()}, over the 5% per-stock cap (${baseSym}${Math.round(perStockCap).toLocaleString()}).</div>`;
+  if(overPool3)warnHTML+=`<div class="rl-warn-banner">⚠ This fire would push Pool 3 to ${projectedPct.toFixed(1)}% (cap is 100%). You'll be over the 20% limit.</div>`;
+  if(overPerStock)warnHTML+=`<div class="rl-warn-banner">⚠ This fire would push ${ticker}'s position to ${baseSym}${Math.round(thisStockCost+amtBase).toLocaleString()}, over the 6% per-stock cap (${baseSym}${Math.round(perStockCap).toLocaleString()}).</div>`;
   if(amtLocal>(base===e.currency?dp:fromEUR(toEUR(dp,base),e.currency)))warnHTML+=`<div class="rl-warn-banner">⚠ Tranche size (${fmt(amtLocal,e.currency)}) may exceed available DP (${baseSym}${Math.round(dp).toLocaleString()}).</div>`;
   const ov=document.createElement("div");ov.className="modal-overlay";
   ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:200";
