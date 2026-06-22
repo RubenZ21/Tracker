@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.27</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.30</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1662,8 +1662,8 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   if(sig>0&&s.block)return{phase:1,label:"FIRING — BLOCKED (4M)",color:"#fbbf24"};
   if(sig>0)return{phase:1,label:"ACCUMULATE",color:"var(--green)"};
   return{phase:2,label:"HOLD",color:"var(--muted)"};}
-// Risk bucket cap: 20% Personal, 5% Caca (more conservative for closed retiree fund) of Pool1+Pool3 combined cost basis
-function riskBucketCapPct(pfKey){return pfKey==="nl"?0.05:0.20;}
+// Risk bucket cap: 20% Personal, 10% Caca (more conservative for closed retiree fund) of Pool1+Pool3 combined cost basis
+function riskBucketCapPct(pfKey){return pfKey==="nl"?0.10:0.20;}
 // riskBucketInfo now includes fired Risklist tranches in the used total so both
 // the existing risk-bucket cards and the Risklist tab cap indicator agree on the number.
 function riskBucketInfo(pfKey){const p1cost=pool1CostBasis(pfKey);const p3cost=pool3CostBasis(pfKey);const rlCost=pfKey==="personal"?risklistFiredCostBasis():0;const used=p3cost+rlCost;const capPct=riskBucketCapPct(pfKey);const cap=(p1cost+used)*capPct;return{cap,used,available:Math.max(0,cap-used),pct:cap>0?used/cap*100:0,capPct,p3legacy:p3cost,p3risklist:rlCost};}
@@ -5953,8 +5953,15 @@ function renderAllocator(c){
     {
       const _specStocks=getSpeculative("nl");
       const _rbiNL=riskBucketInfo("nl");
-      const _rbiNLPct=Math.round((_rbiNL.capPct||0.05)*100);
+      const _rbiNLPct=Math.round((_rbiNL.capPct||0.10)*100);
       const _specInPfNL=_specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
+      // Caca risk sizing (mirrors Personal): 1% per-buy chunk of the P1+P3+DP tranche base,
+      // with a hard €500 floor; per-stock cap = the bucket cap % (10%). Caca base ccy is EUR,
+      // so the chunk is computed directly in EUR.
+      const _riskTbEurNL=toEUR(trancheBase("nl"),pfBaseCcy("nl"));
+      const _riskChunkEurNL=Math.max(500,_riskTbEurNL*0.01);
+      const _nonRiskChunkEurNL=_riskTbEurNL*0.04;
+      const _perStockCapPctNL=3; // 3% per-stock ceiling (independent of 10% bucket cap)
       if(_specStocks.length||_specInPfNL.length){
         h+=`<div class="alloc-card" style="margin-bottom:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -5963,12 +5970,24 @@ function renderAllocator(c){
           <div style="display:flex;gap:8px;margin-bottom:8px">
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">${_rbiNLPct}% Cap</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(_rbiNL.cap).toLocaleString()}</div></div>
             <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Deployed</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${_rbiNL.used>0?"#d97706":"var(--muted)"}">€${Math.round(_rbiNL.used).toLocaleString()}</div></div>
-            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(_rbiNL.available).toLocaleString()}</div></div></div>`;
+            <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Available</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(_rbiNL.available).toLocaleString()}</div></div></div>
+          <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Risk chunk — 1% per buy · €500 min · max ${_perStockCapPctNL}% per stock</div>
+            <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${fmtTrancheAllCcy(_riskChunkEurNL)}</div>
+            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:4px">On promotion to non-risk → 4% tranche: ${fmtTrancheAllCcy(_nonRiskChunkEurNL)}</div>
+          </div>`;
         _specInPfNL.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
+          // Cost basis as % of P1+P3+DP tranche base — same denominator as the per-stock cap.
+          const _costPctNL=posCostPctOfBase(t,"nl");
+          const _atCapNL=_costPctNL>=_perStockCapPctNL;
+          const _pctColNL=_atCapNL?"#ef4444":"#d97706";
           h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px">
             <div style="display:flex;justify-content:space-between;align-items:center">
               <div><span style="font-size:13px;font-weight:600">${s.flag} ${t}</span><span style="font-size:10px;color:#d97706;margin-left:6px">${sigCount(t)}/${validTriggerSlots(t,"nl")} signals</span></div>
               <span style="font-size:12px;font-family:var(--mono);color:#d97706">${fmt(Math.round(costVal),s.currency)} · ${fmtSh(sh)} sh</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">
+              <span style="font-size:9px;color:var(--muted)">cost of P1+P3+DP base</span>
+              <span style="font-size:11px;font-family:var(--mono);font-weight:700;color:${_pctColNL}">${_costPctNL.toFixed(2)}% / ${_perStockCapPctNL}%${_atCapNL?" 🔒":""}</span></div>
             ${s.specReason?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(s.specReason)}</div>`:""}</div>`;});
         if(!_specInPfNL.length){h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions in Caca. Use → Risk on a watchlist stock to add one.</div>`;}
         h+=`</div>`;
