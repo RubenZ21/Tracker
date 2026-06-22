@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.25</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.26</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4403,6 +4403,53 @@ function renderEarningsBanner(){
   });
   h+='</div>';return h;
 }
+// === Weight-bar label fitting (v4.26) ===
+// Per segment, try to fit "NAME pct%" inside the bar; if it won't fit, fall back to "pct%";
+// if even that won't fit, clear the in-bar text and reveal the segment's legend entry instead.
+// Uses real text measurement (canvas) against each segment's actual rendered pixel width, so
+// the decision adapts to label length and container width rather than fixed % thresholds.
+let _wbarCanvasCtx=null;
+function _measureTextWidth(txt,font){
+  if(!_wbarCanvasCtx){const cv=document.createElement("canvas");_wbarCanvasCtx=cv.getContext("2d");}
+  _wbarCanvasCtx.font=font;
+  return _wbarCanvasCtx.measureText(txt).width;
+}
+function fitWeightBarLabels(){
+  const bar=document.getElementById("wbar-top");
+  const legend=document.getElementById("wbar-legend");
+  if(!bar)return;
+  const segs=bar.querySelectorAll(".wbar-seg");
+  const PAD=4; // px of breathing room reserved inside each segment (2px each side)
+  // Track which legend keys need revealing.
+  const reveal={};
+  segs.forEach(seg=>{
+    const txtEl=seg.querySelector(".wbar-txt");
+    if(!txtEl)return;
+    const cs=getComputedStyle(txtEl);
+    const font=`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const avail=seg.clientWidth-PAD;
+    const full=seg.getAttribute("data-full")||"";
+    const pct=seg.getAttribute("data-pct")||"";
+    const key=seg.getAttribute("data-key");
+    if(avail<=0){txtEl.textContent="";reveal[key]=true;return;}
+    if(_measureTextWidth(full,font)<=avail){
+      txtEl.textContent=full;            // name + percentage fits inside
+    }else if(_measureTextWidth(pct,font)<=avail){
+      txtEl.textContent=pct;             // only percentage fits inside
+      reveal[key]=true;                  // name shown separately in legend
+    }else{
+      txtEl.textContent="";              // nothing fits inside
+      reveal[key]=true;                  // name + percentage shown in legend
+    }
+  });
+  // Reveal/hide legend entries to match. Hidden when its % fit fully inside the bar.
+  if(legend){
+    legend.querySelectorAll(".wbar-leg").forEach(el=>{
+      el.style.display=reveal[el.getAttribute("data-key")]?"inline-block":"none";
+    });
+  }
+}
+
 function render(){
   const ts=totalSignals(currentPf),gs=firingGridSize(currentPf);
   const b=document.getElementById("grid-badge");b.textContent=ts+"/"+gs;
@@ -4430,6 +4477,8 @@ function render(){
   const _contentEl=document.getElementById("content");
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](_contentEl);
   if(_earBanner&&(currentTab==="portfolio"||currentTab==="watchlist")){_contentEl.innerHTML=_earBanner+_contentEl.innerHTML;}
+  // v4.26: fit weight-bar labels after layout settles (portfolio tab only).
+  if(currentTab==="portfolio"){requestAnimationFrame(fitWeightBarLabels);}
   // Update watchlist nav badge — count watchlist stocks with any buy signal firing (excluding snoozed)
   const wlFiring=getWatchlist().reduce((n,t)=>{const s=stocks[t];if(!s?.currentPrice||s.gate===false)return n;return n+(s.signals?.mos&&!isSnoozed(t,"mos")?1:0)+(s.signals?.tenCap&&!isSnoozed(t,"tenCap")?1:0)+(s.signals?.pbt&&!isSnoozed(t,"pbt")?1:0);},0);
   const wb=document.getElementById("watch-badge");if(wb){if(wlFiring>0){wb.textContent=wlFiring;wb.style.display="flex";}else{wb.style.display="none";}}
@@ -4919,17 +4968,21 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     });
     const dpBase=fromEUR(toEUR(pf.dryPowder||0,pfBaseCcy(currentPf)),_wBase);
     _wTotal+=dpBase;
+    // LO (limit-order reserved) portion of DP, in the bar's base currency. Used by both the
+    // top bar and the legend so they agree on the DP/LO split.
+    const _dpLOcalc=()=>fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);
     if(_wTotal>0){
       _wSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
-      h+=`<div style="display:flex;height:16px;margin:6px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
+      h+=`<div id="wbar-top" style="display:flex;height:16px;margin:6px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
       _wSegs.forEach(sg=>{const pct=sg.val/_wTotal*100;const _lab=(sg.risk?"\uD83C\uDFB2":"")+sg.t;
-        h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=8?_lab+"\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;
+        const _full=_lab+"\u2009"+Math.round(pct)+"%";const _pctOnly=Math.round(pct)+"%";
+        h+=`<div class="wbar-seg" data-key="${esc(sg.t)}" data-full="${esc(_full)}" data-pct="${esc(_pctOnly)}" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-txt">${_full}</span></div>`;
       });
       if(dpBase>0){const dpLO=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree=Math.max(0,dpBase-dpLO);
         if(dpFree>0){const pct=dpFree/_wTotal*100;
-          h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=8?"DP\u2009"+Math.round(pct)+"%":pct>=5?Math.round(pct)+"%":""}</div>`;}
+          h+=`<div class="wbar-seg" data-key="__DP__" data-full="DP\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-txt">DP\u2009${Math.round(pct)}%</span></div>`;}
         if(dpLO>0){const pct=dpLO/_wTotal*100;
-          h+=`<div style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden" title="DP reserved for limit orders">${pct>=8?"LO\u2009"+Math.round(pct)+"%":pct>=4?Math.round(pct)+"%":""}</div>`;}
+          h+=`<div class="wbar-seg" data-key="__LO__" data-full="LO\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden" title="DP reserved for limit orders"><span class="wbar-txt">LO\u2009${Math.round(pct)}%</span></div>`;}
       }
       h+=`</div>`;
       // Cost basis bar (faded, below market value bar)
@@ -4953,28 +5006,24 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         }
         h+=`</div>`;
       }
-      // Label row for tickers that didn't fit in bar
-      const _labelTickers=new Set();
-      _wSegs.forEach(sg=>{if(sg.val/_wTotal*100<8)_labelTickers.add(sg.t);});
-      const dpNeedLabel=dpBase>0&&dpBase/_wTotal*100<8;
-      const _dpLObase=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);
-      let _dpLOLabel=false;
-      if(_dpLObase>0&&_dpLObase/_wTotal*100<8)_dpLOLabel=_dpLObase;
-      if(_labelTickers.size||dpNeedLabel||_dpLOLabel){
-        h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
-        _labelTickers.forEach(t=>{
-          const mSg=_wSegs.find(s=>s.t===t);
-          const pct=mSg?Math.round(mSg.val/_wTotal*100):0;
-          const col=mSg?mSg.col:_wPal[0];
-          const _lab=(mSg&&mSg.risk?"\uD83C\uDFB2":"")+t;
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${col};margin-right:2px;vertical-align:middle"></span>${_lab}\u2009${pct}%</span>`;
+      // Label row: emit a hidden legend entry for EVERY segment. fitWeightBarLabels() decides
+      // at runtime (by measuring real text vs segment width) which segments couldn't fit their
+      // percentage inside the bar, and reveals only those entries here.
+      {
+        const _legEntries=[];
+        _wSegs.forEach(sg=>{
+          const pct=Math.round(sg.val/_wTotal*100);
+          const _lab=(sg.risk?"\uD83C\uDFB2":"")+sg.t;
+          _legEntries.push({key:sg.t,col:sg.col,html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${sg.col};margin-right:2px;vertical-align:middle"></span>${esc(_lab)}\u2009${pct}%`,color:"var(--muted)"});
         });
-        if(dpNeedLabel){const dpFreeV=Math.max(0,dpBase-_dpLObase);const pct=Math.round(dpFreeV/_wTotal*100);
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${pct}%</span>`;
-        }
-        if(_dpLOLabel){const pct=Math.round(_dpLOLabel/_wTotal*100);
-          h+=`<span style="font-size:8px;font-family:var(--mono);color:#67e8f9"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 1.5px,#0e7490 1.5px,#0e7490 3px);margin-right:2px;vertical-align:middle"></span>LO\u2009${pct}%</span>`;
-        }
+        if(dpBase>0){const dpFreeV=Math.max(0,dpBase-_dpLOcalc());const pct=Math.round(dpFreeV/_wTotal*100);
+          if(dpFreeV>0)_legEntries.push({key:"__DP__",html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${pct}%`,color:"var(--muted)"});}
+        {const _lo=_dpLOcalc();if(_lo>0){const pct=Math.round(_lo/_wTotal*100);
+          _legEntries.push({key:"__LO__",html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 1.5px,#0e7490 1.5px,#0e7490 3px);margin-right:2px;vertical-align:middle"></span>LO\u2009${pct}%`,color:"#67e8f9"});}}
+        h+=`<div id="wbar-legend" style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
+        _legEntries.forEach(e=>{
+          h+=`<span class="wbar-leg" data-key="${esc(e.key)}" style="display:none;font-size:8px;font-family:var(--mono);color:${e.color}">${e.html}</span>`;
+        });
         h+=`</div>`;
       }
     }
@@ -7562,6 +7611,15 @@ document.addEventListener('visibilitychange', ()=>{
     const last=settings.lastFetch||0;
     if(Date.now()-last>=REFRESH_MS)autoRefresh();
   }
+});
+
+// v4.26: re-fit weight-bar labels on viewport resize / orientation change (segment pixel
+// widths change with the container width). Debounced; portfolio tab only.
+let _wbarResizeTimer=null;
+window.addEventListener('resize', ()=>{
+  if(currentTab!=="portfolio")return;
+  clearTimeout(_wbarResizeTimer);
+  _wbarResizeTimer=setTimeout(fitWeightBarLabels,120);
 });
 </script>
 </body>
