@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.26</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.27</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4448,6 +4448,20 @@ function fitWeightBarLabels(){
       el.style.display=reveal[el.getAttribute("data-key")]?"inline-block":"none";
     });
   }
+  // Cost-basis bar (bottom): percentage-only. Show the % when it fits, blank otherwise.
+  // No legend fallback — its colours mirror the top bar's segment positions.
+  const cb=document.getElementById("wbar-cb");
+  if(cb){
+    cb.querySelectorAll(".wbar-cb-seg").forEach(seg=>{
+      const txtEl=seg.querySelector(".wbar-cb-txt");
+      if(!txtEl)return;
+      const cs=getComputedStyle(txtEl);
+      const font=`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const avail=seg.clientWidth-PAD;
+      const pct=seg.getAttribute("data-pct")||"";
+      txtEl.textContent=(avail>0&&_measureTextWidth(pct,font)<=avail)?pct:"";
+    });
+  }
 }
 
 function render(){
@@ -4996,13 +5010,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _cbTotal+=dpBase;
       if(_cbTotal>0){
         _cbSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
-        h+=`<div style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;opacity:0.55">`;
+        h+=`<div id="wbar-cb" style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;opacity:0.55">`;
         _cbSegs.forEach(sg=>{const pct=sg.val/_cbTotal*100;
-          h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;
+          h+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;
         });
         if(dpBase>0){const dpLO2=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree2=Math.max(0,dpBase-dpLO2);
-          if(dpFree2>0){const pct=dpFree2/_cbTotal*100;h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
-          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden">${pct>=10?Math.round(pct)+"%":""}</div>`;}
+          if(dpFree2>0){const pct=dpFree2/_cbTotal*100;h+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
+          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
         }
         h+=`</div>`;
       }
