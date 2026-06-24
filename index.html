@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.32</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.33</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5331,12 +5331,16 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       // v3.96: budget anchored to the Pool-3 cap (10% of Pool1+Pool3+DP cost basis), in base ccy → EUR.
       const _rbiThis=riskBucketInfo(currentPf);const maxBudgetBase=_rbiThis.cap;
       const costBasis=shares*avg;const costBase=fromEUR(toEUR(costBasis,s.currency),pfBaseCcy(currentPf));
-      const pctCost=maxBudgetBase>0?(costBase/maxBudgetBase*100):0;
+      const _perStockPct=posCostPctOfBase(ticker,currentPf);
       h+=`<div style="margin-top:6px;padding:8px;background:#332d0d40;border:1px solid #d9770644;border-radius:6px">
         <div style="font-size:11px;font-weight:700;color:#d97706;margin-bottom:4px">⚡ Risk Position</div>
         ${s.specReason?`<div style="font-size:10px;color:var(--text);margin-bottom:4px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical" onclick="editSpecReason('${ticker}')">${esc(s.specReason)}</div>`:`<div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;opacity:0.6" onclick="editSpecReason('${ticker}')">+ thesis</div>`}
-        <div style="font-size:10px;color:var(--muted);display:flex;gap:12px">
-          <span>Cost: ${s.currency==="GBp"?"£"+(costBasis/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(costBasis),s.currency)} · ${pctCost.toFixed(0)}% of 10% budget${specAge!=null?" · "+specAge+"d held":""}</span>
+        <div style="font-size:10px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap">
+          <span>Cost: ${s.currency==="GBp"?"£"+(costBasis/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(costBasis),s.currency)}${specAge!=null?" · "+specAge+"d held":""}</span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;margin-top:2px">
+          <span style="color:${_perStockPct>=6?"#ef4444":"var(--muted)"}">${_perStockPct.toFixed(2)}% / 6% stock${_perStockPct>=6?" 🔒":""}</span>
+          <span style="color:${_rbiThis.pct>=100?"#ef4444":"var(--muted)"}">bucket ${_rbiThis.pct.toFixed(0)}% / ${Math.round(_rbiThis.capPct*100)}%</span>
         </div>
         <div style="display:flex;gap:6px;margin-top:6px">
           <button class="btn-sm" style="flex:1;background:#0d3320;color:var(--green);font-size:10px;padding:4px" onclick="graduateToGrid('${ticker}')">✓ Graduate to Grid</button>
