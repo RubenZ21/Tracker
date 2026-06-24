@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.33</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.34</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1204,8 +1204,34 @@ function nearestTrigger(t){const s=stocks[t];if(!s)return null;
   const tr=[pm,s.cons.mos,!isTriggerMuted(s,"tenCap")?s.cons.tenCap:null,!isTriggerMuted(s,"pbt")?s.cons.pbt:null].filter(Boolean);return tr.length?Math.max(...tr):null;}
 function gapPct(t){const s=stocks[t],nt=nearestTrigger(t);if(!s||!nt||!s.currentPrice)return null;return Math.round((s.currentPrice-nt)/s.currentPrice*100);}
 
-// Implied annual return: what you'd earn per year if buying at entryPrice and stock reaches projected future value in 10 years
-function calcImpliedReturn(sticker,entryPrice){if(!sticker||!entryPrice||sticker<=0||entryPrice<=0)return null;const fv=sticker*Math.pow(1+(settings.marr||10)/100,10);return Math.pow(fv/entryPrice,1/10)-1;}
+// Growth-anchored implied annual return (framework.md §4.3, June 24 2026).
+// R = g + (1/N)·ln(Sticker / entryPrice), where g = gr/100, N = 10, Sticker = mos×2.
+// At entryPrice = Sticker, R = g exactly (fair value returns the growth rate).
+// Credits the earnings engine: a still-compounding name above its Sticker keeps a
+// growth-driven forward return instead of the old frozen-Sticker near-zero read.
+// gr is the per-stock growth rate (percent); entryPrice is the live/eval price.
+const RETURN_N=10;
+function calcImpliedReturn(gr,sticker,entryPrice){
+  if(gr==null||!sticker||!entryPrice||sticker<=0||entryPrice<=0)return null;
+  const g=gr/100;
+  return g+(1/RETURN_N)*Math.log(sticker/entryPrice);}
+
+// Layer 2 recycle spread gate (framework.md §5.2 condition 5, June 24 2026).
+// A recycle is permitted only if the destination's growth-anchored implied return
+// (measured at the destination's FIRING trigger price) exceeds the source's
+// growth-anchored implied return (measured at the source's CURRENT price) by at
+// least SPREAD_GATE_PP percentage points. Returns {srcR, dstR, spread, pass} or null.
+const SPREAD_GATE_PP=5;
+function layer2Spread(srcTicker,dstTicker,dstTriggerPrice){
+  const src=stocks[srcTicker],dst=stocks[dstTicker];
+  if(!src||!dst)return null;
+  const srcStk=src.cons?.mos?src.cons.mos*2:null;
+  const dstStk=dst.cons?.mos?dst.cons.mos*2:null;
+  const srcR=calcImpliedReturn(src.cons?.gr,srcStk,src.currentPrice);
+  const dstR=calcImpliedReturn(dst.cons?.gr,dstStk,dstTriggerPrice);
+  if(srcR==null||dstR==null)return null;
+  const spread=(dstR-srcR)*100;
+  return{srcR,dstR,spread,pass:spread>=SPREAD_GATE_PP};}
 
 // Find the closest trigger (highest price = fires first on decline) and its implied return
 function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(!mos)return null;const sticker=mos*2;
@@ -1217,8 +1243,10 @@ function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(
   if(isOperationalTier1(t)){const pm=pmosPrice(s);if(pm)triggers.push({name:"P-MOS",price:pm});}
   if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push({name:trigT3Label(t),price:s.cons.tenCap});if(s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push({name:trigT2Label(t),price:s.cons.pbt});
   if(!triggers.length)return null;const closest=triggers.reduce((a,b)=>a.price>b.price?a:b);
-  const ir=calcImpliedReturn(sticker,closest.price);if(ir==null)return null;
-  return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,aboveMarr:ir>=0.15};}
+  const ir=calcImpliedReturn(s.cons.gr,sticker,closest.price);if(ir==null)return null;
+  // liveReturn: growth-anchored R at the current live price (framework §4.3 surface).
+  const liveReturn=calcImpliedReturn(s.cons.gr,sticker,s.currentPrice);
+  return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,liveReturn,aboveMarr:ir>=0.15};}
 // FIX #5: Convert any currency amount to EUR for allocation
 function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="GBP")return amount/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;if(ccy==="JPY")return amount/settings.fxJPY;return amount;}
 function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;if(ccy==="GBP")return eur*settings.fxGBP;if(ccy==="CAD")return eur*settings.fxCAD;if(ccy==="JPY")return eur*settings.fxJPY;return eur;}
@@ -5166,7 +5194,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
     const _refPrice=isBuffett(ticker)?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);
     const _refLabel=isBuffett(ticker)?"ten cap":"stk";
-    const avgIR=avg&&_refPrice?calcImpliedReturn(_refPrice,avg):null;
+    const avgIR=avg&&_refPrice?calcImpliedReturn(s.cons?.gr,_refPrice,avg):null;
     const avgMOS=avg&&_refPrice?((1-avg/_refPrice)*100):null;
     const avgCol=avgMOS==null?"var(--muted)":avgMOS>=50?"var(--green)":avgMOS>0?"#34d399":"var(--amber)";
     h+=`<div class="stat-row" style="margin:8px 0">
@@ -5948,7 +5976,11 @@ function renderAllocator(c){
       if(sig===0&&sellRef&&s.currentPrice>sellRef){
         const gap=((s.currentPrice-sellRef)/sellRef*100).toFixed(0);
         const available=toEUR(sh*s.currentPrice,s.currency);
-        tier2.push({ticker:t,gap,available,price:s.currentPrice,sticker:sellRef,currency:s.currency});}});
+        // srcReturn: source growth-anchored R at current price — the spread-gate baseline
+        // a destination must beat by ≥5pp (framework §5.2 cond 5) to justify recycling.
+        const srcStk=s.cons?.mos?s.cons.mos*2:null;
+        const srcReturn=calcImpliedReturn(s.cons?.gr,srcStk,s.currentPrice);
+        tier2.push({ticker:t,gap,available,price:s.currentPrice,sticker:sellRef,currency:s.currency,srcReturn});}});
     tier2.sort((a,b)=>b.gap-a.gap); // highest gap above sell reference first
 
     // Current grid stocks (non-trophy)
@@ -6165,7 +6197,7 @@ function renderWatchlist(c){
     const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
     h+=`<div class="wl-card" ${snoozed?'style="opacity:0.5"':''}><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
       <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${tier1Marker(t)}${tripwireShield(t)}${blockBadge(t)}<span style="font-size:9px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:6px" onclick="setPriority('${t}')">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${t}')">C${s.compounderPriority||"—"}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
-      <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${(ctr.impliedReturn*100).toFixed(1)}% IR @ ${ctr.triggerName}</div>`:""}</div>
+      <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${ctr.liveReturn!=null?`${(ctr.liveReturn*100).toFixed(1)}% R @ live`:""}${ctr.liveReturn!=null?` · `:""}${(ctr.impliedReturn*100).toFixed(1)}% @ ${ctr.triggerName}${s.cons?.gr!=null?` · fair=${(+s.cons.gr).toFixed(1)}%`:""}</div>`:""}</div>
       <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${isBuffett(t)&&s.cons.tenCap?` · <span style="color:#38bdf8;font-weight:400">TC ${fmt(s.cons.tenCap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap">`;
     const _baseTrigs=isBuffett(t)?[{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"}]:
@@ -6175,7 +6207,7 @@ function renderWatchlist(c){
     const _wlTrigs=isOperationalTier1(t)?[{l:"P-MOS",v:pmosPrice(s),p:null,k:"pmos"},..._baseTrigs]:_baseTrigs;
     _wlTrigs.forEach(({l,v,p,k})=>{
       if(!v&&!p)return; // skip empty triggers entirely
-      const muted=v&&isTriggerMuted(s,k);const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk&&!muted?calcImpliedReturn(stk,v):null;
+      const muted=v&&isTriggerMuted(s,k);const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;const ir=v&&stk&&!muted?calcImpliedReturn(s.cons?.gr,stk,v):null;
       const col=on?(k==="pmos"?"#fbbf24":"var(--green)"):muted?"#d97706":"var(--muted)";const lo=hasLimitOrder(t,k);
       const borderStyle=muted?"border:1.5px dashed #d97706":(isClosest?"border:1px solid var(--accent)":"");
       h+=`<div class="wl-trig" ${borderStyle?`style="${borderStyle}"`:''}>
