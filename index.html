@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.35</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.36</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4794,10 +4794,21 @@ function sigRowHtml(t,pfKey,isSpec){
       sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Targeted sell price (${tgtLabel})">🎯${fmt(tgt,s.currency)}${gapTxt}</div>`;
     }
   }
+  // Live growth-anchored return at current price (framework §4.3). Sticker = MOS×2 for ALL
+  // categories incl. Buffett — the rate always anchors on Sticker, never Ten Cap/20Cap.
+  let retStr="";
+  {
+    const _stk=s.cons?.mos?s.cons.mos*2:null;
+    const _lr=_stk?calcImpliedReturn(s.cons?.gr,_stk,s.currentPrice):null;
+    if(_lr!=null){
+      const _rc=_lr>=0.15?"#34d399":_lr>=0.10?"#10b981":_lr>0?"#fbbf24":"#f87171";
+      retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_rc}" title="Growth-anchored return at current price (Sticker basis)">${(_lr*100).toFixed(1)}% R</div>`;
+    }
+  }
   return `<div class="sig-row" style="${rowStyle}">
     <div class="sig-ident">${ident}</div>
     <div class="chip-strip">${chipStripHtml(t,pfKey)}</div>
-    <div class="sig-right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted)">${priceStr}</div>${costStr}<div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${countCol}">${countTxt}</div>${sellStr}</div>
+    <div class="sig-right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted)">${priceStr}</div>${costStr}${retStr}<div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${countCol}">${countTxt}</div>${sellStr}</div>
   </div>`;
 }
 
@@ -5187,19 +5198,22 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _phase=positionPhase(ticker,currentPf);
     const phaseBadge=s.status!=="trophy"?`<span class="pos-badge" style="background:transparent;color:${_phase.color};font-size:8px;padding:1px 4px;border:1px solid ${_phase.color}33">${_phase.label}</span>`:"";
 
-    // Reference price (Sticker for Phil Town, Ten Cap for Buffett) and live growth-anchored
-    // return at CURRENT price (framework §4.3): R = g + (1/10)·ln(ref/price). At ref, R = gr.
+    // Sell-reference price (Sticker for Phil Town, Ten Cap for Buffett) drives the MOS%/above
+    // display only. The growth-anchored RETURN always anchors on Sticker = MOS×2 for ALL
+    // categories incl. Buffett (framework §4.3): R = g + (1/10)·ln(Sticker/price). At Sticker, R = gr.
     const _refPrice=isBuffett(ticker)?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);
     const _refLabel=isBuffett(ticker)?"ten cap":"stk";
-    const liveR=_refPrice?calcImpliedReturn(s.cons?.gr,_refPrice,s.currentPrice):null;
+    const _stkPrice=s.cons?.mos?s.cons.mos*2:null;
+    const liveR=_stkPrice?calcImpliedReturn(s.cons?.gr,_stkPrice,s.currentPrice):null;
     const liveRCol=liveR==null?"var(--muted)":liveR>=0.15?"var(--green)":liveR>=0.10?"#34d399":liveR>0?"var(--amber)":"var(--red)";
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${blockBadge(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
-        <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${liveR!=null?`<div style="font-size:11px;font-weight:700;font-family:var(--mono);color:${liveRCol}">${(liveR*100).toFixed(1)}% R</div>`:""}${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
+        <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
-    // Stats row — Buffett stocks use Ten Cap as reference, Phil Town uses Sticker
-    const avgIR=avg&&_refPrice?calcImpliedReturn(s.cons?.gr,_refPrice,avg):null;
+    // Stats row — avg-cost return uses Sticker basis (all categories); MOS% display keeps
+    // the sell-reference (Sticker for PT, Ten Cap for Buffett).
+    const avgIR=avg&&_stkPrice?calcImpliedReturn(s.cons?.gr,_stkPrice,avg):null;
     const avgMOS=avg&&_refPrice?((1-avg/_refPrice)*100):null;
     const avgCol=avgMOS==null?"var(--muted)":avgMOS>=50?"var(--green)":avgMOS>0?"#34d399":"var(--amber)";
     h+=`<div class="stat-row" style="margin:8px 0">
