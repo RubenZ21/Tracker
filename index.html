@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.37</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.38</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4839,7 +4839,7 @@ function sigRowHtml(t,pfKey,isSpec){
     const _hasDiv=divPerShare(s)>0;
     if(_br!=null){
       if(_sr!=null&&(_hasDiv)){ // owned + pays a dividend → the two figures differ → show both
-        retStr=`<div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_br)};line-height:1.25" title="BUY return: appreciation + live post-tax dividend yield (size a new tranche)"><span style="color:#34d399;font-weight:400">buy </span>${(_br*100).toFixed(1)}%</div><div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_sr)};line-height:1.25" title="SELL return: appreciation + dividend yield on your avg cost (hold vs sell)"><span style="color:var(--amber);font-weight:400">sell </span>${(_sr*100).toFixed(1)}%</div>`;
+        retStr=`<div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_br)};line-height:1.25" title="BUY return: appreciation + live post-tax dividend yield (size a new tranche)"><span style="color:#34d399;font-weight:400">buy </span>${(_br*100).toFixed(1)}%</div><div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_sr)};line-height:1.25" title="SELL return: appreciation + dividend yield on your avg cost (hold vs sell)"><span style="color:#34d399;font-weight:400">sell </span>${(_sr*100).toFixed(1)}%</div>`;
       }else if(_sr!=null){ // owned, no dividend → identical → one row, neutral label
         retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_col(_br)}" title="Growth-anchored return at current price (Sticker basis)">${(_br*100).toFixed(1)}% R</div>`;
       }else if(_hasDiv){ // not owned but pays a dividend → buy figure is the relevant one
@@ -5270,10 +5270,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _costYld=avg>0?divYieldOn(s,avg):0;
     const avgMOS=avg&&_refPrice?((1-avg/_refPrice)*100):null;
     const avgCol=avgMOS==null?"var(--muted)":avgMOS>=50?"var(--green)":avgMOS>0?"#34d399":"var(--amber)";
-    h+=`<div class="stat-row" style="margin:8px 0">
+    h+=`<div class="stat-row" style="margin:8px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="stat-box"><div class="stat-label">Return @ now <span style="color:#34d399">▸buy</span></div><div class="stat-val" style="color:${liveRCol}">${buyR!=null?(buyR*100).toFixed(1)+"%":"—"}</div>${_liveYld>0?`<div style="font-size:10px;color:#38bdf8;margin-top:2px;font-family:var(--mono)" title="Live post-tax dividend yield on current price (already in the buy return)">+${(_liveYld*100).toFixed(1)}% div · live</div>`:""}${s.cons?.gr!=null?`<div style="font-size:10px;color:var(--muted);margin-top:1px;font-family:var(--mono)">fair ${(+s.cons.gr).toFixed(1)}%</div>`:""}</div>
+      <div class="stat-box"><div class="stat-label">Avg Cost <span style="color:#34d399">▸sell</span></div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${sellR!=null?` <span style="font-size:10px;opacity:0.7;color:${sellR>=0.10?"#34d399":sellR>0?"var(--amber)":"var(--red)"}">${(sellR*100).toFixed(1)}%</span>`:""}</div>${_costYld>0?`<div style="font-size:10px;color:#38bdf8;margin-top:2px;font-family:var(--mono)" title="Post-tax dividend yield locked on your avg cost (in the sell return)">+${(_costYld*100).toFixed(1)}% div · cost</div>`:""}${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:1px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above "+_refLabel:"≈ "+_refLabel}</div>`:""}</div>
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
-      <div class="stat-box"><div class="stat-label">Avg Cost <span style="color:var(--amber)">▸sell</span></div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${sellR!=null?` <span style="font-size:10px;opacity:0.7;color:${sellR>=0.10?"#34d399":sellR>0?"var(--amber)":"var(--red)"}">${(sellR*100).toFixed(1)}%</span>`:""}</div>${_costYld>0?`<div style="font-size:10px;color:#38bdf8;margin-top:2px;font-family:var(--mono)" title="Post-tax dividend yield locked on your avg cost (in the sell return)">+${(_costYld*100).toFixed(1)}% div · cost</div>`:""}${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:1px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above "+_refLabel:"≈ "+_refLabel}</div>`:""}</div>
       <div class="stat-box"><div class="stat-label">Invested</div><div class="stat-val">${hideValues?"•••":(s.currency==="GBp"?"£"+(shares*avg/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(shares*avg),s.currency))}</div></div></div>`;
 
     // v4.09: position cost basis as % of the P1+P3+DP cost-basis tranche base (both portfolios).
