@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.36</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.37</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1216,19 +1216,45 @@ function calcImpliedReturn(gr,sticker,entryPrice){
   const g=gr/100;
   return g+(1/RETURN_N)*Math.log(sticker/entryPrice);}
 
+// Dividend layer (v4.37). divPerShare is the POST-TAX trailing annual dividend per share,
+// stored per stock in native quote currency in the triggers CSV. Yield is always computed
+// live against a chosen price (cash amount ÷ price), so it breathes with the market.
+//   divYieldOn(s,price) → decimal yield (post-tax) at that price, or 0 if no dividend.
+function divPerShare(s){const d=s?.cons?.divPerShare;return(d!=null&&d>0)?+d:0;}
+function divYieldOn(s,price){const d=divPerShare(s);return(d>0&&price>0)?d/price:0;}
+
+// Two total-return figures. Appreciation term anchors on the LIVE price for BOTH (cost is
+// sunk; the forward price return is what matters either way). The ONLY difference is which
+// price the post-tax dividend is divided by:
+//   BUY  RoR — yield on the live price (what a new tranche bought today would yield on cost).
+//   SELL RoR — yield on the avg cost (income locked against what you already paid).
+// Both fall back to the price-only implied return when the stock pays no dividend.
+function calcBuyReturn(s,sticker,livePrice){
+  const base=calcImpliedReturn(s?.cons?.gr,sticker,livePrice);
+  return base==null?null:base+divYieldOn(s,livePrice);}
+function calcSellReturn(s,sticker,livePrice,avgCost){
+  const base=calcImpliedReturn(s?.cons?.gr,sticker,livePrice);
+  if(base==null)return null;
+  return base+(avgCost>0?divYieldOn(s,avgCost):0);}
+
 // Layer 2 recycle spread gate (framework.md §5.2 condition 5, June 24 2026).
 // A recycle is permitted only if the destination's growth-anchored implied return
 // (measured at the destination's FIRING trigger price) exceeds the source's
 // growth-anchored implied return (measured at the source's CURRENT price) by at
 // least SPREAD_GATE_PP percentage points. Returns {srcR, dstR, spread, pass} or null.
+// v4.37: dividend-aware. Source uses the SELL RoR (you are deciding whether to recycle
+// OUT of it → income locked on its avg cost); destination uses the BUY RoR (you are
+// deciding whether to buy IN at its trigger price → yield on the price you would pay).
 const SPREAD_GATE_PP=5;
+function _anyAvgCost(ticker){ // avg cost of the held position across portfolios (recycle source)
+  for(const pf of Object.values(portfolios||{})){const pos=pf?.positions?.[ticker];if(pos){const a=posAvgPrice(pos);if(a>0)return a;}}return 0;}
 function layer2Spread(srcTicker,dstTicker,dstTriggerPrice){
   const src=stocks[srcTicker],dst=stocks[dstTicker];
   if(!src||!dst)return null;
   const srcStk=src.cons?.mos?src.cons.mos*2:null;
   const dstStk=dst.cons?.mos?dst.cons.mos*2:null;
-  const srcR=calcImpliedReturn(src.cons?.gr,srcStk,src.currentPrice);
-  const dstR=calcImpliedReturn(dst.cons?.gr,dstStk,dstTriggerPrice);
+  const srcR=calcSellReturn(src,srcStk,src.currentPrice,_anyAvgCost(srcTicker));
+  const dstR=calcBuyReturn(dst,dstStk,dstTriggerPrice);
   if(srcR==null||dstR==null)return null;
   const spread=(dstR-srcR)*100;
   return{srcR,dstR,spread,pass:spread>=SPREAD_GATE_PP};}
@@ -1243,9 +1269,11 @@ function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(
   if(isOperationalTier1(t)){const pm=pmosPrice(s);if(pm)triggers.push({name:"P-MOS",price:pm});}
   if(mos)triggers.push({name:"MOS",price:mos});if(s.cons.tenCap&&!isTriggerMuted(s,"tenCap"))triggers.push({name:trigT3Label(t),price:s.cons.tenCap});if(s.cons.pbt&&!isTriggerMuted(s,"pbt"))triggers.push({name:trigT2Label(t),price:s.cons.pbt});
   if(!triggers.length)return null;const closest=triggers.reduce((a,b)=>a.price>b.price?a:b);
-  const ir=calcImpliedReturn(s.cons.gr,sticker,closest.price);if(ir==null)return null;
-  // liveReturn: growth-anchored R at the current live price (framework §4.3 surface).
-  const liveReturn=calcImpliedReturn(s.cons.gr,sticker,s.currentPrice);
+  // v4.37: buy-context figures. impliedReturn is measured AT the trigger price (the price you
+  // would buy at), so it carries the dividend yield at that price; liveReturn carries the live
+  // yield. Both are BUY RoRs — the watchlist is a shopping surface, nothing is owned there.
+  const ir=calcBuyReturn(s,sticker,closest.price);if(ir==null)return null;
+  const liveReturn=calcBuyReturn(s,sticker,s.currentPrice);
   return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,liveReturn,aboveMarr:ir>=0.15};}
 // FIX #5: Convert any currency amount to EUR for allocation
 function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="GBP")return amount/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;if(ccy==="JPY")return amount/settings.fxJPY;return amount;}
@@ -2753,7 +2781,7 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate\n";
+  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,divPerShare,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate\n";
   // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
   const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
@@ -2762,7 +2790,7 @@ function exportCSV(){
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -2964,6 +2992,7 @@ function handleCSVImport(e){
       if(hdr.includes("fcf"))s.cons.fcf=set("fcf",row.fcf);
       if(hdr.includes("eps"))s.cons.eps=set("eps",row.eps);
       if(hdr.includes("pe"))s.cons.pe=set("pe",row.pe);
+      if(hdr.includes("divpershare"))s.cons.divPerShare=set("divpershare",row.divpershare);
       if(hdr.includes("priority")){const pv=set("priority",row.priority);s.priority=pv;}
       if(hdr.includes("compounderpriority")){const cp=set("compounderpriority",row.compounderpriority);s.compounderPriority=cp;}
       // Set trigger freshness date: use CSV value if present, else mark as updated now
@@ -3614,7 +3643,7 @@ function exportExcel(){
     gridPersonal:isOnGrid(t,"personal")?"Y":"",gridCaca:isOnGrid(t,"nl")?"Y":"",
     riskPersonal:isRisk(t,"personal")?"Y":"",riskCaca:isRisk(t,"nl")?"Y":"",
     currentPrice:s.currentPrice,sticker:s.cons.sticker||null,mos:s.cons.mos,tenCap:s.cons.tenCap,
-    pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
+    pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,divPerShare:s.cons.divPerShare||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
     category:s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"",
@@ -3756,6 +3785,7 @@ function handleExcelImport(e){
             s.cons.pbt=vn(row.pbt);s.cons.pbtYrs=vn(row.pbtYrs);s.cons.gr=vn(row.gr);
             s.cons.oe=vn(row.oe);s.cons.fcf=vn(row.fcf);
             s.cons.eps=vn(row.eps);s.cons.pe=vn(row.pe);
+            if(row.divPerShare!=null)s.cons.divPerShare=vn(row.divPerShare);
             if(row.prevSticker!=null)s.cons.prevSticker=vn(row.prevSticker);
             if(row.gate!=null)s.gate=String(row.gate)==="FAIL"?false:true;
             if(row.specReason!=null)s.specReason=String(row.specReason);
@@ -4744,11 +4774,13 @@ function sigRowHtml(t,pfKey,isSpec){
   // Cost line: average buy price of shares held in this portfolio + unrealised gain/loss vs current.
   // Only shown when a position exists; otherwise blank (nothing owned = no cost basis to show).
   let costStr="";
+  let _rowAvg=0; // v4.37: hoisted avg cost (held position in this pf) — feeds the SELL RoR below
   {
     const _pf=pfKey||"personal";
     const _pos=portfolios[_pf]?.positions?.[t];
     const _avg=_pos?posAvgPrice(_pos):0;
     const _sh=_pos?posShares(_pos):0;
+    _rowAvg=_avg>0&&_sh>0?_avg:0;
     if(_avg>0&&_sh>0){
       const p=s.currentPrice;
       let glTxt="";
@@ -4794,15 +4826,27 @@ function sigRowHtml(t,pfKey,isSpec){
       sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Targeted sell price (${tgtLabel})">🎯${fmt(tgt,s.currency)}${gapTxt}</div>`;
     }
   }
-  // Live growth-anchored return at current price (framework §4.3). Sticker = MOS×2 for ALL
-  // categories incl. Buffett — the rate always anchors on Sticker, never Ten Cap/20Cap.
+  // v4.37: two stacked total-return rows (dividend-aware). Sticker = MOS×2 for ALL categories.
+  //   BUY  = appreciation@live + live post-tax div yield → sizing a new tranche.
+  //   SELL = appreciation@live + div yield on avg cost   → hold-vs-sell on shares owned.
+  // SELL only renders when a position is held. With no dividend the two collapse to one "R".
   let retStr="";
   {
     const _stk=s.cons?.mos?s.cons.mos*2:null;
-    const _lr=_stk?calcImpliedReturn(s.cons?.gr,_stk,s.currentPrice):null;
-    if(_lr!=null){
-      const _rc=_lr>=0.15?"#34d399":_lr>=0.10?"#10b981":_lr>0?"#fbbf24":"#f87171";
-      retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_rc}" title="Growth-anchored return at current price (Sticker basis)">${(_lr*100).toFixed(1)}% R</div>`;
+    const _br=_stk?calcBuyReturn(s,_stk,s.currentPrice):null;
+    const _sr=(_stk&&_rowAvg>0)?calcSellReturn(s,_stk,s.currentPrice,_rowAvg):null;
+    const _col=v=>v>=0.15?"#34d399":v>=0.10?"#10b981":v>0?"#fbbf24":"#f87171";
+    const _hasDiv=divPerShare(s)>0;
+    if(_br!=null){
+      if(_sr!=null&&(_hasDiv)){ // owned + pays a dividend → the two figures differ → show both
+        retStr=`<div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_br)};line-height:1.25" title="BUY return: appreciation + live post-tax dividend yield (size a new tranche)"><span style="color:#34d399;font-weight:400">buy </span>${(_br*100).toFixed(1)}%</div><div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_sr)};line-height:1.25" title="SELL return: appreciation + dividend yield on your avg cost (hold vs sell)"><span style="color:var(--amber);font-weight:400">sell </span>${(_sr*100).toFixed(1)}%</div>`;
+      }else if(_sr!=null){ // owned, no dividend → identical → one row, neutral label
+        retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_col(_br)}" title="Growth-anchored return at current price (Sticker basis)">${(_br*100).toFixed(1)}% R</div>`;
+      }else if(_hasDiv){ // not owned but pays a dividend → buy figure is the relevant one
+        retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_col(_br)}" title="BUY return: appreciation + live post-tax dividend yield"><span style="color:#34d399;font-weight:400">buy </span>${(_br*100).toFixed(1)}%</div>`;
+      }else{ // not owned, no dividend → plain R
+        retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_col(_br)}" title="Growth-anchored return at current price (Sticker basis)">${(_br*100).toFixed(1)}% R</div>`;
+      }
     }
   }
   return `<div class="sig-row" style="${rowStyle}">
@@ -5204,8 +5248,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _refPrice=isBuffett(ticker)?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);
     const _refLabel=isBuffett(ticker)?"ten cap":"stk";
     const _stkPrice=s.cons?.mos?s.cons.mos*2:null;
+    // v4.37: BUY RoR (Return @ now) = price appreciation + live post-tax dividend yield.
+    // Used to size a NEW tranche: today's price is the cost of new shares, so today's live
+    // yield is their yield-on-cost. liveR keeps the price-only base for the "fair %" sub-line.
     const liveR=_stkPrice?calcImpliedReturn(s.cons?.gr,_stkPrice,s.currentPrice):null;
-    const liveRCol=liveR==null?"var(--muted)":liveR>=0.15?"var(--green)":liveR>=0.10?"#34d399":liveR>0?"var(--amber)":"var(--red)";
+    const buyR=_stkPrice?calcBuyReturn(s,_stkPrice,s.currentPrice):null;
+    const _liveYld=divYieldOn(s,s.currentPrice);
+    const liveRCol=buyR==null?"var(--muted)":buyR>=0.15?"var(--green)":buyR>=0.10?"#34d399":buyR>0?"var(--amber)":"var(--red)";
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${blockBadge(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
@@ -5213,13 +5262,18 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
     // Stats row — avg-cost return uses Sticker basis (all categories); MOS% display keeps
     // the sell-reference (Sticker for PT, Ten Cap for Buffett).
-    const avgIR=avg&&_stkPrice?calcImpliedReturn(s.cons?.gr,_stkPrice,avg):null;
+    // v4.37: SELL RoR (Avg Cost) = price appreciation from LIVE price + post-tax dividend
+    // yield on AVG COST. Used to decide HOLD vs SELL: income is locked against what you paid,
+    // appreciation is forward (cost is sunk). avgIR keeps the price-only base for the % chip.
+    const avgIR=avg&&_stkPrice?calcImpliedReturn(s.cons?.gr,_stkPrice,s.currentPrice):null;
+    const sellR=avg&&_stkPrice?calcSellReturn(s,_stkPrice,s.currentPrice,avg):null;
+    const _costYld=avg>0?divYieldOn(s,avg):0;
     const avgMOS=avg&&_refPrice?((1-avg/_refPrice)*100):null;
     const avgCol=avgMOS==null?"var(--muted)":avgMOS>=50?"var(--green)":avgMOS>0?"#34d399":"var(--amber)";
     h+=`<div class="stat-row" style="margin:8px 0">
-      <div class="stat-box"><div class="stat-label">Return @ now</div><div class="stat-val" style="color:${liveRCol}">${liveR!=null?(liveR*100).toFixed(1)+"%":"—"}</div>${s.cons?.gr!=null?`<div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:var(--mono)">fair ${(+s.cons.gr).toFixed(1)}%</div>`:""}</div>
+      <div class="stat-box"><div class="stat-label">Return @ now <span style="color:#34d399">▸buy</span></div><div class="stat-val" style="color:${liveRCol}">${buyR!=null?(buyR*100).toFixed(1)+"%":"—"}</div>${_liveYld>0?`<div style="font-size:10px;color:#38bdf8;margin-top:2px;font-family:var(--mono)" title="Live post-tax dividend yield on current price (already in the buy return)">+${(_liveYld*100).toFixed(1)}% div · live</div>`:""}${s.cons?.gr!=null?`<div style="font-size:10px;color:var(--muted);margin-top:1px;font-family:var(--mono)">fair ${(+s.cons.gr).toFixed(1)}%</div>`:""}</div>
       <div class="stat-box"><div class="stat-label">Shares</div><div class="stat-val">${fmtSh(shares)}</div></div>
-      <div class="stat-box"><div class="stat-label">Avg Cost</div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${avgIR!=null?` <span style="font-size:10px;opacity:0.7">${(avgIR*100).toFixed(1)}%</span>`:""}</div>${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:2px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above "+_refLabel:"≈ "+_refLabel}</div>`:""}</div>
+      <div class="stat-box"><div class="stat-label">Avg Cost <span style="color:var(--amber)">▸sell</span></div><div class="stat-val">${fmt(avg.toFixed(2),s.currency)}${sellR!=null?` <span style="font-size:10px;opacity:0.7;color:${sellR>=0.10?"#34d399":sellR>0?"var(--amber)":"var(--red)"}">${(sellR*100).toFixed(1)}%</span>`:""}</div>${_costYld>0?`<div style="font-size:10px;color:#38bdf8;margin-top:2px;font-family:var(--mono)" title="Post-tax dividend yield locked on your avg cost (in the sell return)">+${(_costYld*100).toFixed(1)}% div · cost</div>`:""}${avgMOS!=null?`<div style="font-size:10px;color:${avgCol};margin-top:1px;font-family:var(--mono)">${avgMOS>=1?Math.round(avgMOS)+"% MOS":avgMOS<=-1?Math.abs(Math.round(avgMOS))+"% above "+_refLabel:"≈ "+_refLabel}</div>`:""}</div>
       <div class="stat-box"><div class="stat-label">Invested</div><div class="stat-val">${hideValues?"•••":(s.currency==="GBp"?"£"+(shares*avg/100).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2}):fmt(Math.round(shares*avg),s.currency))}</div></div></div>`;
 
     // v4.09: position cost basis as % of the P1+P3+DP cost-basis tranche base (both portfolios).
@@ -7234,6 +7288,7 @@ function openEditStock(t){
     "— Cash Flow Inputs —",
     {id:"es-oe",label:"OE/share (→ Ten Cap)",val:s.cons.oe,type:"number"},
     {id:"es-fcf",label:"FCF/share (→ PBT)",val:s.cons.fcf,type:"number"},
+    {id:"es-div",label:"Div/share (post-tax, native ccy)",val:s.cons.divPerShare,type:"number"},
     "— Buy Triggers (auto-calc from inputs above) —",
     {id:"es-mos",label:"MOS (= Sticker ÷ 2)",val:s.cons.mos,type:"number"},
     {id:"es-tc",label:"Ten Cap (= OE × 10)",val:s.cons.tenCap,type:"number"},
@@ -7249,7 +7304,7 @@ function openEditStock(t){
     s.name=gv("es-name")||s.name;const fhv=(gv("es-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,"");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;
     s.cons.eps=nv("es-eps");s.cons.gr=nv("es-gr")??s.cons.gr;s.cons.pe=nv("es-pe");
-    s.cons.oe=nv("es-oe");s.cons.fcf=nv("es-fcf");
+    s.cons.oe=nv("es-oe");s.cons.fcf=nv("es-fcf");s.cons.divPerShare=nv("es-div");
     // Read manual trigger values (may be overwritten by auto-calc below)
     s.cons.mos=nv("es-mos");s.cons.tenCap=nv("es-tc");
     s.cons.pbt=nv("es-pbt");s.cons.pbtYrs=nv("es-pbtyrs");
