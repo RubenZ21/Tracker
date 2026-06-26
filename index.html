@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.43</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.44</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5144,45 +5144,34 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     }
   }
 
-  // === v4.42/v4.43: Pool 3 (risk bucket) cost-basis bar — scaled to the bucket cap ===
-  // Each Pool 3 position (legacy risk positions + fired Risklist names, Personal only) is a
-  // segment whose width is its cost basis as a fraction of the cap. The full bar = 100% of the
-  // cap (Personal 20%, Caca 10% of Pool1+Pool3 cost basis). Unused cap is faded headroom; an
-  // over-cap overflow note turns red if the bucket has exceeded its cap. Renders for whichever
-  // portfolio is active (currentPf).
+  // === v4.44: Pool composition row — Pool 1 stock cost / Risk (Pool 3) cost / DP, each as a
+  // % of total cost basis (Pool 1 stocks + Pool 3 + DP). pool1CostBasis already includes DP,
+  // so the Pool-1 *stock* slice is pool1CostBasis − DP. Renders for the active portfolio.
   if(!hideValues){
-    const _p3pf=currentPf;
-    const _p3bc=pfBaseCcy(_p3pf);
-    const _rbiBar=riskBucketInfo(_p3pf);
-    const _p3cap=_rbiBar.cap;                              // capPct of Pool1+used (base ccy)
-    const _p3pal=["#6e1d2e","#5e2d3b","#7a2d3d","#8a3548","#5a2533"];
-    const _p3segs=[];let _p3used=0;let _p3i=0;
-    // Legacy Pool 3 risk positions (isRisk === true) in the active portfolio.
-    const _pp=portfolios[_p3pf];
-    if(_pp)Object.keys(_pp.positions).forEach(t=>{if(!isRisk(t,_p3pf))return;
-      const s=stocks[t];if(!s)return;const cost=posCostBasisBase(t,_p3pf);if(cost<=0)return;
-      _p3segs.push({label:t,cost,col:_p3pal[_p3i++%_p3pal.length]});_p3used+=cost;});
-    // Fired Risklist names (speculative Pool 3) — Personal only; Caca has no Risklist.
-    if(_p3pf==="personal"&&typeof risklist!=="undefined"&&Array.isArray(risklist))risklist.forEach(e=>{
-      let cost=0;for(let i=1;i<=3;i++){if(e["fired"+i]&&e["firedShares"+i]&&e["firedPrice"+i])cost+=fromEUR(toEUR(e["firedShares"+i]*e["firedPrice"+i],e.currency),_p3bc);}
-      if(cost<=0)return;_p3segs.push({label:e.ticker||e.name||"RL",cost,col:_p3pal[_p3i++%_p3pal.length]});_p3used+=cost;});
-    if(_p3cap>0&&(_p3segs.length||_p3used>0)){
-      const _capPctLbl=Math.round((_rbiBar.capPct||0.20)*100);
-      const _usedPctOfCap=_p3cap>0?_p3used/_p3cap*100:0;        // 100% = full cap consumed
-      const _bsP3=pfSym(_p3pf);
-      h+=`<div style="margin:8px 0 1px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-        <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">🎲 Pool 3 risk bucket · ${_capPctLbl}% cap</span>
-        <span style="font-size:9px;font-family:var(--mono);color:${_usedPctOfCap>100?"var(--red)":"var(--muted)"}">${_bsP3}${Math.round(_p3used).toLocaleString()} / ${_bsP3}${Math.round(_p3cap).toLocaleString()} (${Math.round(_usedPctOfCap)}% of cap)</span></div>`;
-      h+=`<div id="wbar-p3" style="display:flex;height:14px;border-radius:4px;overflow:hidden;gap:1px;background:#161b22">`;
-      // Segments are scaled so the whole bar represents the cap. A position uses (cost/cap) width.
-      _p3segs.forEach(sg=>{const pct=Math.min(100,sg.cost/_p3cap*100);
-        h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#fecaca;white-space:nowrap;overflow:hidden" title="${esc(sg.label)} ${_bsP3}${Math.round(sg.cost).toLocaleString()}"><span>${esc(sg.label)}\u2009${Math.round(sg.cost/_p3cap*100)}%</span></div>`;});
-      const _headroom=Math.max(0,_p3cap-_p3used);
-      if(_headroom>0){const pct=_headroom/_p3cap*100;
-        h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden" title="Headroom to ${_capPctLbl}% cap"><span>free\u2009${Math.round(pct)}%</span></div>`;}
+    const _cmpPf=currentPf;
+    const _cmpDp=portfolios[_cmpPf]?.dryPowder||0;
+    const _cmpP1=Math.max(0,pool1CostBasis(_cmpPf)-_cmpDp);   // Pool 1 stock cost (excl. DP)
+    const _cmpP3=pool3CostBasis(_cmpPf);                      // Pool 3 risk cost
+    const _cmpTotal=_cmpP1+_cmpP3+_cmpDp;
+    if(_cmpTotal>0){
+      const _cmpBs=pfSym(_cmpPf);
+      const _cmpRows=[
+        {label:"Pool 1",val:_cmpP1,col:"#1d4e6e"},
+        {label:"Risk",val:_cmpP3,col:"#6e1d2e"},
+        {label:"DP",val:_cmpDp,col:"#1e2a3f"}
+      ].filter(r=>r.val>0);
+      const _pctOf=(v)=>v/_cmpTotal*100;
+      h+=`<div style="margin:6px 0 1px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+        <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">Cost composition</span>
+        <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">${_cmpBs}${Math.round(_cmpTotal).toLocaleString()} total cost</span></div>`;
+      h+=`<div style="display:flex;height:16px;border-radius:4px;overflow:hidden;gap:1px;background:#161b22">`;
+      _cmpRows.forEach(r=>{const pct=_pctOf(r.val);
+        h+=`<div style="width:${pct}%;background:${r.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden" title="${r.label} ${_cmpBs}${Math.round(r.val).toLocaleString()}"><span>${r.label}\u2009${Math.round(pct)}%</span></div>`;});
       h+=`</div>`;
-      if(_usedPctOfCap>100){h+=`<div style="font-size:8px;color:var(--red);font-family:var(--mono);margin-top:2px">⚠ over ${_capPctLbl}% cap by ${_bsP3}${Math.round(_p3used-_p3cap).toLocaleString()}</div>`;}
-      h+=`</div>`;
+      h+=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:3px">`;
+      _cmpRows.forEach(r=>{
+        h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${r.col};margin-right:3px;vertical-align:middle"></span>${r.label} ${_cmpBs}${Math.round(r.val).toLocaleString()} · ${Math.round(_pctOf(r.val))}%</span>`;});
+      h+=`</div></div>`;
     }
   }
 
