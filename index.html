@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.41</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.43</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -643,6 +643,11 @@ function slotWeight(t,sigKey,pfKey){
   return 1.0;
 }
 
+// v4.43 (Jun 26 2026): both portfolios use 3% per tranche, measured against the P1+P3+DP
+// cost-basis tranche base. Personal moved off 4% in v4.42; Caca follows in v4.43. Kept as a
+// per-portfolio function so a future split is a one-line change.
+function trancheFrac(pfKey){return 0.03;}
+
 // ============ STAGE E (v3.78, Jun 2 2026): CAPITAL-RECOVERY-AT-FAIR-VALUE NOTIFICATION ============
 // Framework §5 (June 2 2026 redesign): non-Tier-1 positions trigger a CAPITAL-RECOVERY action
 // when price crosses the fair-value anchor from below — sell exactly enough shares to recover
@@ -958,7 +963,7 @@ function litTrancheTopups(ticker,pfKey,base){
     let curLocal=0;
     if(pos?.tranches){pos.tranches.forEach(tr=>{if(labelMap[sigKey].includes(tr.signal)){const sh=tr.bought-tr.sold;if(sh>0)curLocal+=sh*tr.buyPrice;}});}
     const curBase=fromEUR(toEUR(curLocal,s.currency),bc);
-    const targetFrac=slotWeight(ticker,sigKey,pfKey)*0.04;   // flat 4% (v4.08)
+    const targetFrac=slotWeight(ticker,sigKey,pfKey)*trancheFrac(pfKey);   // v4.42: Personal 3%, Caca 4%
     const targetBase=targetFrac*base;
     const roomBase=Math.max(0,targetBase-curBase);
     const roomLocal=fromEUR(toEUR(roomBase,bc),s.currency);
@@ -1816,8 +1821,8 @@ function syncRisklistStockStubs(){
 // pool1CostBasis already includes DP; pool3CostBasis adds risk-bucket cost. Cost basis (not
 // market value) so tranche size doesn't inflate/deflate with mark-to-market swings.
 function trancheBase(pfKey){return pool1CostBasis(pfKey)+pool3CostBasis(pfKey);}
-// 4% initial entry size from combined P1+P3+DP cost basis (v4.08 flat)
-function initialEntrySize(pfKey){return Math.round(trancheBase(pfKey)*0.04);}
+// initial entry size from combined P1+P3+DP cost basis (v4.42: Personal 3%, Caca 4%)
+function initialEntrySize(pfKey){return Math.round(trancheBase(pfKey)*trancheFrac(pfKey));}
 // === v4.09: per-position cost basis (open shares × buyPrice) in the portfolio base ccy. ===
 // Excludes trophy tranches (they're not part of the Pool 1/3 allocation math), matching the
 // invested-capital and cost-basis conventions used elsewhere. Returns base-currency amount.
@@ -1847,7 +1852,7 @@ function trancheAllocStatus(ticker,pfKey){
   const nNonTrophy=pos.tranches.filter(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0).length;
   if(nNonTrophy<=0)return null;                           // nothing deployed in the allocation pool
   const tb=trancheBase(pfKey);                            // current cost base, no future income
-  const target=nNonTrophy*0.04*tb;                        // flat 4% per tranche
+  const target=nNonTrophy*trancheFrac(pfKey)*tb;          // v4.42: Personal 3%, Caca 4%
   const actual=posCostBasisBase(ticker,pfKey);
   const diff=actual-target;                               // +over / −under
   const pct=target>0?diff/target*100:0;
@@ -1856,7 +1861,7 @@ function trancheAllocStatus(ticker,pfKey){
 // Per-trigger entry size (base currency). v4.08: FLAT 4% for every signal (incl. P-MOS) in
 // both portfolios. The old Personal P-MOS=3% asymmetry is retired.
 function entrySizeForSignal(pfKey,sigKey){
-  return Math.round(trancheBase(pfKey)*0.04);
+  return Math.round(trancheBase(pfKey)*trancheFrac(pfKey)); // v4.42: Personal 3%, Caca 4%
 }
 // Per-stock position cap. v4.32: trigger-count-driven — cap = (valid trigger slots) × 4%.
 //   2 slots (Buffett) =  8%   ·   3 slots (standard) = 12%   ·   4 slots (Tier 1) = 16%
@@ -1868,7 +1873,7 @@ function entrySizeForSignal(pfKey,sigKey){
 // NOW/PGR/WKL are grandfathered above caps in Caca — handled at display layer (Stage G), not here.
 function positionCapPct(ticker,pfKey){
   const slots=validTriggerSlots(ticker,pfKey);   // 2 / 3 / 4
-  return Math.max(2,slots)*0.04;                 // 8% / 12% / 16%; floor at 2 slots
+  return Math.max(2,slots)*trancheFrac(pfKey);   // v4.42: Personal 6/9/12%, Caca 8/12/16%; floor 2 slots
 }
 function positionMVPct(ticker,pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const s=stocks[ticker];if(!s)return 0;const pos=pf.positions?.[ticker];if(!pos)return 0;const p1=pool1Value(pfKey)+pool3HoldingsValue(pfKey);if(p1<=0)return 0;const base=pfBaseCcy(pfKey);const mv=fromEUR(toEUR(posShares(pos)*(s.currentPrice||0),s.currency),base);return mv/p1;}
 // v4.32: cap is measured on COST BASIS vs the P1+P3+DP tranche base. extraBase lets the
@@ -1894,7 +1899,7 @@ function dpReservedForLimitOrders(pfKey){
   const pf=portfolios[pfKey];if(!pf)return 0;
   const sigKeys={mos:"MOS",tenCap:"10Cap",pbt:"PBT",pmos:"P-MOS"};
   let reserved=0;
-  const cacaTranche=pfKey==="nl"?Math.round(trancheBase("nl")*0.04):0;
+  const cacaTranche=pfKey==="nl"?Math.round(trancheBase("nl")*trancheFrac("nl")):0;
   Object.keys(stocks).forEach(t=>{
     const lo=stocks[t]?.limitOrders;if(!lo)return;
     Object.keys(sigKeys).forEach(k=>{
@@ -1932,8 +1937,8 @@ function cacaInfo(){
   const total=mv+(pf.dryPowder||0); // Pool 1 MV + Pool 3 MV (trophy excluded) + DP — display only
   const ixVal=indexValue("nl");
   const totalWithIndex=total+ixVal;
-  // v4.08: tranche = flat 4% × COST BASIS (Pool1 cost + Pool3 cost), NOT market value.
-  const tranchePct=4;
+  // v4.43: tranche = 3% × COST BASIS (Pool1 cost + Pool3 cost), NOT market value.
+  const tranchePct=Math.round(trancheFrac("nl")*100);
   const trancheCostBase=trancheBase("nl");
   return{total,tranche:Math.round(trancheCostBase*tranchePct/100),mv,totalWithIndex,ixVal,tranchePct,trancheCostBase};
 }
@@ -5020,7 +5025,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         <div style="font-size:14px;font-weight:700;font-family:var(--mono)">€${Math.round(ci.totalWithIndex).toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
-        <div style="font-size:9px;color:var(--muted)">Tranche (4%)</div>
+        <div style="font-size:9px;color:var(--muted)">Tranche (${ci.tranchePct}%)</div>
         <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${ci.tranche.toLocaleString()}</div>
       </div>
       <div style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px">
@@ -5136,6 +5141,48 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         });
         h+=`</div>`;
       }
+    }
+  }
+
+  // === v4.42/v4.43: Pool 3 (risk bucket) cost-basis bar — scaled to the bucket cap ===
+  // Each Pool 3 position (legacy risk positions + fired Risklist names, Personal only) is a
+  // segment whose width is its cost basis as a fraction of the cap. The full bar = 100% of the
+  // cap (Personal 20%, Caca 10% of Pool1+Pool3 cost basis). Unused cap is faded headroom; an
+  // over-cap overflow note turns red if the bucket has exceeded its cap. Renders for whichever
+  // portfolio is active (currentPf).
+  if(!hideValues){
+    const _p3pf=currentPf;
+    const _p3bc=pfBaseCcy(_p3pf);
+    const _rbiBar=riskBucketInfo(_p3pf);
+    const _p3cap=_rbiBar.cap;                              // capPct of Pool1+used (base ccy)
+    const _p3pal=["#6e1d2e","#5e2d3b","#7a2d3d","#8a3548","#5a2533"];
+    const _p3segs=[];let _p3used=0;let _p3i=0;
+    // Legacy Pool 3 risk positions (isRisk === true) in the active portfolio.
+    const _pp=portfolios[_p3pf];
+    if(_pp)Object.keys(_pp.positions).forEach(t=>{if(!isRisk(t,_p3pf))return;
+      const s=stocks[t];if(!s)return;const cost=posCostBasisBase(t,_p3pf);if(cost<=0)return;
+      _p3segs.push({label:t,cost,col:_p3pal[_p3i++%_p3pal.length]});_p3used+=cost;});
+    // Fired Risklist names (speculative Pool 3) — Personal only; Caca has no Risklist.
+    if(_p3pf==="personal"&&typeof risklist!=="undefined"&&Array.isArray(risklist))risklist.forEach(e=>{
+      let cost=0;for(let i=1;i<=3;i++){if(e["fired"+i]&&e["firedShares"+i]&&e["firedPrice"+i])cost+=fromEUR(toEUR(e["firedShares"+i]*e["firedPrice"+i],e.currency),_p3bc);}
+      if(cost<=0)return;_p3segs.push({label:e.ticker||e.name||"RL",cost,col:_p3pal[_p3i++%_p3pal.length]});_p3used+=cost;});
+    if(_p3cap>0&&(_p3segs.length||_p3used>0)){
+      const _capPctLbl=Math.round((_rbiBar.capPct||0.20)*100);
+      const _usedPctOfCap=_p3cap>0?_p3used/_p3cap*100:0;        // 100% = full cap consumed
+      const _bsP3=pfSym(_p3pf);
+      h+=`<div style="margin:8px 0 1px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+        <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">🎲 Pool 3 risk bucket · ${_capPctLbl}% cap</span>
+        <span style="font-size:9px;font-family:var(--mono);color:${_usedPctOfCap>100?"var(--red)":"var(--muted)"}">${_bsP3}${Math.round(_p3used).toLocaleString()} / ${_bsP3}${Math.round(_p3cap).toLocaleString()} (${Math.round(_usedPctOfCap)}% of cap)</span></div>`;
+      h+=`<div id="wbar-p3" style="display:flex;height:14px;border-radius:4px;overflow:hidden;gap:1px;background:#161b22">`;
+      // Segments are scaled so the whole bar represents the cap. A position uses (cost/cap) width.
+      _p3segs.forEach(sg=>{const pct=Math.min(100,sg.cost/_p3cap*100);
+        h+=`<div style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#fecaca;white-space:nowrap;overflow:hidden" title="${esc(sg.label)} ${_bsP3}${Math.round(sg.cost).toLocaleString()}"><span>${esc(sg.label)}\u2009${Math.round(sg.cost/_p3cap*100)}%</span></div>`;});
+      const _headroom=Math.max(0,_p3cap-_p3used);
+      if(_headroom>0){const pct=_headroom/_p3cap*100;
+        h+=`<div style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden" title="Headroom to ${_capPctLbl}% cap"><span>free\u2009${Math.round(pct)}%</span></div>`;}
+      h+=`</div>`;
+      if(_usedPctOfCap>100){h+=`<div style="font-size:8px;color:var(--red);font-family:var(--mono);margin-top:2px">⚠ over ${_capPctLbl}% cap by ${_bsP3}${Math.round(_p3used-_p3cap).toLocaleString()}</div>`;}
+      h+=`</div>`;
     }
   }
 
@@ -5601,7 +5648,8 @@ function renderMonthlyBanner(){
 function renderTrancheBalanceCard(pfKey){
   const pf=portfolios[pfKey];if(!pf)return"";
   const bs=pfSym(pfKey);const tb=trancheBase(pfKey);
-  const trancheVal=tb*0.04;
+  const _tFrac=trancheFrac(pfKey);const _tPct=Math.round(_tFrac*100);
+  const trancheVal=tb*_tFrac;
   const rows=[];
   Object.keys(pf.positions||{}).forEach(t=>{
     if(isRisk(t,pfKey))return;                            // v4.13: risk bucket (Pool 3) excluded — it has its own card
@@ -5614,9 +5662,9 @@ function renderTrancheBalanceCard(pfKey){
   let h=`<div class="alloc-card" style="margin-top:12px;border:1px solid #60a5fa33">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <span style="font-size:14px;font-weight:700;color:var(--accent)">⚖️ Tranche Balance</span>
-      <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">4%/tranche · current size</span></div>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_tPct}%/tranche · current size</span></div>
     <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:10px;color:var(--muted)">1 tranche = 4% of P1+P3+DP cost (${bs}${Math.round(tb).toLocaleString()})</span>
+      <span style="font-size:10px;color:var(--muted)">1 tranche = ${_tPct}% of P1+P3+DP cost (${bs}${Math.round(tb).toLocaleString()})</span>
       <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${bs}${Math.round(trancheVal).toLocaleString()}</span></div>`;
   rows.forEach(r=>{
     const s=stocks[r.ticker];const flag=s?.flag||"";
@@ -5825,7 +5873,7 @@ function renderAllocator(c){
 
     h+=`<div class="alloc-card">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px;font-weight:600">${idxAlloc>0?"Stock-Picking Allocation":"Monthly Allocation"}</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${litDeploying} lit · ${unlitTotal} unlit</span></div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (4% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*0.04).toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (${Math.round(trancheFrac(currentPf)*100)}% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*trancheFrac(currentPf)).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litDeploying} lit signals${cappedLit>0?`, ${cappedLit} at cap → DP`:""})</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${deployTotal.toLocaleString()}</span></div>
       ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Overflow → DP${cappedLit>0?` (incl. ${cappedLit} at cap)`:""}</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
       <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${Math.round(_dpFloorPct*100)}% of P1+P3+DP)</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
@@ -5878,10 +5926,10 @@ function renderAllocator(c){
       const specInPf=specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
       const specValBase=specInPf.reduce((v,t)=>{const s=stocks[t];const pos=pf.positions[t];return v+fromEUR(toEUR(posShares(pos)*posAvgPrice(pos),s.currency),_bc);},0);
       // 2%-per-chunk risk tranche, shown across every listing currency. Promotion to a
-      // non-risk (Pool 1) name reverts sizing to the standard 4% entry tranche.
+      // non-risk (Pool 1) name reverts sizing to the standard entry tranche (Personal 3%).
       const _riskTbEur=toEUR(trancheBase(currentPf),_bc);
       const _riskChunkEur=_riskTbEur*0.02;
-      const _nonRiskChunkEur=_riskTbEur*0.04;
+      const _nonRiskChunkEur=_riskTbEur*trancheFrac(currentPf);
       if(specStocks.length||specInPf.length){
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -5894,7 +5942,7 @@ function renderAllocator(c){
           <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Risk chunk — 2% per buy · max 6% per stock</div>
             <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${fmtTrancheAllCcy(_riskChunkEur)}</div>
-            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:4px">On promotion to non-risk → 4% tranche: ${fmtTrancheAllCcy(_nonRiskChunkEur)}</div>
+            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:4px">On promotion to non-risk → ${Math.round(trancheFrac(currentPf)*100)}% tranche: ${fmtTrancheAllCcy(_nonRiskChunkEur)}</div>
           </div>`;
         specInPf.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
           // Cost basis as % of P1+P3+DP tranche base — same denominator as the 6% per-stock cap.
@@ -5914,14 +5962,15 @@ function renderAllocator(c){
       }
     }
 
-    // === NEW ENTRY DEPLOYMENT (4% of P1+P3+DP cost basis) ===
+    // === NEW ENTRY DEPLOYMENT (Personal 3% of P1+P3+DP cost basis) ===
     const dpAvailable=pf.dryPowder;
     if(pf.dryPowder>0){
       const _tb=trancheBase("personal");const entrySize=initialEntrySize("personal");
       const canAfford=entrySize>0&&dpAvailable>=entrySize;
-      // entrySize is 4% of the P1+P3+DP cost-basis tranche base (v4.08 flat).
+      // entrySize is the Personal tranche % of the P1+P3+DP cost-basis tranche base (v4.42).
       const _p1eur=toEUR(_tb,_bc);
-      const _four=_p1eur*0.04;
+      const _entryFrac=trancheFrac("personal");const _entryPctLbl=Math.round(_entryFrac*100)+"%";
+      const _four=_p1eur*_entryFrac;
       const _fmtTri=(eur)=>fmtTrancheAllCcy(eur);
       // Format allocation amounts: GBp shows as £ for readability
       const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
@@ -5960,13 +6009,13 @@ function renderAllocator(c){
       h+=`<div class="alloc-card" style="margin-top:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">4% of P1+P3+DP cost</span></div>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_entryPctLbl} of P1+P3+DP cost</span></div>
         <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:var(--muted)">4% tranche</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${_fmtTri(_four)}</span></div></div>
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:var(--muted)">${_entryPctLbl} tranche</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${_fmtTri(_four)}</span></div></div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Tranche base</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(_tb).toLocaleString()}</div>
             <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">DP ${_tb>0?Math.round((pf.dryPowder||0)/_tb*100):0}%</div></div>
-          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">4% Entry</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${canAfford?"var(--accent)":"var(--red)"}">${_bs}${entrySize.toLocaleString()}</div>
+          <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">${_entryPctLbl} Entry</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${canAfford?"var(--accent)":"var(--red)"}">${_bs}${entrySize.toLocaleString()}</div>
             <div style="font-size:9px;color:var(--muted);margin-top:2px">${canAfford?"from DP":"insufficient DP"}</div></div>
           <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">DP Avail</div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">${_bs}${Math.round(dpAvailable).toLocaleString()}</div></div></div>`;
 
@@ -5977,10 +6026,10 @@ function renderAllocator(c){
         if(firing.length){
           h+=`<div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:4px">🔥 FIRING NOW</div>`;
           firing.forEach(r=>{const s=stocks[r.ticker];
-            // Per-signal sizing: flat 4% of cost base per firing trigger (v4.08).
+            // Per-signal sizing: Personal tranche % of cost base per firing trigger (v4.42).
             const entryEUR=r.firing.reduce((sum,sig)=>sum+entrySizeForSignal("personal",sig),0);
             const localDeploy=fromEUR(toEUR(entryEUR,_bc),s.currency);const sh=s.currentPrice?Math.floor(localDeploy/s.currentPrice):0;
-            const sizeLbl=r.firing.map(()=>"4%").join(" + ");
+            const sizeLbl=r.firing.map(()=>_entryPctLbl).join(" + ");
             const _belowFloor=toEUR(entryEUR,_bc)<toEUR(500,"USD");
             h+=`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border-left:3px solid ${_belowFloor?"var(--amber)":"var(--green)"}">
               <div style="display:flex;justify-content:space-between;align-items:center">
@@ -6020,7 +6069,7 @@ function renderAllocator(c){
       if(!isTrophy){pvTotal+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
     const ixValNl=indexValue("nl"); // Index value for display (not for tranche calc)
-    const TRANCHE_PCT=4;
+    const TRANCHE_PCT=Math.round(trancheFrac("nl")*100); // v4.43: 3% (was 4%)
     const nlCostBase=trancheBase("nl"); // Pool1 cost + Pool3 cost + DP (EUR base)
     // TARGET_SLOTS is now a derived display value (≈ how many tranches fit at this %).
     const TARGET_SLOTS=Math.max(1,Math.round(100/TRANCHE_PCT));const TARGET_STOCKS=Math.round(TARGET_SLOTS/4);
@@ -6069,7 +6118,7 @@ function renderAllocator(c){
         <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">${stockCount}/${TARGET_STOCKS} stocks · ${slotsFilled}/${TARGET_SLOTS} slots</span></div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Portfolio Value <span style="opacity:.6">(excl. trophy)</span></div><div style="font-size:15px;font-weight:700;font-family:var(--mono)">€${Math.round(pvTotal+ixValNl).toLocaleString()}</div></div>
-        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (4% · cost basis${trCapped?" · capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
+        <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Target Tranche (${TRANCHE_PCT}% · cost basis${trCapped?" · capped":""})</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--accent)">€${targetTr.toLocaleString()}</div>${trCapped?`<div style="font-size:9px;color:var(--amber);margin-top:2px">raw €${targetTrRaw.toLocaleString()} → capped at Personal</div>`:""}<div style="margin-top:4px"><label style="font-size:9px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" ${settings.nlCapAtPersonal?"checked":""} onchange="settings.nlCapAtPersonal=this.checked;save();render()"> Cap at Personal</label></div></div></div>
       <div style="display:flex;gap:8px">
         <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--muted)">Dry Powder</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">€${Math.round(pf.dryPowder).toLocaleString()}</div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());return parts.join(" + ")||"€0"})()}</div>
@@ -6114,7 +6163,7 @@ function renderAllocator(c){
       // so the chunk is computed directly in EUR.
       const _riskTbEurNL=toEUR(trancheBase("nl"),pfBaseCcy("nl"));
       const _riskChunkEurNL=Math.max(500,_riskTbEurNL*0.01);
-      const _nonRiskChunkEurNL=_riskTbEurNL*0.04;
+      const _nonRiskChunkEurNL=_riskTbEurNL*trancheFrac("nl");
       const _perStockCapPctNL=3; // 3% per-stock ceiling (independent of 10% bucket cap)
       if(_specStocks.length||_specInPfNL.length){
         h+=`<div class="alloc-card" style="margin-bottom:12px;border:1px solid #d9770633">
@@ -6128,7 +6177,7 @@ function renderAllocator(c){
           <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Risk chunk — 1% per buy · €500 min · max ${_perStockCapPctNL}% per stock</div>
             <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:#d97706">${fmtTrancheAllCcy(_riskChunkEurNL)}</div>
-            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:4px">On promotion to non-risk → 4% tranche: ${fmtTrancheAllCcy(_nonRiskChunkEurNL)}</div>
+            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:4px">On promotion to non-risk → ${Math.round(trancheFrac("nl")*100)}% tranche: ${fmtTrancheAllCcy(_nonRiskChunkEurNL)}</div>
           </div>`;
         _specInPfNL.forEach(t=>{const s=stocks[t];const pos=pf.positions[t];const sh=posShares(pos);const avg=posAvgPrice(pos);const costVal=sh*avg;
           // Cost basis as % of P1+P3+DP tranche base — same denominator as the per-stock cap.
@@ -6181,7 +6230,7 @@ function renderAllocator(c){
           <span style="font-size:14px;font-weight:700">New Entry Deployment</span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${TRANCHE_PCT.toFixed(2).replace(/\.?0+$/,"")}% rule</span></div>
         <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:var(--muted)">4% tranche${trCapped?" · capped":""}</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${fmtTrancheAllCcy(targetTr)}</span></div></div>`;
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:var(--muted)">${TRANCHE_PCT}% tranche${trCapped?" · capped":""}</span><span style="font-size:11px;font-weight:700;font-family:var(--mono)">${fmtTrancheAllCcy(targetTr)}</span></div></div>`;
       // Firing stocks
       const firingNL=readyNL.filter(r=>r.firingCount>0);
       if(firingNL.length){
