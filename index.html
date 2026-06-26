@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.48</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.49</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5145,7 +5145,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _cbTotal+=dpBase;
       if(_cbTotal>0){
         _cbSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
-        _wbarHTML+=`<div id="wbar-cb" style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;opacity:0.55">`;
+        _wbarHTML+=`<div id="wbar-cb" style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
         _cbSegs.forEach(sg=>{const pct=sg.val/_cbTotal*100;
           _wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;
         });
@@ -5169,7 +5169,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             {label:"DP",val:_cmpDp,col:"#1e2a3f"}
           ].filter(r=>r.val>0);
           const _pctOf=(v)=>v/_cmpTotal*100;
-          _wbarHTML+=`<div style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;background:#161b22;opacity:0.55">`;
+          _wbarHTML+=`<div style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;background:#161b22">`;
           _cmpRows.forEach(r=>{const pct=_pctOf(r.val);
             _wbarHTML+=`<div style="width:${pct}%;background:${r.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden" title="${r.label} ${Math.round(pct)}%"><span>${Math.round(pct)}%</span></div>`;});
           _wbarHTML+=`</div>`;
