@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.56</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.57</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2005,7 +2005,6 @@ function capacityViewHTML(pfKey){
 // the count to ~21; excluding them yields the ~7 genuinely-waiting slots.)
 function unownedPool1Slots(pfKey){
   const pf=portfolios[pfKey];if(!pf)return 0;let n=0;
-  const _dbg=[]; // v4.56 TEMP DIAGNOSTIC
   Object.keys(pf.positions||{}).forEach(t=>{
     if(isRisk(t,pfKey))return;                            // Pool 1 only
     const pos=pf.positions[t];if(!pos||pos.graduated)return; // trophy seats reserve nothing
@@ -2015,14 +2014,12 @@ function unownedPool1Slots(pfKey){
     const owned=ownedSignalKeys(pos);
     pos.muteState=pos.muteState||{};
     ladderKeys(t).forEach(k=>{
-      if(owned.has(k)){_dbg.push(`${t}.${k}=owned`);return;}        // owned slot — no DP reservation
-      if(pos.muteState[k]){_dbg.push(`${t}.${k}=muted`);return;}    // muted slot — too far to reserve
-      if(s?.signals?.[k]||isPiggyback(s,k,t)){_dbg.push(`${t}.${k}=fires`);return;} // firing → income not DP
-      _dbg.push(`${t}.${k}=COUNT`);
+      if(owned.has(k))return;        // owned slot — no DP reservation
+      if(pos.muteState[k])return;    // muted slot — too far to reserve
+      if(s?.signals?.[k]||isPiggyback(s,k,t))return; // firing → income not DP
       n++;
     });
   });
-  if(pfKey==="personal")window._dpSlotDbg=_dbg.join("  ");  // surfaced in DP label
   return n;
 }
 // v4.45: DP target as an absolute amount (base ccy). Two modes (settings.dpTargetMode):
@@ -5439,7 +5436,6 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_tgtLbl}</span>
           ${_dpPct<12?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:"")}
         </div>`;
-        if(window._dpSlotDbg)_wbarHTML+=`<div style="font-size:8px;color:#e0a0ff;font-family:var(--mono);word-break:break-all;margin:0 0 4px;line-height:1.4">🔬 ${esc(window._dpSlotDbg)}</div>`; // v4.56 TEMP DIAGNOSTIC
         _wbarHTML+=capacityViewHTML("personal"); // v4.53 §2.8 slot strip + bar + gauge + trophy shelf
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
@@ -6084,8 +6080,8 @@ function renderAllocator(c){
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>${_bs}</span><input type="number" value="${totalIncome}" onchange="settings.${_incKey}=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= ${_altSym}${_altIncome.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
       <div class="input-box" style="flex:0 0 92px"><div class="input-label" style="display:flex;gap:3px;align-items:center"><span>DP Target</span><span onclick="settings.dpTargetMode=(settings.dpTargetMode==='auto'?'pct':'auto');save();render()" style="cursor:pointer;font-size:8px;padding:1px 4px;border-radius:3px;background:${settings.dpTargetMode==='auto'?'#0d3320':'#1a1a2e'};color:${settings.dpTargetMode==='auto'?'var(--green)':'var(--muted)'};font-family:var(--mono)" title="Toggle fixed % vs auto (tranche size × unowned Pool 1 slots)">${settings.dpTargetMode==='auto'?'AUTO':'FIXED'}</span></div>
-        <div class="input-field"><input type="number" value="${settings.dpFloorPct??30}" min="0" max="100" ${settings.dpTargetMode==='auto'?'disabled style="width:40px;text-align:center;opacity:.4"':'style="width:40px;text-align:center"'} onchange="settings.dpFloorPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${settings.dpTargetMode==='auto'?`auto ${Math.round(dpTargetInfo('personal').pct)}%`:'floor'}</div></div>
+        <div class="input-field"><input type="number" value="${settings.dpTargetMode==='auto'?Math.round(dpTargetInfo('personal').pct):(settings.dpFloorPct??30)}" min="0" max="100" ${settings.dpTargetMode==='auto'?'disabled style="width:40px;text-align:center;opacity:.4"':'style="width:40px;text-align:center"'} onchange="settings.dpFloorPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${settings.dpTargetMode==='auto'?`auto · 3%×${dpTargetInfo('personal').litSlots}+9%×${dpTargetInfo('personal').seats}`:'floor'}</div></div>
       <div class="input-box" style="flex:0 0 110px" title="§2.8.3 banded drawdown mute. Mute a trigger when its drawdown-to-reach exceeds the upper %; un-mute at or below the lower %. The band between holds prior state (hysteresis)."><div class="input-label">Mute Band (dd)</div>
         <div class="input-field" style="gap:2px"><input type="number" value="${Math.round((settings.muteDistDemote??0.40)*100)}" min="0" max="100" style="width:34px;text-align:center" onchange="settings.muteDistDemote=Math.max(0,Math.min(1,(+this.value||0)/100));save();render()"><span style="font-size:10px">–</span><input type="number" value="${Math.round((settings.muteDistPromote??0.50)*100)}" min="0" max="100" style="width:34px;text-align:center" onchange="settings.muteDistPromote=Math.max(0,Math.min(1,(+this.value||0)/100));save();render()"><span>%</span></div>
         <div style="font-size:9px;color:var(--muted);margin-top:4px;font-family:var(--mono)">un-mute ≤ ${Math.round((settings.muteDistDemote??0.40)*100)} · mute &gt; ${Math.round((settings.muteDistPromote??0.50)*100)}</div></div>
@@ -6127,7 +6123,7 @@ function renderAllocator(c){
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (${Math.round(trancheFrac(currentPf)*100)}% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*trancheFrac(currentPf)).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litDeploying} lit signals${cappedLit>0?`, ${cappedLit} at cap → DP`:""})</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${deployTotal.toLocaleString()}</span></div>
       ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Overflow → DP${cappedLit>0?` (incl. ${cappedLit} at cap)`:""}</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
-      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${_dpTgt.mode==="auto"?`auto · ${Math.round(trancheFrac("personal")*100)}%×${_dpTgt.slots} unowned slots`:`${Math.round(_dpFloorPct*100)}% of P1+P3+DP`})</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${_dpTgt.mode==="auto"?`auto · ${Math.round(trancheFrac("personal")*100)}%×${_dpTgt.litSlots} slots + 9%×${_dpTgt.seats} seat${_dpTgt.seats!==1?"s":""}`:`${Math.round(_dpFloorPct*100)}% of P1+P3+DP`})</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${dpTopUp>0?'#34d399':'var(--muted)'}">${dpAfterIncome>=dpFloorThreshold?'Floor met — full deploy':'Below floor — DP top-up'}</span><span style="font-size:13px;font-family:var(--mono);color:${dpTopUp>0?'#34d399':'var(--muted)'}">${_bs}${Math.round(dpTopUp).toLocaleString()}</span></div>
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
     <div class="alloc-grid">`;
