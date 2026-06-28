@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.52</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.45</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1844,9 +1844,7 @@ function dpTargetInfo(pfKey){
   const mode=settings.dpTargetMode==="auto"?"auto":"pct";
   if(mode==="auto"){
     const slots=unownedPool1Slots(pfKey);
-    // v4.52: target = max(12%, unowned slots × tranche%). 12% is the hard floor in auto mode.
-    const autoFrac=Math.max(0.12,trancheFrac(pfKey)*slots);
-    const amount=autoFrac*base;
+    const amount=trancheFrac(pfKey)*slots*base;
     return{amount,pct:base>0?amount/base*100:0,mode,slots};
   }
   const pct=(settings.dpFloorPct??30);
@@ -5046,10 +5044,6 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       ${!hideValues?`<span style="font-size:9px;color:${pf.dpManual?"#f59e0b":"#22c55e"};cursor:pointer" onclick="editDP('${currentPf}')">${pf.dpManual?"✏":"✓"}</span>`:""}
     </div>
   </div>`;
-  // v4.47: weight bars relocated to render directly under the Personal/Caca tabs.
-  // Placeholder token; the bar block builds into _wbarHTML below and is spliced in here.
-  h+=`<!--WBAR-->`;
-  let _wbarHTML="";
   // DP Slider (MOS Reserve / Expansion split) removed.
 
   // Caca-specific: total portfolio value and tranche size banner
@@ -5087,9 +5081,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   h+=`</div>`;
 
   // Portfolio weight bar
-  // v4.52: bars are percentage-only (no totals) so they render under privacy mode too.
-  // Sub-blocks that expose absolute amounts (DP comment, LO reserve boxes) stay gated below.
-  {
+  if(!hideValues){
     // Build global color map: Personal portfolio value order determines colors for both portfolios
     const _wPal=["#1d4e6e","#3b2d5e","#1d5e4e","#2d4a5e","#4e2d4e","#1a5565","#3d3d5e","#2d5e3d"];
     if(!window._stockColorMap){window._stockColorMap={};}
@@ -5126,18 +5118,18 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _dpLOcalc=()=>fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);
     if(_wTotal>0){
       _wSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
-      _wbarHTML+=`<div id="wbar-top" style="display:flex;height:16px;margin:6px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
+      h+=`<div id="wbar-top" style="display:flex;height:16px;margin:6px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
       _wSegs.forEach(sg=>{const pct=sg.val/_wTotal*100;const _lab=(sg.risk?"\uD83C\uDFB2":"")+sg.t;
         const _full=_lab+"\u2009"+Math.round(pct)+"%";const _pctOnly=Math.round(pct)+"%";
-        _wbarHTML+=`<div class="wbar-seg" data-key="${esc(sg.t)}" data-full="${esc(_full)}" data-pct="${esc(_pctOnly)}" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-txt">${_full}</span></div>`;
+        h+=`<div class="wbar-seg" data-key="${esc(sg.t)}" data-full="${esc(_full)}" data-pct="${esc(_pctOnly)}" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-txt">${_full}</span></div>`;
       });
       if(dpBase>0){const dpLO=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree=Math.max(0,dpBase-dpLO);
         if(dpFree>0){const pct=dpFree/_wTotal*100;
-          _wbarHTML+=`<div class="wbar-seg" data-key="__DP__" data-full="DP\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-txt">DP\u2009${Math.round(pct)}%</span></div>`;}
+          h+=`<div class="wbar-seg" data-key="__DP__" data-full="DP\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-txt">DP\u2009${Math.round(pct)}%</span></div>`;}
         if(dpLO>0){const pct=dpLO/_wTotal*100;
-          _wbarHTML+=`<div class="wbar-seg" data-key="__LO__" data-full="LO\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden" title="DP reserved for limit orders"><span class="wbar-txt">LO\u2009${Math.round(pct)}%</span></div>`;}
+          h+=`<div class="wbar-seg" data-key="__LO__" data-full="LO\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden" title="DP reserved for limit orders"><span class="wbar-txt">LO\u2009${Math.round(pct)}%</span></div>`;}
       }
-      _wbarHTML+=`</div>`;
+      h+=`</div>`;
       // Cost basis bar (faded, below market value bar)
       const _cbSegs=[];let _cbTotal=0;let _cbRiskI=0;
       _wTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(pf.positions[t]);if(sh<=0)return;
@@ -5149,35 +5141,15 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       _cbTotal+=dpBase;
       if(_cbTotal>0){
         _cbSegs.sort((a,b)=>{const oa=_pRef.findIndex(p=>p.t===a.t),ob=_pRef.findIndex(p=>p.t===b.t);return(oa<0?999:oa)-(ob<0?999:ob)||(b.val-a.val);});
-        _wbarHTML+=`<div id="wbar-cb" style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px">`;
+        h+=`<div id="wbar-cb" style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;opacity:0.55">`;
         _cbSegs.forEach(sg=>{const pct=sg.val/_cbTotal*100;
-          _wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;
+          h+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;
         });
         if(dpBase>0){const dpLO2=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree2=Math.max(0,dpBase-dpLO2);
-          if(dpFree2>0){const pct=dpFree2/_cbTotal*100;_wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
-          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;_wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
+          if(dpFree2>0){const pct=dpFree2/_cbTotal*100;h+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
+          if(dpLO2>0){const pct=dpLO2/_cbTotal*100;h+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
         }
-        _wbarHTML+=`</div>`;
-      }
-      // === v4.46: Cost composition bar (Pool 1 / Risk / DP %) — stacked directly below the
-      // cost-basis bar. Labels removed from segments (percentages only); legend shows %, no $.
-      if(!hideValues){
-        const _cmpDp=portfolios[currentPf]?.dryPowder||0;
-        const _cmpP1=Math.max(0,pool1CostBasis(currentPf)-_cmpDp);
-        const _cmpP3=pool3CostBasis(currentPf);
-        const _cmpTotal=_cmpP1+_cmpP3+_cmpDp;
-        if(_cmpTotal>0){
-          const _cmpRows=[
-            {label:"Pool 1",val:_cmpP1,col:"#1d4e6e"},
-            {label:"Risk",val:_cmpP3,col:"#6e1d2e"},
-            {label:"DP",val:_cmpDp,col:"#1e2a3f"}
-          ].filter(r=>r.val>0);
-          const _pctOf=(v)=>v/_cmpTotal*100;
-          _wbarHTML+=`<div style="display:flex;height:16px;margin:2px 0 1px;border-radius:4px;overflow:hidden;gap:1px;background:#161b22">`;
-          _cmpRows.forEach(r=>{const pct=_pctOf(r.val);
-            _wbarHTML+=`<div style="width:${pct}%;background:${r.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden" title="${r.label} ${Math.round(pct)}%"><span>${Math.round(pct)}%</span></div>`;});
-          _wbarHTML+=`</div>`;
-        }
+        h+=`</div>`;
       }
       // Label row: emit a hidden legend entry for EVERY segment. fitWeightBarLabels() decides
       // at runtime (by measuring real text vs segment width) which segments couldn't fit their
@@ -5193,59 +5165,88 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           if(dpFreeV>0)_legEntries.push({key:"__DP__",html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${pct}%`,color:"var(--muted)"});}
         {const _lo=_dpLOcalc();if(_lo>0){const pct=Math.round(_lo/_wTotal*100);
           _legEntries.push({key:"__LO__",html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 1.5px,#0e7490 1.5px,#0e7490 3px);margin-right:2px;vertical-align:middle"></span>LO\u2009${pct}%`,color:"#67e8f9"});}}
-        _wbarHTML+=`<div id="wbar-legend" style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
+        h+=`<div id="wbar-legend" style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 1px">`;
         _legEntries.forEach(e=>{
-          _wbarHTML+=`<span class="wbar-leg" data-key="${esc(e.key)}" style="display:none;font-size:8px;font-family:var(--mono);color:${e.color}">${e.html}</span>`;
+          h+=`<span class="wbar-leg" data-key="${esc(e.key)}" style="display:none;font-size:8px;font-family:var(--mono);color:${e.color}">${e.html}</span>`;
         });
-        _wbarHTML+=`</div>`;
+        h+=`</div>`;
       }
-
-      // v4.50: DP comment relocated directly below the legend (forced yellow), with the
-      // limit-order boxes stacked below it. Moved out of the main content stream so they
-      // sit immediately under the weight-bar legend.
-      if(currentPf==="personal"&&!hideValues){
-        const _dpTgtI=dpTargetInfo("personal");
-        const _tgt=Math.round(_dpTgtI.pct);
-        const _dp=pf.dryPowder||0;
-        const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
-        const _dpPct=_base>0?_dp/_base*100:0;
-        const _tgtLbl=_dpTgtI.mode==="auto"
-          ? `target ${_tgt}% · auto (${Math.round(trancheFrac("personal")*100)}%×${_dpTgtI.slots} unowned)`
-          : `target ${_tgt}%`;
-        // v4.52: green at/above target, amber below target but ≥12%, red below 12% floor.
-        const _dpCol=_dpPct>=_tgt?"var(--green)":(_dpPct>=12?"var(--amber)":"var(--red)");
-        const _dpDot=_dpPct>=_tgt?"🟢":(_dpPct>=12?"🟡":"🔴");
-        _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpDot} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
-          <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_tgtLbl}</span>
-          ${_dpPct<12?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:"")}
-        </div>`;
-      }
-      {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
-      if((_loPersonal>0||_loCaca>0)&&!hideValues){
-        const _resP=Math.round(dpReservedForLimitOrders("personal"));
-        const _resC=Math.round(dpReservedForLimitOrders("nl"));
-        _wbarHTML+=`<div style="display:flex;gap:6px;margin:6px 0">
-          <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
-            <div style="font-size:9px;color:#67e8f9">🧑 Personal LO</div>
-            <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loPersonal} <span style="font-size:10px;opacity:.7">order${_loPersonal!==1?"s":""}</span></div>
-            <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">$${_resP.toLocaleString()} reserved</div>
-          </div>
-          <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
-            <div style="font-size:9px;color:#67e8f9">🧓 Caca LO</div>
-            <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loCaca} <span style="font-size:10px;opacity:.7">order${_loCaca!==1?"s":""}</span></div>
-            <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">€${_resC.toLocaleString()} reserved</div>
-          </div>
-        </div>`;
-      }}
     }
   }
 
-  // === v4.46: Cost composition bar relocated to stack directly below the weight bars
-  // (rendered inside the weight-bar block above). Old standalone block removed.
+  // === v4.44: Pool composition row — Pool 1 stock cost / Risk (Pool 3) cost / DP, each as a
+  // % of total cost basis (Pool 1 stocks + Pool 3 + DP). pool1CostBasis already includes DP,
+  // so the Pool-1 *stock* slice is pool1CostBasis − DP. Renders for the active portfolio.
+  if(!hideValues){
+    const _cmpPf=currentPf;
+    const _cmpDp=portfolios[_cmpPf]?.dryPowder||0;
+    const _cmpP1=Math.max(0,pool1CostBasis(_cmpPf)-_cmpDp);   // Pool 1 stock cost (excl. DP)
+    const _cmpP3=pool3CostBasis(_cmpPf);                      // Pool 3 risk cost
+    const _cmpTotal=_cmpP1+_cmpP3+_cmpDp;
+    if(_cmpTotal>0){
+      const _cmpBs=pfSym(_cmpPf);
+      const _cmpRows=[
+        {label:"Pool 1",val:_cmpP1,col:"#1d4e6e"},
+        {label:"Risk",val:_cmpP3,col:"#6e1d2e"},
+        {label:"DP",val:_cmpDp,col:"#1e2a3f"}
+      ].filter(r=>r.val>0);
+      const _pctOf=(v)=>v/_cmpTotal*100;
+      h+=`<div style="margin:6px 0 1px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+        <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">Cost composition</span>
+        <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">${_cmpBs}${Math.round(_cmpTotal).toLocaleString()} total cost</span></div>`;
+      h+=`<div style="display:flex;height:16px;border-radius:4px;overflow:hidden;gap:1px;background:#161b22">`;
+      _cmpRows.forEach(r=>{const pct=_pctOf(r.val);
+        h+=`<div style="width:${pct}%;background:${r.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden" title="${r.label} ${_cmpBs}${Math.round(r.val).toLocaleString()}"><span>${r.label}\u2009${Math.round(pct)}%</span></div>`;});
+      h+=`</div>`;
+      h+=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:3px">`;
+      _cmpRows.forEach(r=>{
+        h+=`<span style="font-size:8px;font-family:var(--mono);color:var(--muted)"><span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${r.col};margin-right:3px;vertical-align:middle"></span>${r.label} ${_cmpBs}${Math.round(r.val).toLocaleString()} · ${Math.round(_pctOf(r.val))}%</span>`;});
+      h+=`</div></div>`;
+    }
+  }
 
-  // v4.50: DP% indicator + limit-order banner relocated directly below the weight-bar
-  // legend (see _wbarHTML build above). Old standalone blocks removed from the content stream.
+  // Pool 1+3+DP DP% indicator vs the configurable DP target (Personal only)
+  if(currentPf==="personal"&&!hideValues){
+    const _dpTgtI=dpTargetInfo("personal");
+    const _tgt=Math.round(_dpTgtI.pct);                    // equivalent % of P1+P3+DP cost
+    // Same cost-basis base the allocator floor uses: Pool1 cost + Pool3 cost + DP.
+    const _dp=pf.dryPowder||0;
+    const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
+    const _dpPct=_base>0?_dp/_base*100:0;
+    const _bs2=pfSym("personal");
+    // v4.24: green at/above target; orange from target down to 1/3 of target (e.g. 30%→10%);
+    // red below 1/3 of target. DP measured on cost basis (P1 cost + P3 cost + DP).
+    const _dpThird=_tgt/3;
+    const _dpCol=_dpPct>=_tgt?"var(--green)":_dpPct>=_dpThird?"var(--amber)":"var(--red)";
+    const _dpIcon=_dpPct>=_tgt?"🟢":_dpPct>=_dpThird?"🟡":"🔴";
+    const _tgtLbl=_dpTgtI.mode==="auto"
+      ? `target ${_tgt}% · auto (${Math.round(trancheFrac("personal")*100)}%×${_dpTgtI.slots} unowned)`
+      : `target ${_tgt}%`;
+    h+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpIcon} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
+      <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_tgtLbl}</span>
+      ${_dpPct<_dpThird?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW TARGET</span>`:""}
+    </div>`;
+  }
+  // Limit-order summary banner (v4.03: below the weight bars). Counts armed limit orders for
+  // BOTH portfolios across all stocks (grid + watchlist), and shows the DP reserved against them.
+  {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
+  if(!hideValues&&(_loPersonal>0||_loCaca>0)){
+    const _resP=Math.round(dpReservedForLimitOrders("personal"));
+    const _resC=Math.round(dpReservedForLimitOrders("nl"));
+    h+=`<div style="display:flex;gap:6px;margin:6px 0">
+      <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
+        <div style="font-size:9px;color:#67e8f9">🧑 Personal LO</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loPersonal} <span style="font-size:10px;opacity:.7">order${_loPersonal!==1?"s":""}</span></div>
+        <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">$${_resP.toLocaleString()} reserved</div>
+      </div>
+      <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
+        <div style="font-size:9px;color:#67e8f9">🧓 Caca LO</div>
+        <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loCaca} <span style="font-size:10px;opacity:.7">order${_loCaca!==1?"s":""}</span></div>
+        <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">€${_resC.toLocaleString()} reserved</div>
+      </div>
+    </div>`;
+  }}
   h+=`<div class="pos-grid">`;
 
   // Build unified ticker list: owned + grid ghosts + speculative ghosts (deduped)
@@ -5633,8 +5634,6 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   }
 
   h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button></div>`;
-  // v4.47: splice the relocated weight bars into the placeholder under the portfolio tabs.
-  h=h.replace("<!--WBAR-->",_wbarHTML);
   c.innerHTML=h;
 }
 
