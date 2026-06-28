@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.51</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.52</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1844,7 +1844,9 @@ function dpTargetInfo(pfKey){
   const mode=settings.dpTargetMode==="auto"?"auto":"pct";
   if(mode==="auto"){
     const slots=unownedPool1Slots(pfKey);
-    const amount=trancheFrac(pfKey)*slots*base;
+    // v4.52: target = max(12%, unowned slots × tranche%). 12% is the hard floor in auto mode.
+    const autoFrac=Math.max(0.12,trancheFrac(pfKey)*slots);
+    const amount=autoFrac*base;
     return{amount,pct:base>0?amount/base*100:0,mode,slots};
   }
   const pct=(settings.dpFloorPct??30);
@@ -5085,7 +5087,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   h+=`</div>`;
 
   // Portfolio weight bar
-  // v4.51: bars are percentage-only (no totals) so they render under privacy mode too.
+  // v4.52: bars are percentage-only (no totals) so they render under privacy mode too.
   // Sub-blocks that expose absolute amounts (DP comment, LO reserve boxes) stay gated below.
   {
     // Build global color map: Personal portfolio value order determines colors for both portfolios
@@ -5207,14 +5209,16 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const _dp=pf.dryPowder||0;
         const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
         const _dpPct=_base>0?_dp/_base*100:0;
-        const _dpThird=_tgt/3;
         const _tgtLbl=_dpTgtI.mode==="auto"
           ? `target ${_tgt}% · auto (${Math.round(trancheFrac("personal")*100)}%×${_dpTgtI.slots} unowned)`
           : `target ${_tgt}%`;
+        // v4.52: green at/above target, amber below target but ≥12%, red below 12% floor.
+        const _dpCol=_dpPct>=_tgt?"var(--green)":(_dpPct>=12?"var(--amber)":"var(--red)");
+        const _dpDot=_dpPct>=_tgt?"🟢":(_dpPct>=12?"🟡":"🔴");
         _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:10px;font-family:var(--mono);color:var(--amber);font-weight:600">🟡 DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
+          <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpDot} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
           <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_tgtLbl}</span>
-          ${_dpPct<_dpThird?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW TARGET</span>`:""}
+          ${_dpPct<12?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:"")}
         </div>`;
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
