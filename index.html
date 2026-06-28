@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.53</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.54</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1907,6 +1907,13 @@ function emptySeatSlots(pfKey){
   // +1e-9 guards floating-point: e.g. (0.84−0.66)/0.09 = 1.999… would floor to 1, leaking a seat.
   return Math.floor(headroom/0.09+1e-9)*3;
 }
+// v4.53 (corrected 2026-06-28): whole available non-Tier-1 seats (9% each) under the 84%
+// committed ceiling. Drives DP-target term 2 (× 9%) and the empty-seat pips. This is the
+// STOCK-COUNT/grid-capacity dimension — kept distinct from the per-slot DP-target term 1.
+function availableNonT1Seats(pfKey){
+  const headroom=Math.max(0,0.84-committedFrac(pfKey));
+  return Math.floor(headroom/0.09+1e-9);
+}
 
 // v4.53 §2.8 — capacity view: slot strip, three-part bar, committed gauge, trophy shelf.
 // Returns an HTML string injected below the DP line (Personal). Read-only; demotion is automatic.
@@ -2018,15 +2025,21 @@ function dpTargetInfo(pfKey){
   const base=trancheBase(pfKey);                          // Pool1 cost + Pool3 cost + DP
   const mode=settings.dpTargetMode==="auto"?"auto":"pct";
   if(mode==="auto"){
-    // v4.53 §2.8.6: target = max(12%, 3% × (litUnownedSlots + emptySeatSlots)).
-    //   litUnownedSlots = un-muted unowned slots on filled, non-trophy seats.
-    //   emptySeatSlots  = mix-aware empty-seat pre-reservation up to the 84% committed ceiling.
-    //   12% floor = full Tier-1 cap. Trophy graduation raises target ~1 slot (correct, no leak).
-    const litSlots=unownedPool1Slots(pfKey);
-    const emptySlots=emptySeatSlots(pfKey);
-    const autoFrac=Math.max(0.12,trancheFrac(pfKey)*(litSlots+emptySlots));
+    // v4.53 §2.8.6/2.8.7 (corrected 2026-06-28): DP target is TWO separate terms — it does
+    // NOT fold empty seats into the per-slot count (that conflated DP target with the Pool-1
+    // grid-capacity target). DP target reserves cash for:
+    //   term 1 = (Σ unowned, un-muted slots on owned grid names) × 3%  — fund next legs down
+    //   term 2 = (available full non-T1 seats under the 84% ceiling) × 9% — stage ONE new name
+    // e.g. 9 names × 2 unowned slots = 54%; 8 non-T1 × 2 unowned + 1 seat fits = 48% + 9% = 57%.
+    // 12% floor = full Tier-1 cap (never forced to sell a trophy to fund a T1 that finally fires).
+    const litSlots=unownedPool1Slots(pfKey);              // term-1 slot count (already mute/owned-gated)
+    const seats=availableNonT1Seats(pfKey);               // term-2 whole 9% seats
+    const term1=trancheFrac(pfKey)*litSlots;              // × 3%
+    const term2=seats*0.09;                               // × 9% per seat
+    const autoFrac=Math.max(0.12,term1+term2);
     const amount=autoFrac*base;
-    return{amount,pct:base>0?amount/base*100:0,mode,slots:litSlots+emptySlots,litSlots,emptySlots};
+    return{amount,pct:base>0?amount/base*100:0,mode,slots:litSlots,litSlots,seats,
+           term1Pct:term1*100,term2Pct:term2*100};
   }
   const pct=(settings.dpFloorPct??30);
   return{amount:pct/100*base,pct,mode};
@@ -2871,6 +2884,7 @@ function applyIBKR(pfKey){
     });
   }
 
+  ["personal","nl"].forEach(pk=>recomputeCapacityState(pk)); // v4.53: prices/positions applied
   save();render();showBuyModals();
   ibkrStatus(`✓ Applied to ${pf.name}`,false,pfKey);
   document.getElementById("ibkr-preview-"+pfKey).innerHTML="";
@@ -5406,7 +5420,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
         const _dpPct=_base>0?_dp/_base*100:0;
         const _tgtLbl=_dpTgtI.mode==="auto"
-          ? `target ${_tgt}% · auto (${Math.round(trancheFrac("personal")*100)}%×${_dpTgtI.slots} slots: ${_dpTgtI.litSlots} lit + ${_dpTgtI.emptySlots} empty)`
+          ? `target ${_tgt}% · auto (${_dpTgtI.litSlots}×3% slots + ${_dpTgtI.seats}×9% seat${_dpTgtI.seats!==1?"s":""} = ${Math.round(_dpTgtI.term1Pct)}%+${Math.round(_dpTgtI.term2Pct)}%)`
           : `target ${_tgt}%`;
         // v4.52: green at/above target, amber below target but ≥12%, red below 12% floor.
         const _dpCol=_dpPct>=_tgt?"var(--green)":(_dpPct>=12?"var(--amber)":"var(--red)");
@@ -7434,7 +7448,7 @@ function promoteToGrid(t){
   if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
   // If no portfolio still treats this as risk, clear thesis (intrinsic to risk status)
   if(!isRiskAnywhere(t)){delete stocks[t].specReason;delete stocks[t].specDate;}
-  updateSignals(t);save();
+  updateSignals(t);["personal","nl"].forEach(pk=>recomputeCapacityState(pk));save(); // v4.53: grid membership changed
   currentTab="portfolio";render();
   window.scrollTo(0,0);
 }
@@ -7451,7 +7465,7 @@ function promoteToSpec(t){
   pf.riskStocks.push(t);
   if(reason)s.specReason=reason;
   s.specDate=s.specDate||Date.now();
-  updateSignals(t);save();
+  updateSignals(t);["personal","nl"].forEach(pk=>recomputeCapacityState(pk));save(); // v4.53: grid membership changed
   currentTab="portfolio";render();
   window.scrollTo(0,0);
 }
@@ -7464,7 +7478,7 @@ function graduateToGrid(t){
   pf.riskStocks=pf.riskStocks.filter(x=>x!==t);
   if(!pf.gridStocks.includes(t))pf.gridStocks.push(t);
   if(!isRiskAnywhere(t)){delete stocks[t].specReason;delete stocks[t].specDate;}
-  updateSignals(t);save();render();
+  updateSignals(t);["personal","nl"].forEach(pk=>recomputeCapacityState(pk));save();render(); // v4.53: grid membership changed
 }
 function demoteSpec(t){
   const pf=portfolios[currentPf];
@@ -7473,6 +7487,7 @@ function demoteSpec(t){
   if(pf.riskStocks)pf.riskStocks=pf.riskStocks.filter(x=>x!==t);
   // Clear thesis only if no other portfolio still considers this risk
   if(!isRiskAnywhere(t)){delete stocks[t].specReason;delete stocks[t].specDate;}
+  ["personal","nl"].forEach(pk=>recomputeCapacityState(pk)); // v4.53: membership changed
   save();render();
 }
 function demoteFromGrid(t){
@@ -7487,6 +7502,7 @@ function demoteFromGrid(t){
     if(pf.positions?.[t])delete pf.positions[t];
   }
   if(pf.gridStocks)pf.gridStocks=pf.gridStocks.filter(x=>x!==t);
+  ["personal","nl"].forEach(pk=>recomputeCapacityState(pk)); // v4.53: grid membership changed
   save();render();
 }
 // === INDEX POSITION MANAGEMENT ===
@@ -7638,7 +7654,9 @@ function openEditStock(t){
     recalcConsTriggers(s);
     // Mark triggers as freshly calculated
     s.lastCalcDate=Date.now();
-    updateSignals(t);save();
+    updateSignals(t);
+    ["personal","nl"].forEach(pk=>recomputeCapacityState(pk)); // v4.53 fix: refresh mute/trophy after manual price/trigger edit
+    save();render();
   });
 }
 
@@ -7680,7 +7698,7 @@ function openAddStock(){
     // Auto-calc tenCap + pbt from oe/fcf (category-aware; new stocks start uncategorized so this
     // applies standard formulas. If the user later sets category=highgr via Edit, formulas update.)
     recalcConsTriggers(stocks[t]);
-    updateSignals(t);save();
+    updateSignals(t);["personal","nl"].forEach(pk=>recomputeCapacityState(pk));save(); // v4.53: new stock may affect capacity
   });
 }
 
