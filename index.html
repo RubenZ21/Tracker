@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.50</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.51</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5085,7 +5085,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   h+=`</div>`;
 
   // Portfolio weight bar
-  if(!hideValues){
+  // v4.51: bars are percentage-only (no totals) so they render under privacy mode too.
+  // Sub-blocks that expose absolute amounts (DP comment, LO reserve boxes) stay gated below.
+  {
     // Build global color map: Personal portfolio value order determines colors for both portfolios
     const _wPal=["#1d4e6e","#3b2d5e","#1d5e4e","#2d4a5e","#4e2d4e","#1a5565","#3d3d5e","#2d5e3d"];
     if(!window._stockColorMap){window._stockColorMap={};}
@@ -5199,7 +5201,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       // v4.50: DP comment relocated directly below the legend (forced yellow), with the
       // limit-order boxes stacked below it. Moved out of the main content stream so they
       // sit immediately under the weight-bar legend.
-      if(currentPf==="personal"){
+      if(currentPf==="personal"&&!hideValues){
         const _dpTgtI=dpTargetInfo("personal");
         const _tgt=Math.round(_dpTgtI.pct);
         const _dp=pf.dryPowder||0;
@@ -5216,7 +5218,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         </div>`;
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
-      if(_loPersonal>0||_loCaca>0){
+      if((_loPersonal>0||_loCaca>0)&&!hideValues){
         const _resP=Math.round(dpReservedForLimitOrders("personal"));
         const _resC=Math.round(dpReservedForLimitOrders("nl"));
         _wbarHTML+=`<div style="display:flex;gap:6px;margin:6px 0">
