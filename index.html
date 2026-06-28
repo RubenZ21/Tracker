@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.54</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.55</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1996,9 +1996,13 @@ function capacityViewHTML(pfKey){
     +stripHTML+barHTML+gaugeHTML+trophyHTML+`</div>`;
 }
 
-// v4.53: count of UNOWNED, UN-MUTED Pool 1 slots on FILLED, NON-trophy grid seats.
-// Per-key (must iterate to know WHICH trigger is muted) — owned slots never reserve DP
-// (owned re-fires are funded by the monthly inflow); muted + graduated excluded.
+// v4.54: count of UNOWNED, UN-MUTED, UN-FIRING Pool 1 slots on FILLED, NON-trophy grid seats.
+// DP reserves cash only for slots WAITING below price for a future buy. A trigger that is:
+//   • owned    → funded by the monthly inflow on re-fire, never DP
+//   • muted    → too far below price (>50% dd) to stage cash for
+//   • FIRING now → deployed THIS month from income, not held in reserve  ← v4.54 fix
+// is excluded. (Counting firing slots was the bug: ADBE 3-fires, PGR/WKL 2-fires etc. inflated
+// the count to ~21; excluding them yields the ~7 genuinely-waiting slots.)
 function unownedPool1Slots(pfKey){
   const pf=portfolios[pfKey];if(!pf)return 0;let n=0;
   Object.keys(pf.positions||{}).forEach(t=>{
@@ -2006,11 +2010,13 @@ function unownedPool1Slots(pfKey){
     const pos=pf.positions[t];if(!pos||pos.graduated)return; // trophy seats reserve nothing
     const open=pos.tranches?.some(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0);
     if(!open)return;                                      // filled seats only
+    const s=stocks[t];
     const owned=ownedSignalKeys(pos);
     pos.muteState=pos.muteState||{};
     ladderKeys(t).forEach(k=>{
       if(owned.has(k))return;                             // owned slot — no DP reservation
       if(pos.muteState[k])return;                         // muted slot — too far to reserve
+      if(s?.signals?.[k]||isPiggyback(s,k,t))return;      // v4.54: firing now → deploys from income, not DP
       n++;
     });
   });
