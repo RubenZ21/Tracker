@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.59</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.60</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1853,9 +1853,16 @@ function ladderKeys(t){
   return keys.filter(k=>s.cons[k]!=null);
 }
 // Signal keys this position already OWNS tranches against (excl. manual trophy carve-out).
+// tr.signal stores display labels ("MOS"/"10Cap"/"20Cap"/"PBT"/"DMOS"/"P-MOS"); callers test
+// against lowercase ladder keys ("mos"/"tenCap"/"pbt"/"pmos"), so we normalise here. Without this
+// the returned Set never matched and every slot read as unowned (v4.60 fix).
 function ownedSignalKeys(pos){
   const set=new Set();
-  pos?.tranches?.forEach(tr=>{if(tr.signal!=="trophy"&&(tr.bought-tr.sold)>0&&tr.signal)set.add(tr.signal);});
+  const L2K={"MOS":"mos","10Cap":"tenCap","20Cap":"tenCap","PBT":"pbt","DMOS":"pbt","P-MOS":"pmos"};
+  pos?.tranches?.forEach(tr=>{
+    if(tr.signal==="trophy"||(tr.bought-tr.sold)<=0||!tr.signal)return;
+    const k=L2K[tr.signal];if(k)set.add(k);                 // canonical key; ignore unknown labels
+  });
   return set;
 }
 // STATEFUL three-gate trophy test. priorGrad supplies the gate-3 give-back band.
@@ -2004,24 +2011,24 @@ function capacityViewHTML(pfKey){
 // is excluded. (Counting firing slots was the bug: ADBE 3-fires, PGR/WKL 2-fires etc. inflated
 // the count to ~21; excluding them yields the ~7 genuinely-waiting slots.)
 function unownedPool1Slots(pfKey){
-  const pf=portfolios[pfKey];if(!pf)return 0;let n=0;const _dbg=[]; // TEMP v4.59 DIAG
+  const pf=portfolios[pfKey];if(!pf)return 0;let n=0;
   Object.keys(pf.positions||{}).forEach(t=>{
-    if(isRisk(t,pfKey)){return;}                          // Pool 1 only — RISK/Pool 3 never reserve DP
-    const pos=pf.positions[t];if(!pos||pos.graduated){if(pos?.graduated)_dbg.push(t+":GRAD");return;} // trophy seats reserve nothing
+    if(isRisk(t,pfKey))return;                            // Pool 1 only — RISK/Pool 3 never reserve DP
+    const pos=pf.positions[t];if(!pos||pos.graduated)return; // trophy seats reserve nothing
     const open=pos.tranches?.some(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0);
-    if(!open){return;}                                    // filled seats only
+    if(!open)return;                                      // filled seats only
     const s=stocks[t];if(!s?.cons)return;
-    const owned=ownedSignalKeys(pos);const hit=[];
     ladderKeys(t).forEach(k=>{
-      if(owned.has(k))return;                             // owned slot — funded by income on re-fire
+      // OWNED → already deployed; re-fires are topped up from income, never DP. Use the canonical
+      // label↔key mapper (hasTrancheForSignal): tr.signal stores "MOS"/"10Cap"/"PBT"… while k is
+      // lowercase "mos"/"tenCap"/"pbt", so a raw Set.has(k) was always false → over-counted (v4.60 fix).
+      if(hasTrancheForSignal(t,k,pfKey))return;
       if(s.signals?.[k]||isPiggyback(s,k,t))return;       // FIRING now → income, not DP reserve
       const dd=trigDrawdown(s,k);
-      if(dd!=null&&dd>MUTE_PROMOTE())return;              // muted → skip
-      hit.push(k);n++;                                    // genuinely waiting below price → reserve
+      if(dd!=null&&dd>MUTE_PROMOTE())return;              // muted (too far below price) → skip
+      n++;                                                // genuinely waiting below price → reserve
     });
-    if(hit.length)_dbg.push(t+":"+hit.join("+"));
   });
-  if(pfKey==="personal")window._slotDbg=_dbg.join(" | ")+" = "+n;
   return n;
 }
 // v4.45: DP target as an absolute amount (base ccy). Two modes (settings.dpTargetMode):
@@ -5438,7 +5445,6 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_tgtLbl}</span>
           ${_dpPct<12?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:"")}
         </div>`;
-        if(window._slotDbg)_wbarHTML+=`<div style="font-size:9px;color:#ffd060;font-family:var(--mono);word-break:break-all;margin:2px 0 4px;line-height:1.5">🔬 ${esc(window._slotDbg)}</div>`; // TEMP v4.59 DIAG
         _wbarHTML+=capacityViewHTML("personal"); // v4.53 §2.8 slot strip + bar + gauge + trophy shelf
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
