@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.60</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.61</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5024,7 +5024,10 @@ function chipStripHtml(t,pfKey){
 // + right block (current price shown ONCE + #/N count). isSpec = Pool 3 risk-bucket row.
 function sigRowHtml(t,pfKey,isSpec){
   const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
-  const catBadge=isSpec
+  const _isTrophy=!!portfolios[pfKey]?.positions?.[t]?.graduated;
+  const catBadge=_isTrophy
+    ?`<span style="font-size:9px;color:#fbbf24;background:#fbbf2420;padding:1px 4px;border-radius:3px;margin-right:4px">🏆 TROPHY</span>`
+    :isSpec
     ?`<span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>`
     :isHighgr(t)?`<span style="font-size:9px;color:#a855f7;background:#a855f720;padding:1px 4px;border-radius:3px;margin-right:4px">HG</span>`
     :isBuffett(t)?`<span style="font-size:9px;color:#38bdf8;background:#38bdf820;padding:1px 4px;border-radius:3px;margin-right:4px">WB</span>`
@@ -5445,7 +5448,6 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_tgtLbl}</span>
           ${_dpPct<12?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:"")}
         </div>`;
-        _wbarHTML+=capacityViewHTML("personal"); // v4.53 §2.8 slot strip + bar + gauge + trophy shelf
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
       if((_loPersonal>0||_loCaca>0)&&!hideValues){
@@ -5479,8 +5481,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
   const _allCardTickers=[..._ownedSet];
   GRID.forEach(t=>{if(!_ownedSet.has(t))_allCardTickers.push(t);});
   SPEC.forEach(t=>{if(!_ownedSet.has(t)&&!GRID.includes(t))_allCardTickers.push(t);});
-  // Sort: non-risk by moat priority (ascending) → speculative last
-  _allCardTickers.sort((a,b)=>{const sa=stocks[a],sb=stocks[b];const specA=isRisk(a,currentPf)?1:0,specB=isRisk(b,currentPf)?1:0;if(specA!==specB)return specA-specB;const pa=sa?.priority||99,pb=sb?.priority||99;return pa-pb;});
+  // Sort: ordering tier first (normal=0 → RISK=1 → trophy/graduated=2), then moat priority within tier.
+  // Trophy stocks sink below everything, even RISK (v4.61).
+  const _tier=t=>{const pos=pf.positions?.[t];if(pos?.graduated)return 2;return isRisk(t,currentPf)?1:0;};
+  _allCardTickers.sort((a,b)=>{const ta=_tier(a),tb=_tier(b);if(ta!==tb)return ta-tb;const pa=stocks[a]?.priority||99,pb=stocks[b]?.priority||99;return pa-pb;});
   if(!_allCardTickers.length)h+=`<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No positions. Tap + Add below.</div>`;
   const SC={MOS:"#34d399","10Cap":"#60a5fa",PBT:"#a78bfa","20Cap":"#60a5fa",DMOS:"#a78bfa","P-MOS":"#fbbf24",trophy:"#c084fc",hold:"#818cf8"};
   _allCardTickers.forEach(ticker=>{
