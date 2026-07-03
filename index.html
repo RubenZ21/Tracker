@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.61</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.62</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -364,7 +364,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,dpTargetMode:"pct",pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",indexTickerFFE:"XFFE.L",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexTickerFFE:"XFFE.L",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,dpTargetMode:"pct",dpTieredCapPct:50,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",indexTickerFFE:"XFFE.L",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexTickerFFE:"XFFE.L",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 // watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
 let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
@@ -2031,6 +2031,152 @@ function unownedPool1Slots(pfKey){
   });
   return n;
 }
+// ============================================================================
+// v4.62 — TIERED DP RESERVATION (dp_tiered_reservation_spec_v2.md, 2026-07-03)
+// Third dpTargetMode ("tiered"), PERSONAL ONLY (Caca falls back to AUTO, §0).
+// Probability-weighted reserve: each unfired tranche on a filled grid seat
+// reserves 3% × tier weight of its drawdown-to-trigger (§2), plus a wMedian-
+// discounted empty-seat term (§4). Floored by the flash-crash floor (§6:
+// owned d≤30% tranches + seat-bounded near watchlist names) and the 12%
+// Tier-1 absolute floor (§7). Capped by the structural max (§8: never reserve
+// above what the grid can actually deploy) and the policy cap
+// (settings.dpTieredCapPct, default 50%).
+//   • DISTANCE mute (§2.8.3 MUTE_PROMOTE/muteState) is deliberately NOT applied
+//     here — tier weights replace it (a >50%-dd trigger gets weight 0.10
+//     instead of being dropped). It still governs capacity/trophy elsewhere.
+//   • STICKER-CEILING mute (isTriggerMuted) IS applied per §3: a Sticker-muted
+//     unfired trigger reserves at its tier weight only when the stock has ≥1
+//     valid unfired sibling (piggyback is its only deployment path), and it
+//     NEVER counts toward the flash-crash floor or the structural max when it
+//     has no valid sibling (structurally undeployable → dead cash).
+//   • NO logging/persistence (§11) — computed live each render (§12); the
+//     breakdown popover (§13.6) is the single visibility mechanism.
+// All % fields in the returned object are percentages (×100) for display.
+function tierWeight(d){return d<=0.15?1.00:d<=0.30?0.50:d<=0.50?0.25:0.10;}
+function dpTieredInfo(pfKey){
+  const pf=portfolios[pfKey];
+  const base=trancheBase(pfKey);
+  const tc=trancheFrac(pfKey);                        // 3% per tranche
+  const rows=[];                                      // per-tranche detail for the popover (term A universe)
+  let tieredSlots=0,ownedFloor=0,structTranches=0;
+  if(pf)Object.keys(pf.positions||{}).forEach(t=>{
+    if(isRisk(t,pfKey))return;                        // Pool 3 / risk → nothing (§1)
+    const pos=pf.positions[t];if(!pos||pos.graduated)return; // trophy seats → nothing (§1)
+    const open=pos.tranches?.some(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0);
+    if(!open)return;                                  // filled seats only (§5)
+    const s=stocks[t];if(!s?.cons)return;
+    if(s.block)return;                                // HOLD / 4M block → nothing (§1)
+    // Unfired = not owned (re-fires fund from income) and not firing/piggybacking now
+    // (deploys from THIS month's income). Distance mute intentionally NOT tested (§1).
+    const unfired=ladderKeys(t).filter(k=>!hasTrancheForSignal(t,k,pfKey)&&!(s.signals?.[k]||isPiggyback(s,k,t)));
+    const hasValidUnfired=unfired.some(k=>!isTriggerMuted(s,k));
+    unfired.forEach(k=>{
+      let d=trigDrawdown(s,k);if(d==null)return;      // no price or trigger → skip
+      if(d<0)d=0;                                     // already below trigger, awaiting funds → weight 1.00 (§1)
+      const sm=isTriggerMuted(s,k);                   // Sticker-Ceiling mute (NOT the distance mute)
+      const w=sm?(hasValidUnfired?tierWeight(d):0):tierWeight(d); // §3 piggyback gate
+      const contrib=tc*w;
+      tieredSlots+=contrib;
+      if(w>0)structTranches++;                        // §8: only deployable tranches count at weight 1.00
+      if(!sm&&d<=0.30)ownedFloor+=tc;                 // §6 owned floor (Sticker-muted excluded per §3)
+      rows.push({t,k,trigger:s.cons[k],price:s.currentPrice,d,w,contrib,
+                 pgOnly:sm&&hasValidUnfired,dead:sm&&!hasValidUnfired});
+    });
+  });
+  // Watchlist scope (§5): NON-owned names only — getWatchlist() already excludes grid,
+  // risk-anywhere, and risklist-status stubs. They enter ONLY via wMedian (§4) and the
+  // seat-bounded floor (§6) — never as unbounded per-tranche reservations.
+  const wlRows=[];const wlWeights=[];let wlNear=0;
+  getWatchlist().forEach(t=>{
+    const s=stocks[t];if(!s?.cons||s.currentPrice==null)return;
+    if(s.block||s.gate===false)return;                // structurally unbuyable → excluded
+    ladderKeys(t).forEach(k=>{
+      if(isTriggerMuted(s,k))return;                  // Sticker-muted excluded entirely here (§4)
+      let d=trigDrawdown(s,k);if(d==null)return;
+      if(d<0)d=0;
+      const w=tierWeight(d);
+      wlWeights.push(w);
+      if(d<=0.30)wlNear+=tc;                          // §6: within flash-crash reach
+      wlRows.push({t,k,trigger:s.cons[k],price:s.currentPrice,d,w});
+    });
+  });
+  wlWeights.sort((a,b)=>a-b);
+  const nW=wlWeights.length;
+  const wMedian=nW?((nW%2)?wlWeights[(nW-1)/2]:(wlWeights[nW/2-1]+wlWeights[nW/2])/2):0.25; // §4 default 0.25
+  const seats=availableNonT1Seats(pfKey);
+  const seatTerm=seats*0.09*wMedian;                  // term B (§4)
+  const tieredReserve=tieredSlots+seatTerm;           // §4
+  const wlFloor=Math.min(wlNear,seats*0.09);          // §6: bounded by seat capacity
+  const floor=ownedFloor+wlFloor;                     // §6: wlFloor REPLACES seatTerm here — no double-count
+  const structuralMax=structTranches*tc+seats*0.09;   // §8: theoretical max at weight 1.00
+  const policyCap=(settings.dpTieredCapPct??50)/100;  // §8
+  const uncapped=Math.max(tieredReserve,floor,0.12);  // §9 (§7: 12% T1 absolute floor)
+  const bindingTerm=uncapped===tieredReserve?"tiered":(uncapped===floor?"floor":"t1floor");
+  const frac=Math.min(uncapped,structuralMax,policyCap);
+  const cappedBy=frac>=uncapped-1e-12?null:(structuralMax<=policyCap?"structural":"policy");
+  const amount=frac*base;
+  return{amount,pct:base>0?amount/base*100:frac*100,mode:"tiered",
+    tieredSlots:tieredSlots*100,seatTerm:seatTerm*100,wMedian,
+    ownedFloor:ownedFloor*100,wlFloor:wlFloor*100,wlNear:wlNear*100,floor:floor*100,
+    uncappedPct:uncapped*100,structuralMaxPct:structuralMax*100,policyCapPct:policyCap*100,
+    cappedBy,bindingTerm,theoreticalMaxPct:structuralMax*100,
+    ratioToTheoretical:structuralMax>0?frac/structuralMax:0,          // §9 drift indicator (~0.18–0.22 expected)
+    cappedFloorPct:Math.min(floor,structuralMax,policyCap)*100,       // §10 red-line = capped floor
+    seats,wlCount:nW,rows,wlRows};
+}
+// §13.6 breakdown popover — THE visibility mechanism. Computed live at open; nothing stored (§11).
+function showTieredBreakdown(){
+  const i=dpTieredInfo("personal");
+  const lbl={mos:"MOS",tenCap:"10Cap",pbt:"PBT",pmos:"P-MOS"};
+  const wCol=w=>w>=1?"var(--green)":w>=0.5?"#a3e635":w>=0.25?"var(--amber)":"var(--muted)";
+  const td='padding:2px 5px;font-family:var(--mono);font-size:10px';
+  const th='padding:2px 5px;font-size:9px;color:var(--muted);text-align:right';
+  const num=v=>v!=null?(+v).toFixed(2):"—";
+  const rowH=r=>`<tr style="${r.dead?'opacity:.35':''}">
+    <td style="${td}">${esc(r.t)}</td>
+    <td style="${td}">${lbl[r.k]||esc(r.k)}${r.pgOnly?' <span title="Sticker-muted — reserves for piggyback only, excluded from floor">🐖</span>':''}${r.dead?' <span title="Sticker-muted, no valid sibling — cannot deploy, weight 0">✕</span>':''}</td>
+    <td style="${td};text-align:right">${num(r.trigger)}</td>
+    <td style="${td};text-align:right">${num(r.price)}</td>
+    <td style="${td};text-align:right">${(r.d*100).toFixed(1)}%</td>
+    <td style="${td};text-align:right;color:${wCol(r.w)}">${r.w.toFixed(2)}</td>
+    ${r.contrib!=null?`<td style="${td};text-align:right">${(r.contrib*100).toFixed(2)}%</td>`:""}
+  </tr>`;
+  const head=(withC)=>`<tr><th style="${th};text-align:left">Stock</th><th style="${th};text-align:left">Trig</th><th style="${th}">Trigger</th><th style="${th}">Price</th><th style="${th}">d</th><th style="${th}">w</th>${withC?`<th style="${th}">3%×w</th>`:""}</tr>`;
+  const line=(l,v,extra,col)=>`<div style="display:flex;justify-content:space-between;gap:8px;margin:2px 0"><span style="font-size:10px;color:${col||'var(--muted)'}">${l}</span><span style="font-size:11px;font-family:var(--mono);color:${col||'var(--text)'}">${v}${extra?` <span style="opacity:.6;font-size:9px">${extra}</span>`:""}</span></div>`;
+  const bindLbl={tiered:"tiered reserve",floor:"flash-crash floor",t1floor:"T1 12% floor"}[i.bindingTerm];
+  const h=`<div class="modal-overlay tiered-bd-overlay" onclick="if(event.target===this)this.remove()">
+    <div class="modal-sheet" style="padding:16px;max-height:85vh;overflow-y:auto">
+      <div style="font-size:15px;font-weight:800;margin-bottom:2px">🧮 TIERED DP target — live breakdown</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v2 · computed at open, nothing stored</div>
+      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM A — filled-seat unfired tranches (Σ 3% × w)</div>
+      <table style="border-collapse:collapse;width:100%">${head(true)}${i.rows.map(rowH).join("")||`<tr><td colspan="7" style="${td};color:var(--muted)">none</td></tr>`}</table>
+      ${line("Σ tieredSlots (term A)",i.tieredSlots.toFixed(2)+"%",null,"#67e8f9")}
+      <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
+      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM B — empty seats × 9% × wMedian</div>
+      ${line("Empty non-T1 seats (84% ceiling)",String(i.seats))}
+      ${line("wMedian (watchlist proxy, "+i.wlCount+" triggers)",i.wMedian.toFixed(2),i.wlCount?null:"default — watchlist empty/no prices")}
+      ${line("seatTerm = "+i.seats+" × 9% × "+i.wMedian.toFixed(2),i.seatTerm.toFixed(2)+"%",null,"#67e8f9")}
+      <details style="margin:4px 0"><summary style="font-size:9px;color:var(--muted);cursor:pointer;font-family:var(--mono)">watchlist triggers behind wMedian / wlNear</summary>
+        <table style="border-collapse:collapse;width:100%">${head(false)}${i.wlRows.map(rowH).join("")||`<tr><td colspan="6" style="${td};color:var(--muted)">none</td></tr>`}</table></details>
+      ${line("tieredReserve = A + B",(i.tieredSlots+i.seatTerm).toFixed(2)+"%",null,"var(--text)")}
+      <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
+      <div style="font-size:10px;color:var(--amber);font-family:var(--mono);margin-bottom:2px">FLASH-CRASH FLOOR (§6)</div>
+      ${line("ownedFloor (owned-seat valid tranches d≤30%)",i.ownedFloor.toFixed(2)+"%")}
+      ${line("wlNear (watchlist valid d≤30%)",i.wlNear.toFixed(2)+"%")}
+      ${line("wlFloor = min(wlNear, "+i.seats+"×9%="+(i.seats*9).toFixed(0)+"%)",i.wlFloor.toFixed(2)+"%",i.wlNear>i.seats*9?"seat bound won":"wlNear won")}
+      ${line("floor = ownedFloor + wlFloor",i.floor.toFixed(2)+"%",null,"var(--amber)")}
+      ${line("T1 absolute floor (§7)","12%")}
+      <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
+      ${line("UNCAPPED = max(tiered, floor, 12%)",i.uncappedPct.toFixed(2)+"%","binding: "+bindLbl,"var(--text)")}
+      ${line("Structural max (§8)",i.structuralMaxPct.toFixed(2)+"%")}
+      ${line("Policy cap (§8, setting)",i.policyCapPct.toFixed(0)+"%")}
+      ${line("FINAL DP target",i.pct.toFixed(2)+"%",i.cappedBy?("compressed by "+i.cappedBy+" cap — uncapped "+i.uncappedPct.toFixed(1)+"%"):"no cap binding",i.cappedBy?"var(--amber)":"var(--green)")}
+      ${line("Ratio to theoretical max",i.ratioToTheoretical.toFixed(2),"drift indicator, expect ~0.18–0.22")}
+      <button class="modal-done" style="margin-top:12px" onclick="this.closest('.tiered-bd-overlay').remove()">Close</button>
+    </div></div>`;
+  document.body.insertAdjacentHTML("beforeend",h);
+}
+
 // v4.45: DP target as an absolute amount (base ccy). Two modes (settings.dpTargetMode):
 //   "pct"  → dpFloorPct % of the P1+P3+DP cost-basis tranche base (legacy behaviour)
 //   "auto" → tranche size (trancheFrac) × unowned Pool 1 slots × tranche base
@@ -2038,7 +2184,10 @@ function unownedPool1Slots(pfKey){
 function dpTargetInfo(pfKey){
   const pf=portfolios[pfKey];if(!pf)return{amount:0,pct:0,mode:"pct"};
   const base=trancheBase(pfKey);                          // Pool1 cost + Pool3 cost + DP
-  const mode=settings.dpTargetMode==="auto"?"auto":"pct";
+  // v4.62: third mode "tiered" (spec §0) — Personal only; Caca falls back to AUTO.
+  const _raw=settings.dpTargetMode;
+  const mode=_raw==="tiered"?(pfKey==="personal"?"tiered":"auto"):(_raw==="auto"?"auto":"pct");
+  if(mode==="tiered")return dpTieredInfo(pfKey);
   if(mode==="auto"){
     // v4.53 §2.8.6/2.8.7 (corrected 2026-06-28): DP target is TWO separate terms — it does
     // NOT fold empty seats into the per-slot count (that conflated DP target with the Pool-1
@@ -2256,7 +2405,8 @@ function load(){
   // Migration: add dpDivisor and dpFloor if missing
   if(!settings.dpDivisor)settings.dpDivisor=6;
   if(!settings.dpFloor)settings.dpFloor=2000;
-  if(!settings.dpTargetMode)settings.dpTargetMode="pct"; // v4.45: DP-target mode (pct|auto)
+  if(!settings.dpTargetMode)settings.dpTargetMode="pct"; // v4.45: DP-target mode (pct|auto; +tiered v4.62)
+  if(settings.dpTieredCapPct==null)settings.dpTieredCapPct=50; // v4.62 §8: TIERED policy cap (0–100%)
   if(settings.muteDistPromote==null)settings.muteDistPromote=0.50; // v4.53 §2.8.3 banded mute
   if(settings.muteDistDemote==null)settings.muteDistDemote=0.40;
   if(!settings.nlTranches)settings.nlTranches=40;
@@ -5437,16 +5587,24 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const _dp=pf.dryPowder||0;
         const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
         const _dpPct=_base>0?_dp/_base*100:0;
-        const _tgtLbl=_dpTgtI.mode==="auto"
+        const _tiered=_dpTgtI.mode==="tiered";
+        const _bindLbl=_tiered?({tiered:"tiered",floor:"floor",t1floor:"T1 12%"}[_dpTgtI.bindingTerm]):"";
+        const _tgtLbl=_tiered
+          ? `target ${_tgt}% · tiered (${_dpTgtI.tieredSlots.toFixed(0)}%+${_dpTgtI.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_dpTgtI.cappedFloorPct)}%⌉ · ${_bindLbl} binds${_dpTgtI.cappedBy?` · at ${_dpTgtI.cappedBy} cap — uncapped target ${Math.round(_dpTgtI.uncappedPct)}%`:""}) ⓘ`
+          : _dpTgtI.mode==="auto"
           ? `target ${_tgt}% · auto (${_dpTgtI.litSlots}×3% slots + ${_dpTgtI.seats}×9% seat${_dpTgtI.seats!==1?"s":""} = ${Math.round(_dpTgtI.term1Pct)}%+${Math.round(_dpTgtI.term2Pct)}%)`
           : `target ${_tgt}%`;
         // v4.52: green at/above target, amber below target but ≥12%, red below 12% floor.
-        const _dpCol=_dpPct>=_tgt?"var(--green)":(_dpPct>=12?"var(--amber)":"var(--red)");
-        const _dpDot=_dpPct>=_tgt?"🟢":(_dpPct>=12?"🟡":"🔴");
-        _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap">
+        // v4.62 tiered (§10): red line = CAPPED floor min(floor, structuralMax, policyCap);
+        // a binding cap forces 🟡 even at/above the capped target so compression stays visible.
+        const _redLine=_tiered?_dpTgtI.cappedFloorPct:12;
+        const _capBind=_tiered&&_dpTgtI.cappedBy&&_dpTgtI.uncappedPct>_dpTgtI.pct+0.01;
+        const _dpCol=(_dpPct>=_tgt&&!_capBind)?"var(--green)":(_dpPct>=_redLine?"var(--amber)":"var(--red)");
+        const _dpDot=(_dpPct>=_tgt&&!_capBind)?"🟢":(_dpPct>=_redLine?"🟡":"🔴");
+        _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap"${_tiered?' onclick="showTieredBreakdown()" title="Tap for live TIERED breakdown"':''}>
           <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpDot} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
-          <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${_tgtLbl}</span>
-          ${_dpPct<12?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:"")}
+          <span style="font-size:9px;color:${_tiered?'#67e8f9':'var(--muted)'};font-family:var(--mono)${_tiered?';cursor:pointer':''}">${_tgtLbl}</span>
+          ${_dpPct<_redLine?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW ${_tiered?"CAPPED FLOOR":"12% FLOOR"}</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:(_capBind?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ AT CAP</span>`:""))}
         </div>`;
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
@@ -6092,9 +6250,12 @@ function renderAllocator(c){
     const ptPct=100-idxPct;
     h+=`<div class="input-row"><div class="input-box"><div class="input-label">Monthly Income</div><div class="input-field"><span>${_bs}</span><input type="number" value="${totalIncome}" onchange="settings.${_incKey}=+this.value;save();render()"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= ${_altSym}${_altIncome.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
-      <div class="input-box" style="flex:0 0 92px"><div class="input-label" style="display:flex;gap:3px;align-items:center"><span>DP Target</span><span onclick="settings.dpTargetMode=(settings.dpTargetMode==='auto'?'pct':'auto');save();render()" style="cursor:pointer;font-size:8px;padding:1px 4px;border-radius:3px;background:${settings.dpTargetMode==='auto'?'#0d3320':'#1a1a2e'};color:${settings.dpTargetMode==='auto'?'var(--green)':'var(--muted)'};font-family:var(--mono)" title="Toggle fixed % vs auto (tranche size × unowned Pool 1 slots)">${settings.dpTargetMode==='auto'?'AUTO':'FIXED'}</span></div>
-        <div class="input-field"><input type="number" value="${settings.dpTargetMode==='auto'?Math.round(dpTargetInfo('personal').pct):(settings.dpFloorPct??30)}" min="0" max="100" ${settings.dpTargetMode==='auto'?'disabled style="width:40px;text-align:center;opacity:.4"':'style="width:40px;text-align:center"'} onchange="settings.dpFloorPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${settings.dpTargetMode==='auto'?`auto · 3%×${dpTargetInfo('personal').litSlots}+9%×${dpTargetInfo('personal').seats}`:'floor'}</div></div>
+      <div class="input-box" style="flex:0 0 92px"><div class="input-label" style="display:flex;gap:3px;align-items:center"><span>DP Target</span><span onclick="settings.dpTargetMode=(settings.dpTargetMode==='auto'?'tiered':settings.dpTargetMode==='tiered'?'pct':'auto');save();render()" style="cursor:pointer;font-size:8px;padding:1px 4px;border-radius:3px;background:${settings.dpTargetMode==='tiered'?'#0d2b33':settings.dpTargetMode==='auto'?'#0d3320':'#1a1a2e'};color:${settings.dpTargetMode==='tiered'?'#67e8f9':settings.dpTargetMode==='auto'?'var(--green)':'var(--muted)'};font-family:var(--mono)" title="Cycle FIXED → AUTO → TIERED. TIERED: probability-weighted per-tranche reserve (spec v2). Tap the ⓘ or DP status line for the live breakdown.">${settings.dpTargetMode==='tiered'?'TIERED':settings.dpTargetMode==='auto'?'AUTO':'FIXED'}</span></div>
+        <div class="input-field"><input type="number" value="${settings.dpTargetMode==='auto'||settings.dpTargetMode==='tiered'?Math.round(dpTargetInfo('personal').pct):(settings.dpFloorPct??30)}" min="0" max="100" ${settings.dpTargetMode==='auto'||settings.dpTargetMode==='tiered'?'disabled style="width:40px;text-align:center;opacity:.4"':'style="width:40px;text-align:center"'} onchange="settings.dpFloorPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${(()=>{const _m=settings.dpTargetMode;if(_m==='tiered'){const _ti=dpTargetInfo('personal');return `<span style="cursor:pointer;color:#67e8f9" onclick="showTieredBreakdown()" title="Open live breakdown">tiered · ${_ti.tieredSlots.toFixed(0)}%+${_ti.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_ti.cappedFloorPct)}%⌉ ⓘ</span>`;}if(_m==='auto')return `auto · 3%×${dpTargetInfo('personal').litSlots}+9%×${dpTargetInfo('personal').seats}`;return 'floor';})()}</div></div>
+      ${settings.dpTargetMode==='tiered'?`<div class="input-box" style="flex:0 0 64px" title="§8 policy cap — hard ceiling on the TIERED DP target as % of the tranche base. Above ~50% the portfolio is a cash position with an equity kicker (AQR/Vanguard cash-drag evidence)."><div class="input-label">DP Cap</div>
+        <div class="input-field"><input type="number" value="${settings.dpTieredCapPct??50}" min="0" max="100" style="width:36px;text-align:center" onchange="settings.dpTieredCapPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
+        <div style="font-size:9px;color:var(--muted);margin-top:4px;font-family:var(--mono)">policy cap</div></div>`:''}
       <div class="input-box" style="flex:0 0 110px" title="§2.8.3 banded drawdown mute. Mute a trigger when its drawdown-to-reach exceeds the upper %; un-mute at or below the lower %. The band between holds prior state (hysteresis)."><div class="input-label">Mute Band (dd)</div>
         <div class="input-field" style="gap:2px"><input type="number" value="${Math.round((settings.muteDistDemote??0.40)*100)}" min="0" max="100" style="width:34px;text-align:center" onchange="settings.muteDistDemote=Math.max(0,Math.min(1,(+this.value||0)/100));save();render()"><span style="font-size:10px">–</span><input type="number" value="${Math.round((settings.muteDistPromote??0.50)*100)}" min="0" max="100" style="width:34px;text-align:center" onchange="settings.muteDistPromote=Math.max(0,Math.min(1,(+this.value||0)/100));save();render()"><span>%</span></div>
         <div style="font-size:9px;color:var(--muted);margin-top:4px;font-family:var(--mono)">un-mute ≤ ${Math.round((settings.muteDistDemote??0.40)*100)} · mute &gt; ${Math.round((settings.muteDistPromote??0.50)*100)}</div></div>
@@ -6136,7 +6297,7 @@ function renderAllocator(c){
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (${Math.round(trancheFrac(currentPf)*100)}% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*trancheFrac(currentPf)).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litDeploying} lit signals${cappedLit>0?`, ${cappedLit} at cap → DP`:""})</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${deployTotal.toLocaleString()}</span></div>
       ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Overflow → DP${cappedLit>0?` (incl. ${cappedLit} at cap)`:""}</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
-      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${_dpTgt.mode==="auto"?`auto · ${Math.round(trancheFrac("personal")*100)}%×${_dpTgt.litSlots} slots + 9%×${_dpTgt.seats} seat${_dpTgt.seats!==1?"s":""}`:`${Math.round(_dpFloorPct*100)}% of P1+P3+DP`})</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${_dpTgt.mode==="tiered"?`<span style="cursor:pointer;color:#67e8f9" onclick="showTieredBreakdown()">tiered · ${_dpTgt.tieredSlots.toFixed(0)}%+${_dpTgt.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_dpTgt.cappedFloorPct)}%⌉${_dpTgt.cappedBy?" · at "+_dpTgt.cappedBy+" cap":""} ⓘ</span>`:_dpTgt.mode==="auto"?`auto · ${Math.round(trancheFrac("personal")*100)}%×${_dpTgt.litSlots} slots + 9%×${_dpTgt.seats} seat${_dpTgt.seats!==1?"s":""}`:`${Math.round(_dpFloorPct*100)}% of P1+P3+DP`})</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${dpTopUp>0?'#34d399':'var(--muted)'}">${dpAfterIncome>=dpFloorThreshold?'Floor met — full deploy':'Below floor — DP top-up'}</span><span style="font-size:13px;font-family:var(--mono);color:${dpTopUp>0?'#34d399':'var(--muted)'}">${_bs}${Math.round(dpTopUp).toLocaleString()}</span></div>
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
     <div class="alloc-grid">`;
