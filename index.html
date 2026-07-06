@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.62</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.63</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5597,14 +5597,14 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         // v4.52: green at/above target, amber below target but ≥12%, red below 12% floor.
         // v4.62 tiered (§10): red line = CAPPED floor min(floor, structuralMax, policyCap);
         // a binding cap forces 🟡 even at/above the capped target so compression stays visible.
-        const _redLine=_tiered?_dpTgtI.cappedFloorPct:12;
+        const _redLine=12; // v4.63: hard red only below the 12% bare minimum; amber between 12% and target
         const _capBind=_tiered&&_dpTgtI.cappedBy&&_dpTgtI.uncappedPct>_dpTgtI.pct+0.01;
         const _dpCol=(_dpPct>=_tgt&&!_capBind)?"var(--green)":(_dpPct>=_redLine?"var(--amber)":"var(--red)");
         const _dpDot=(_dpPct>=_tgt&&!_capBind)?"🟢":(_dpPct>=_redLine?"🟡":"🔴");
         _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap"${_tiered?' onclick="showTieredBreakdown()" title="Tap for live TIERED breakdown"':''}>
           <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpDot} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
           <span style="font-size:9px;color:${_tiered?'#67e8f9':'var(--muted)'};font-family:var(--mono)${_tiered?';cursor:pointer':''}">${_tgtLbl}</span>
-          ${_dpPct<_redLine?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW ${_tiered?"CAPPED FLOOR":"12% FLOOR"}</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:(_capBind?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ AT CAP</span>`:""))}
+          ${_dpPct<_redLine?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:(_capBind?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ AT CAP</span>`:""))}
         </div>`;
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
