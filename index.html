@@ -264,7 +264,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.63</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.64</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2273,6 +2273,26 @@ function positionCostPctOfBase(ticker,pfKey,extraBase){
 }
 function atPositionCap(ticker,pfKey,extraBase){
   return positionCostPctOfBase(ticker,pfKey,extraBase)>=positionCapPct(ticker,pfKey);
+}
+// v4.64: LIT-SLOT cap — the BINDING per-stock deployment ceiling. Total position cost basis
+// (ALL tranches, including owned-but-unlit ones bought when their signal previously fired) may
+// not exceed (currently-deploying slots) × 3% of the post-salary base. deployCount = firing +
+// piggyback + P-MOS, each a full slot (flat 1.0 weight → 3% each, v4.08). An owned tranche
+// whose signal has gone dark still COUNTS AGAINST the cap but ADDS NOTHING to it — as monthly
+// income grows the base, the position % drifts down and top-ups resume only once total cost
+// falls below litCount × 3%. When more slots light up, the cap steps up 3% per slot. Since
+// lit ≤ slots, this is always ≤ positionCapPct (slots × 3%), which stays as the hard outer
+// ceiling. Fixes the v4.32 bug where per-tranche rooms were independent, so an overfilled
+// sibling tranche (e.g. PGR PBT at 3.96%) never netted against an underfilled one (10Cap at
+// 2.14%) and the allocator fed a position already past lit×3% in aggregate.
+function litCapHeadroomBase(ticker,pfKey,base){
+  const lit=deployCount(ticker,pfKey);
+  if(lit<=0||base<=0)return 0;
+  return Math.max(0, lit*trancheFrac(pfKey)*base - posCostBasisBase(ticker,pfKey));
+}
+// True when a lit stock's TOTAL cost basis is at/above its lit-slot cap — deploys nothing.
+function atLitCap(ticker,pfKey,base){
+  return deployCount(ticker,pfKey)>0 && litCapHeadroomBase(ticker,pfKey,base)<=0.5;
 }
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
@@ -6152,8 +6172,14 @@ function renderAllocator(c){
     // cost base WITH this month's salary added (income). A stock at/above cap is dropped from
     // deployment; its share redistributes to other under-cap lit stocks, then DP.
     const _capExtra=income;  // salary is added to the base before the cap is checked
-    const cappedLit=firingStocks.reduce((n,t)=>n+(atPositionCap(t,'personal',_capExtra)?deployCount(t,'personal'):0),0);
-    const cappedLitWeighted=firingStocks.reduce((n,t)=>n+(atPositionCap(t,'personal',_capExtra)?weightedLit(t,'personal'):0),0);
+    // Cost-basis anchor: Pool1 cost + Pool3 cost + DP + new income (all base ccy). pool1CostBasis
+    // already includes DP. Same base atPositionCap uses internally — shared by the lit-slot cap.
+    const _capBase=pool1CostBasis('personal')+pool3CostBasis('personal')+income;
+    // v4.64: a stock is "capped" when at the hard slots×3% cap OR at the lit-slot cap (lit×3%
+    // measured against TOTAL position cost basis). Both route its share away from deployment.
+    const _isCapped=t=>atPositionCap(t,'personal',_capExtra)||atLitCap(t,'personal',_capBase);
+    const cappedLit=firingStocks.reduce((n,t)=>n+(_isCapped(t)?deployCount(t,'personal'):0),0);
+    const cappedLitWeighted=firingStocks.reduce((n,t)=>n+(_isCapped(t)?weightedLit(t,'personal'):0),0);
     const litDeploying=litTotal-cappedLit;                                                        // discrete count (display)
     const litDeployingWeighted=litWeighted-cappedLitWeighted;                                     // weighted (math)
     // === DP-FLOOR GATE (v3.96, v4.45 dual-mode) ===
@@ -6176,25 +6202,24 @@ function renderAllocator(c){
       ? income                                              // floor already satisfied → deploy all
       : Math.max(0,income-(dpFloorThreshold-_dpNow));       // below floor → top up first, deploy excess
     const dpTopUp=income-incomeDeployable;                  // amount that stays in DP this month
-    // === PER-STOCK CAP + ITERATIVE REDISTRIBUTION (v4.32) ===
-    // Cost-basis anchor: Pool1 cost + Pool3 cost + DP + new income (all base ccy).
-    // pool1CostBasis already includes DP, so don't add _dpNow again.
-    const _capBase=pool1CostBasis('personal')+pool3CostBasis('personal')+income;
+    // === PER-STOCK CAP + ITERATIVE REDISTRIBUTION (v4.32, lit-slot cap v4.64) ===
+    // (_capBase defined above, next to _capExtra.)
     // Per-stock room = Σ lit-tranche room (base ccy), bounded so total cost basis can't exceed
-    // (slots × 4%) of the post-salary base. litTrancheTopups already targets 4% per lit slot, so
-    // its sum is the remaining room up to the slots×4% ceiling. A stock at/above its cap → 0 room.
+    // the binding aggregate cap. litTrancheTopups targets 3% per lit slot; its per-tranche rooms
+    // are independent, so two clamps apply on top: the hard slots×3% ceiling (v4.32) and the
+    // lit×3% lit-slot cap (v4.64) — the latter nets OVERFILLED tranches (lit or unlit) against
+    // underfilled ones, so a position already at/above lit×3% in aggregate gets zero room even
+    // when one of its tranches is individually below its 3% target. A capped stock → 0 room.
     const stockRoom={};                                     // ticker → room in base ccy
     firingStocks.forEach(t=>{
       if(atPositionCap(t,'personal',_capExtra)){stockRoom[t]=0;return;}
       const tops=litTrancheTopups(t,'personal',_capBase);
       let room=tops.reduce((a,x)=>a+x.roomBase,0);
-      // v4.32: clamp per-stock room to the AGGREGATE cap headroom. Per-tranche room is computed
-      // independently against a flat 4% target, so a skewed position (e.g. MOS at 7%, two others
-      // at 2%) can report more tranche room than the stock's total cap allows. Without this clamp
-      // the fill could push total cost basis past (slots × 4%). Headroom = capPct×base − current
-      // total cost basis, measured on the same post-salary base the cap gate uses.
+      // v4.32 hard-ceiling clamp: total cost basis can never pass slots × 3% of the base.
       const _capHeadroom=Math.max(0, positionCapPct(t,'personal')*_capBase - posCostBasisBase(t,'personal'));
-      stockRoom[t]=Math.min(room,_capHeadroom);
+      // v4.64 lit-slot clamp: total cost basis can't pass (deploying slots) × 3% of the base.
+      const _litHeadroom=litCapHeadroomBase(t,'personal',_capBase);
+      stockRoom[t]=Math.min(room,_capHeadroom,_litHeadroom);
     });
     // Iterative fill: distribute deployable income across lit, under-cap stocks by weighted-lit
     // share. When a stock fills its room, the unabsorbed remainder is redistributed across the
@@ -6212,7 +6237,7 @@ function renderAllocator(c){
     // Cap the number of passes defensively (one stock can fill per pass at minimum).
     for(let pass=0;pass<firingStocks.length+2 && _remaining>0.5;pass++){
       // Eligible = lit, under-cap, still has room. Weighted-lit share drives the split.
-      const elig=firingStocks.filter(t=>!atPositionCap(t,'personal',_capExtra)&&_room[t]>0.5&&weightedLit(t,'personal')>0);
+      const elig=firingStocks.filter(t=>!_isCapped(t)&&_room[t]>0.5&&weightedLit(t,'personal')>0);
       if(!elig.length)break;
       const wSum=elig.reduce((a,t)=>a+weightedLit(t,'personal'),0);
       if(wSum<=0)break;
@@ -6304,21 +6329,23 @@ function renderAllocator(c){
     // Per-stock breakdown: firing stocks show deploy + per-lit-tranche top-ups
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
       const capped=atPositionCap(t,'personal',_capExtra);const capPct=positionCapPct(t,'personal');const mvPct=positionCostPctOfBase(t,'personal',_capExtra);
+      // v4.64: lit-slot cap state — total cost basis at/above (deploying slots) × 3%.
+      const litCapped=!capped&&atLitCap(t,'personal',_capBase);const litCapPctDisp=dc*trancheFrac('personal')*100;
       // v3.96: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
       const deployBase=_stockDeployBase[t]||0;
       // v4.04: surface the $500 transaction-cost floor — when a stock's share was zeroed for
       // being too small, say so instead of showing an unexplained 0.
       const flooredAmt=_flooredStocks[t]||0;
-      const floored=!capped&&deployBase===0&&flooredAmt>0;
-      const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
+      const floored=!capped&&!litCapped&&deployBase===0&&flooredAmt>0;
+      const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&!litCapped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
       const isSpec=isRisk(t,currentPf);const isBuf=isBuffett(t);
-      const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:floored?`<span style="color:var(--amber)">DP (&lt;$500 floor)</span>`:`deploy`;
-      const amtCol=capped?"#d97706":floored?"var(--amber)":"var(--green)";
-      const amtVal=(capped||floored)?fmt(0,s.currency):fmt(Math.round(localDeploy),s.currency);
+      const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:litCapped?`<span style="color:#d97706">DP (at lit cap ${(mvPct*100).toFixed(1)}%≥${litCapPctDisp.toFixed(0)}%)</span>`:floored?`<span style="color:var(--amber)">DP (&lt;$500 floor)</span>`:`deploy`;
+      const amtCol=(capped||litCapped)?"#d97706":floored?"var(--amber)":"var(--green)";
+      const amtVal=(capped||litCapped||floored)?fmt(0,s.currency):fmt(Math.round(localDeploy),s.currency);
       // Per-lit-tranche top-up lines (stock ccy). Distribute the room-bounded deploy across this
       // stock's lit tranches proportional to each tranche's room (so display sums to localDeploy).
-      const tops=capped?[]:litTrancheTopups(t,'personal',_capBase);
+      const tops=(capped||litCapped)?[]:litTrancheTopups(t,'personal',_capBase);
       const roomSumBase=tops.reduce((a,x)=>a+x.roomBase,0);
       const trancheLines=tops.map(x=>{
         const shareBase=roomSumBase>0?deployBase*x.roomBase/roomSumBase:0;
@@ -6326,9 +6353,9 @@ function renderAllocator(c){
         const full=x.roomBase<=shareBase+0.5;
         return `${x.label} ${fmt(Math.round(shareLocal),s.currency)}${full?"":" ▸"}`;
       });
-      const subline=capped?`${(capPct*100).toFixed(0)}% of P1+P3+DP reached — routed to DP`:floored?`${fmt(Math.round(fromEUR(toEUR(flooredAmt,_bc),s.currency)),s.currency)} share &lt; $500 min — fees too high, routed to DP`:`~${sh} sh`;
+      const subline=capped?`${(capPct*100).toFixed(0)}% of P1+P3+DP reached — routed to DP`:litCapped?`total cost ≥ ${dc} lit × 3% — waits for base growth or new signal`:floored?`${fmt(Math.round(fromEUR(toEUR(flooredAmt,_bc),s.currency)),s.currency)} share &lt; $500 min — fees too high, routed to DP`:`~${sh} sh`;
       const trancheNote=trancheLines.length?`<div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:2px">${trancheLines.join(" · ")}</div>`:"";
-      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}${capped?' <span style="font-size:10px;color:#d97706">🔒</span>':""}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → ${litDest} · ${unlit} unlit${pbNote}</div>${trancheNote}</div>
+      h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}${(capped||litCapped)?' <span style="font-size:10px;color:#d97706">🔒</span>':""}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → ${litDest} · ${unlit} unlit${pbNote}</div>${trancheNote}</div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${amtCol}">${amtVal}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">${subline}</div></div></div>`;
     });
     // Show 0/3 grid stocks (not firing — no allocation)
