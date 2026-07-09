@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.65</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.66</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5974,7 +5974,11 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const ddHigh=etfTrailingHigh(ddTicker);
       const ddPct=etfDrawdownPct(ddTicker,px);
       const ddColor=ddPct>=30?"#f87171":ddPct>=20?"#fb923c":ddPct>=10?"#facc15":"var(--muted)";
-      const ddLine=px>0?`<div onclick="editEtfHigh('${ddTicker}')" style="font-size:9px;font-family:var(--mono);color:${ddColor};margin:0 0 4px;cursor:pointer">${ddHigh>0?`12m high ${fmt(ddHigh,ccy)} · ${ddPct>=0.05?`−${ddPct.toFixed(1)}% off high`:"at high"}${ddPct>=10?` · 🔔 −${Math.floor(ddPct/10)*10}% band`:""}`:"12m high: tap to seed ✏"}</div>`:"";
+      // v4.66: drawdown % rendered as a prominent bold span — green when below high (negative = buy zone), blue when at/above high.
+      const ddPctSpan=ddPct>=0.05
+        ?`<span style="color:var(--green);font-size:12px;font-weight:800">−${ddPct.toFixed(1)}% off high</span>`
+        :`<span style="color:var(--accent);font-size:12px;font-weight:800">at high</span>`;
+      const ddLine=px>0?`<div onclick="editEtfHigh('${ddTicker}')" style="font-size:9px;font-family:var(--mono);color:${ddColor};margin:0 0 4px;cursor:pointer">${ddHigh>0?`12m high ${fmt(ddHigh,ccy)} · ${ddPctSpan}${ddPct>=10?` · 🔔 −${Math.floor(ddPct/10)*10}% band`:""}`:"12m high: tap to seed ✏"}</div>`:"";
       // v4.16: CAPE-gated deployment UI (Personal tab only — pen is region-keyed, not per-portfolio).
       // XFFE (ffe) is the pen VEHICLE — it shows the aggregate parked balance instead of a CAPE gate.
       let capeBlock="";
