@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.67</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.68</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3323,7 +3323,12 @@ function fmtDiffVal(v){
   if(typeof v==="boolean")return v?"PASS":"FAIL";
   return String(v);
 }
-function showImportDiffModal(changes,nUpd,nNew){
+// v4.68: opts={confirm,onApply,onCancel}. In confirm mode the modal becomes a PREVIEW —
+// nothing has been saved yet; "Apply Import" commits (save + push sync), "Cancel" restores
+// the pre-import state and discards the CSV entirely. Background click is inert in confirm
+// mode to force an explicit choice. Legacy callers (Excel restore) get the old "Done" button.
+function showImportDiffModal(changes,nUpd,nNew,opts){
+  opts=opts||{};
   // Remove any existing diff modal
   const existing=document.getElementById("import-diff-overlay");
   if(existing)existing.remove();
@@ -3366,11 +3371,20 @@ function showImportDiffModal(changes,nUpd,nNew){
   if(nNewStocks)summaryParts.push(`${nNewStocks} new`);
   if(nChanged)summaryParts.push(`${nChanged} changed`);
   if(nUpd-nChanged-nNewStocks>0)summaryParts.push(`${nUpd-nChanged-nNewStocks} unchanged`);
+  const footerHTML=opts.confirm
+    ?`<div style="display:flex;gap:8px"><button class="diff-dismiss" id="diff-cancel-btn" style="flex:1;background:#2a2f3a;color:#e5e7eb">Cancel — keep current</button><button class="diff-dismiss" id="diff-apply-btn" style="flex:1">Apply Import</button></div>`
+    :`<button class="diff-dismiss" onclick="document.getElementById('import-diff-overlay').remove()">Done</button>`;
   overlay.innerHTML=`<div class="diff-modal">
-    <div class="diff-modal-header"><h2>Import Results</h2><span class="diff-summary">${summaryParts.join(" · ")}</span></div>
+    <div class="diff-modal-header"><h2>${opts.confirm?"Import Preview — not applied yet":"Import Results"}</h2><span class="diff-summary">${summaryParts.join(" · ")}</span></div>
     <div class="diff-modal-body">${bodyHTML}</div>
-    <button class="diff-dismiss" onclick="document.getElementById('import-diff-overlay').remove()">Done</button></div>`;
-  overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+    ${footerHTML}</div>`;
+  if(opts.confirm){
+    // Force an explicit choice: background click does nothing.
+    document.getElementById("diff-apply-btn").onclick=()=>{overlay.remove();if(opts.onApply)opts.onApply();};
+    document.getElementById("diff-cancel-btn").onclick=()=>{overlay.remove();if(opts.onCancel)opts.onCancel();};
+  }else{
+    overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+  }
   document.body.appendChild(overlay);
 }
 
@@ -3414,6 +3428,11 @@ function handleCSVImport(e){
     if(rows.length<2)return alert("Empty CSV");
     const hdr=rows[0].map(h=>h.trim().toLowerCase());let nUpd=0,nNew=0;
     const beforeSnap=snapshotStocks();
+    // v4.68: deep backup for the decline path — the import now stages changes in memory and
+    // nothing is saved/synced until the user hits "Apply Import" in the preview modal.
+    const _stocksBackup=JSON.stringify(stocks);
+    const _pfBackup=JSON.stringify(portfolios);
+    window._suppressBuyModal=true; // buy modals for newly-lit signals fire only on Apply
     for(let i=1;i<rows.length;i++){const v=rows[i];const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
       const t=(row.ticker||"").toUpperCase();if(!t)continue;
       // Auto-create stock if ticker doesn't exist yet
@@ -3506,12 +3525,29 @@ function handleCSVImport(e){
       // If no eps/pe auto-calc, derive sticker from manual MOS
       if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
       updateSignals(t);nUpd++;}
+    window._suppressBuyModal=false;
     ["personal","nl"].forEach(pk=>recomputeCapacityState(pk)); // v4.53
-    save();render();
+    render(); // preview renders behind the modal; committed only on Apply (v4.68)
     const changes=diffStocks(beforeSnap);
-    showImportDiffModal(changes,nUpd,nNew);
-    // Auto-sync triggers to push worker if connected
-    if(settings.pushSubscribed&&settings.pushWorkerUrl)syncTriggersToCloud();
+    // Signal states before import, to queue buy modals only if the user applies.
+    const _beforeSignals={};Object.entries(JSON.parse(_stocksBackup)).forEach(([bt,bs])=>{_beforeSignals[bt]=bs.signals||{};});
+    showImportDiffModal(changes,nUpd,nNew,{
+      confirm:true,
+      onApply:()=>{
+        save();render();
+        // Fire buy modals for signals newly lit by this import (suppressed during staging).
+        Object.entries(stocks).forEach(([at,as])=>{["mos","tenCap","pbt"].forEach(sig=>{
+          if(as.signals?.[sig]&&!_beforeSignals[at]?.[sig])queueBuyModal(at,sig);});});
+        // Auto-sync triggers to push worker if connected
+        if(settings.pushSubscribed&&settings.pushWorkerUrl)syncTriggersToCloud();
+      },
+      onCancel:()=>{
+        // Decline: restore in-memory state; localStorage was never touched, no sync sent.
+        stocks=JSON.parse(_stocksBackup);
+        portfolios=JSON.parse(_pfBackup);
+        render();
+      }
+    });
     };r.readAsText(f);e.target.value="";
 }
 
@@ -4019,7 +4055,13 @@ function _applyHoldingsImport(parsed,warnings){
     if(!stocks[ticker])return;
     if(st==="buffett")stocks[ticker].category="buffett";
     else if(st==="highgr")stocks[ticker].category="highgr";
-    else if(st==="phil_town"||st==="risk")delete stocks[ticker].category; // risk stocks have no buffett/highgr category
+    else if(st==="phil_town")delete stocks[ticker].category;
+    // v4.68 FIX: st==="risk" no longer deletes s.category. Risk membership is per-portfolio
+    // (pf.riskStocks) and ORTHOGONAL to the trigger menu — a Pool 3 risk stock can be highgr
+    // (MELI, FICO). The old delete wiped the highgr flag on every holdings round-trip; the
+    // next triggers export then wrote an empty category cell, and the next triggers import
+    // recomputed standard 10Cap/PBT over the CSV's 20Cap/DMOS values
+    // (the MELI bug: CSV pbt 1522.49 DMOS → app showed 566.56 standard PBT).
     if(st==="risk"){
       const pf=portfolios[pfKey];if(!pf)return;
       if(!pf.riskStocks)pf.riskStocks=[];
