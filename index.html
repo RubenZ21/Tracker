@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.68</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.69</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3278,12 +3278,18 @@ const DIFF_FIELDS=[
   {key:"t3Firing",label:"T3",path:["t3Firing"],boolDisplay:["FIRING",null]},
   {key:"t6Firing",label:"T6",path:["t6Firing"],boolDisplay:["FIRING",null]},
   {key:"earningsDate",label:"Earnings Date",path:["earningsDate"],isDate:true},
-  {key:"lastCalcDate",label:"Last Calc",path:["lastCalcDate"],isDate:true}
+  {key:"lastCalcDate",label:"Last Calc",path:["lastCalcDate"],isDate:true},
+  // v4.69: surface 4M block set/clear in the diff (the block importer's comment always
+  // promised this but the field was missing here), plus notes/specReason text changes.
+  {key:"block",label:"4M Block",path:["block"],boolDisplay:["BLOCKED",null]},
+  {key:"blockReason",label:"Block Reason",path:["blockReason"],maxLen:90},
+  {key:"notes",label:"Notes",path:["notes"],maxLen:90},
+  {key:"specReason",label:"Risk Thesis",path:["specReason"],maxLen:90}
 ];
 function snapshotStocks(){
   const snap={};
   Object.entries(stocks).forEach(([t,s])=>{
-    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null,block:s.block?true:null,blockReason:s.blockReason||null,blockDate:s.blockDate||null,blockReviewDate:s.blockReviewDate||null};
+    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null,block:s.block?true:null,blockReason:s.blockReason||null,blockDate:s.blockDate||null,blockReviewDate:s.blockReviewDate||null,notes:s.notes||null,specReason:s.specReason||null};
     if(s.cons){Object.keys(s.cons).forEach(k=>o["cons."+k]=s.cons[k]);}
     snap[t]=o;
   });
@@ -3293,7 +3299,21 @@ function diffStocks(before){
   const changes=[];
   Object.entries(stocks).forEach(([t,s])=>{
     const old=before[t];
-    if(!old){changes.push({ticker:t,name:s.name,isNew:true,fields:[]});return;}
+    if(!old){
+      // v4.69 FIX: a new stock previously pushed fields:[] so the preview card showed only
+      // "New stock added" with NO values — impossible to review before Apply. Now populate
+      // every non-null imported value; they render as green "set" chips (oldVal=null).
+      const nf=[];
+      DIFF_FIELDS.forEach(df=>{
+        let v=df.path.length===2?s[df.path[0]]?.[df.path[1]]:s[df.path[0]];
+        if(v===undefined)v=null;
+        if(df.boolDisplay)v=v?df.boolDisplay[0]:df.boolDisplay[1];
+        if(v===null)return;
+        if(df.maxLen&&typeof v==="string"&&v.length>df.maxLen)v=v.slice(0,df.maxLen)+"…";
+        nf.push({label:df.label,oldVal:null,newVal:v,isDate:!!df.isDate});
+      });
+      changes.push({ticker:t,name:s.name,isNew:true,fields:nf});return;
+    }
     const fields=[];
     DIFF_FIELDS.forEach(df=>{
       let oldVal,newVal;
@@ -3311,6 +3331,11 @@ function diffStocks(before){
       if(oldVal===newVal)return;
       if(df.isDate&&typeof oldVal==="number"&&typeof newVal==="number"&&Math.abs(oldVal-newVal)<86400000)return;
       if(!df.isDate&&typeof oldVal==="number"&&typeof newVal==="number"&&Math.abs(oldVal-newVal)<0.005)return;
+      if(df.maxLen){
+        if(typeof oldVal==="string"&&oldVal.length>df.maxLen)oldVal=oldVal.slice(0,df.maxLen)+"…";
+        if(typeof newVal==="string"&&newVal.length>df.maxLen)newVal=newVal.slice(0,df.maxLen)+"…";
+        if(oldVal===newVal)return; // both truncated to same prefix — treat as unchanged noise
+      }
       fields.push({label:df.label,oldVal,newVal,isDate:!!df.isDate});
     });
     if(fields.length)changes.push({ticker:t,name:s.name||t,isNew:false,fields});
@@ -3344,26 +3369,25 @@ function showImportDiffModal(changes,nUpd,nNew,opts){
     // New stocks first, then changed
     const sorted=[...changes.filter(c=>c.isNew),...changes.filter(c=>!c.isNew)];
     sorted.forEach(c=>{
-      let chipsHTML="";
-      if(c.isNew){
-        chipsHTML=`<span class="diff-chip"><span class="diff-set">New stock added to watchlist</span></span>`;
-      }else{
-        c.fields.forEach(f=>{
-          const fmtV=v=>f.isDate&&typeof v==="number"?new Date(v).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):fmtDiffVal(v);
-          const oldStr=fmtV(f.oldVal);
-          const newStr=fmtV(f.newVal);
-          if(oldStr===null&&newStr!==null){
-            chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-set">${newStr}</span></span>`;
-          }else if(oldStr!==null&&newStr===null){
-            chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-old">${oldStr}</span><span class="diff-cleared">cleared</span></span>`;
-          }else{
-            chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-old">${oldStr}</span><span class="diff-arrow">→</span><span class="diff-new-val">${newStr}</span></span>`;
-          }
-        });
-      }
+      // v4.69: new stocks now carry their imported values in fields — render chips for BOTH
+      // new and changed cards (new-stock values all hit the "set" branch: oldVal=null).
+      // Values are HTML-escaped (notes/blockReason contain free text with quotes).
+      let chipsHTML=c.isNew?`<span class="diff-chip"><span class="diff-set">New stock added to watchlist</span></span>`:"";
+      c.fields.forEach(f=>{
+        const fmtV=v=>f.isDate&&typeof v==="number"?new Date(v).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):esc(fmtDiffVal(v));
+        const oldStr=fmtV(f.oldVal);
+        const newStr=fmtV(f.newVal);
+        if((oldStr===null||oldStr==="")&&newStr!==null&&newStr!==""){
+          chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-set">${newStr}</span></span>`;
+        }else if(oldStr!==null&&oldStr!==""&&(newStr===null||newStr==="")){
+          chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-old">${oldStr}</span><span class="diff-cleared">cleared</span></span>`;
+        }else{
+          chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-old">${oldStr}</span><span class="diff-arrow">→</span><span class="diff-new-val">${newStr}</span></span>`;
+        }
+      });
       const badge=c.isNew?`<span class="diff-stock-badge new">NEW</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
       bodyHTML+=`<div class="diff-stock ${c.isNew?'diff-new':''}">
-        <div class="diff-stock-hdr"><span class="diff-stock-ticker">${c.ticker}</span><span class="diff-stock-name">${c.name}</span>${badge}</div>
+        <div class="diff-stock-hdr"><span class="diff-stock-ticker">${esc(c.ticker)}</span><span class="diff-stock-name">${esc(c.name)}</span>${badge}</div>
         <div class="diff-changes">${chipsHTML}</div></div>`;
     });
   }
@@ -3912,7 +3936,8 @@ function showHoldingsDiffModal(parsed,warnings,applyFn){
   document.getElementById("holdings-cancel-btn").onclick=()=>overlay.remove();
   const applyBtn=document.getElementById("holdings-apply-btn");
   if(applyBtn)applyBtn.onclick=()=>{overlay.remove();applyFn();};
-  overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+  // v4.69: background click inert — force explicit Cancel/Apply, matching the triggers
+  // preview. A stray tap previously dismissed (= silently declined) the whole import.
 }
 
 // Modal: success summary
