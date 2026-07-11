@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.69</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.70</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3279,7 +3279,7 @@ const DIFF_FIELDS=[
   {key:"t6Firing",label:"T6",path:["t6Firing"],boolDisplay:["FIRING",null]},
   {key:"earningsDate",label:"Earnings Date",path:["earningsDate"],isDate:true},
   {key:"lastCalcDate",label:"Last Calc",path:["lastCalcDate"],isDate:true},
-  // v4.69: surface 4M block set/clear in the diff (the block importer's comment always
+  // v4.70: surface 4M block set/clear in the diff (the block importer's comment always
   // promised this but the field was missing here), plus notes/specReason text changes.
   {key:"block",label:"4M Block",path:["block"],boolDisplay:["BLOCKED",null]},
   {key:"blockReason",label:"Block Reason",path:["blockReason"],maxLen:90},
@@ -3300,7 +3300,7 @@ function diffStocks(before){
   Object.entries(stocks).forEach(([t,s])=>{
     const old=before[t];
     if(!old){
-      // v4.69 FIX: a new stock previously pushed fields:[] so the preview card showed only
+      // v4.70 FIX: a new stock previously pushed fields:[] so the preview card showed only
       // "New stock added" with NO values — impossible to review before Apply. Now populate
       // every non-null imported value; they render as green "set" chips (oldVal=null).
       const nf=[];
@@ -3369,7 +3369,7 @@ function showImportDiffModal(changes,nUpd,nNew,opts){
     // New stocks first, then changed
     const sorted=[...changes.filter(c=>c.isNew),...changes.filter(c=>!c.isNew)];
     sorted.forEach(c=>{
-      // v4.69: new stocks now carry their imported values in fields — render chips for BOTH
+      // v4.70: new stocks now carry their imported values in fields — render chips for BOTH
       // new and changed cards (new-stock values all hit the "set" branch: oldVal=null).
       // Values are HTML-escaped (notes/blockReason contain free text with quotes).
       let chipsHTML=c.isNew?`<span class="diff-chip"><span class="diff-set">New stock added to watchlist</span></span>`:"";
@@ -3402,6 +3402,11 @@ function showImportDiffModal(changes,nUpd,nNew,opts){
     <div class="diff-modal-header"><h2>${opts.confirm?"Import Preview — not applied yet":"Import Results"}</h2><span class="diff-summary">${summaryParts.join(" · ")}</span></div>
     <div class="diff-modal-body">${bodyHTML}</div>
     ${footerHTML}</div>`;
+  // v4.70 FIX (root cause of "no preview modal"): the overlay MUST be appended to the
+  // document BEFORE wiring the buttons — getElementById only searches the live document,
+  // so wiring first returned null and threw, killing the modal before it ever rendered.
+  // (The holdings modal always appended first, which is why it worked and this didn't.)
+  document.body.appendChild(overlay);
   if(opts.confirm){
     // Force an explicit choice: background click does nothing.
     document.getElementById("diff-apply-btn").onclick=()=>{overlay.remove();if(opts.onApply)opts.onApply();};
@@ -3409,7 +3414,6 @@ function showImportDiffModal(changes,nUpd,nNew,opts){
   }else{
     overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
   }
-  document.body.appendChild(overlay);
 }
 
 // Full-file CSV parser. Handles RFC 4180-style quoted fields with embedded
@@ -3936,7 +3940,7 @@ function showHoldingsDiffModal(parsed,warnings,applyFn){
   document.getElementById("holdings-cancel-btn").onclick=()=>overlay.remove();
   const applyBtn=document.getElementById("holdings-apply-btn");
   if(applyBtn)applyBtn.onclick=()=>{overlay.remove();applyFn();};
-  // v4.69: background click inert — force explicit Cancel/Apply, matching the triggers
+  // v4.70: background click inert — force explicit Cancel/Apply, matching the triggers
   // preview. A stray tap previously dismissed (= silently declined) the whole import.
 }
 
