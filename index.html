@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.70</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.71</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2238,6 +2238,17 @@ function posInProfit(ticker,pfKey){
   if(sh<=0)return false;
   const avg=cost/sh;                                       // weighted avg buy price, native ccy
   return s.currentPrice>avg;}
+// v4.71: % the current price sits above (positive) or below (negative) the weighted avg
+// buy price of open non-trophy tranches. null when price/shares unknown. Used by the
+// Tranche Balance card to distinguish "barely in profit" from "comfortably trimmable" (>10%).
+function posProfitMarginPct(ticker,pfKey){
+  const pf=portfolios[pfKey];const s=stocks[ticker];const pos=pf?.positions?.[ticker];
+  if(!pf||!s||!pos||s.currentPrice==null)return null;
+  let sh=0,cost=0;
+  pos.tranches.forEach(tr=>{if(tr.signal==="trophy")return;const n=tr.bought-tr.sold;if(n>0){sh+=n;cost+=n*tr.buyPrice;}});
+  if(sh<=0)return null;
+  const avg=cost/sh;
+  return avg>0?(s.currentPrice/avg-1)*100:null;}
 // === v4.09: over/under-bought relative to a flat 4%-per-tranche target. ===
 // Target = (open non-trophy tranches) × 4% × trancheBase. trancheBase uses CURRENT cost basis
 // only (Pool1 cost + Pool3 cost + DP) — no future salary/income is added. Compares the position's
@@ -6219,20 +6230,29 @@ function renderTrancheBalanceCard(pfKey){
     // visible (you still see the tranche count + gap) but greyed so it doesn't read as a buy prompt.
     const mutedHigh=allTriggersMutedHigh(r.ticker);
     const unlit=deployCount(r.ticker,pfKey)===0;          // nothing would deploy right now
-    // v4.23: an OVER position only highlights yellow if current price is above avg cost — i.e.
-    // it can be trimmed without realising a loss. OVER-but-underwater stays neutral/dim.
+    // v4.71 display rules for OVER rows (replaces v4.23 trigger-coupled highlighting):
+    //  · in profit at all            → NEVER dimmed (a loss-free trim is actionable info)
+    //  · price >10% above avg cost   → AMBER highlight (comfortably trimmable)
+    //  · in profit but ≤10% above    → full opacity, neutral colours (visible, not shouting)
+    //  · below avg cost (underwater) → dimmed/dark ("black") — trim would book a loss
+    // UNDER rows: GREEN only when a trigger is actually lit (undervalued + signal firing);
+    // otherwise dimmed as before. mutedHigh/unlit no longer dim an OVER-in-profit row —
+    // those flags gate BUY prompts, and an over-in-profit row is a TRIM prompt.
+    const marginPct=posProfitMarginPct(r.ticker,pfKey);   // % above avg cost, null if unknown
     const overInProfit=r.status==="over"&&posInProfit(r.ticker,pfKey);
+    const overTrimHot=overInProfit&&marginPct!=null&&marginPct>10;   // amber threshold
     const overUnderwater=r.status==="over"&&!overInProfit;
-    const dimmed=mutedHigh||unlit||overUnderwater;
-    const col=dimmed?"var(--muted)":overInProfit?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
-    const bg=dimmed?"var(--bg)":overInProfit?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
+    const dimmed=overUnderwater||((mutedHigh||unlit)&&!overInProfit);
+    const col=dimmed?"var(--muted)":overTrimHot?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
+    const bg=dimmed?"var(--bg)":overTrimHot?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
     const tag=r.status==="over"?"OVER":r.status==="under"?"UNDER":"✓ balanced";
     const gapTxt=r.status==="balanced"
       ? `within 10%`
       : `${r.diff>0?"+":"−"}${dual(Math.abs(r.diff))} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
-    const action=mutedHigh?"price above sticker — all triggers muted"
-      :overUnderwater?"over target but below avg cost — trim would book a loss"
-      :overInProfit?"over target, in profit — trim possible without loss"
+    const action=overUnderwater?"over target but below avg cost — trim would book a loss"
+      :overTrimHot?`over target, price ${marginPct.toFixed(0)}% above avg cost — trim locks in gain`
+      :overInProfit?`over target, in profit${marginPct!=null?" ("+marginPct.toFixed(0)+"% above avg cost)":""} — trim possible without loss`
+      :mutedHigh?"price above sticker — all triggers muted"
       :unlit?(r.status==="under"?"underallocated — no signal firing, hold":"no signal firing")
       :r.status==="under"?`room for ${dual(Math.abs(r.diff))} more`
       :"on target";
