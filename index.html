@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.75</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.76</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2064,20 +2064,15 @@ function unownedPool1Slots(pfKey){
 //   • NO logging/persistence (§11) — computed live each render (§12); the
 //     breakdown popover (§13.6) is the single visibility mechanism.
 // All % fields in the returned object are percentages (×100) for display.
-// v4.75 (spec v3): CONTINUOUS piecewise-linear weight — same anchors as the old staircase
-// (1.00 @ ≤15% · 0.50 @ 30% · 0.25 @ 50% · 0.10 @ ≥80%), interpolated between them so a 1%
-// price move shifts a tranche's weight by ~0.03 instead of doubling it at a cliff.
-function tierWeight(d){
-  if(d<=0.15)return 1.00;
-  if(d<=0.30)return 1.00-(d-0.15)/0.15*0.50;
-  if(d<=0.50)return 0.50-(d-0.30)/0.20*0.25;
-  if(d<=0.80)return 0.25-(d-0.50)/0.30*0.15;
-  return 0.10;
-}
-// v4.75 (spec v3): §6 flash-crash floor membership as a WIDE ramp instead of the old d≤0.30
-// brick: full 4% credit at d≤0.20, fading linearly to 0 at d≥0.40. A name drifting across the
-// old cliff now adds ~0.2% per 1% of drawdown instead of +4% in one tick.
-function floorWeight(d){return d<=0.20?1:d>=0.40?0:(0.40-d)/0.20;}
+// v4.76 (spec v3.1): HALF-LIFE weight — weight halves every 15 points of drawdown-to-trigger,
+// floored at 0.10. Passes exactly through the historical calibration points (1.00 @ 0 ·
+// 0.50 @ 15% · 0.25 @ 30% · 0.10 @ ~50%) but sits AT OR BELOW the old pre-v4.75 staircase
+// everywhere, so term A can never exceed what the old steps produced. Smooth everywhere.
+function tierWeight(d){return Math.max(0.10,Math.pow(2,-d/0.15));}
+// v4.76 (spec v3.1): §6 flash-crash floor membership, loose wide ramp — full 4% credit only
+// at d≤0.10, fading linearly to 0 at d≥0.35. Strictly looser on average than the old
+// d≤0.30 brick and than the v4.75 0.20–0.40 ramp.
+function floorWeight(d){return d<=0.10?1:d>=0.35?0:(0.35-d)/0.25;}
 function dpTieredInfo(pfKey){
   const pf=portfolios[pfKey];
   const base=trancheBase(pfKey);
@@ -2171,7 +2166,7 @@ function showTieredBreakdown(){
   const h=`<div class="modal-overlay tiered-bd-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:16px;max-height:85vh;overflow-y:auto">
       <div style="font-size:15px;font-weight:800;margin-bottom:2px">🧮 TIERED DP target — live breakdown</div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v3 (continuous ramps) · computed at open, nothing stored</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v3.1 (half-life weights) · computed at open, nothing stored</div>
       <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM A — filled-seat unfired tranches (Σ 4% × w)</div>
       <table style="border-collapse:collapse;width:100%">${head(true)}${i.rows.map(rowH).join("")||`<tr><td colspan="7" style="${td};color:var(--muted)">none</td></tr>`}</table>
       ${line("Σ tieredSlots (term A)",i.tieredSlots.toFixed(2)+"%",null,"#67e8f9")}
