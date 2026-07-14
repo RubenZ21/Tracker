@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.72</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.74</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -656,6 +656,7 @@ function slotWeight(t,sigKey,pfKey){
 // a future split is a one-line change. Derived: seatFrac = 3 slots × tranche (standard non-T1
 // seat), t1FloorFrac = 4 slots × tranche (full Tier-1 cap = DP absolute floor).
 function trancheFrac(pfKey){return 0.04;}
+function riskTrancheFrac(pfKey){return 0.02;}               // Pool 3 risk buy — fixed 2%, decoupled from the standard tranche
 function seatFrac(pfKey){return 3*trancheFrac(pfKey);}      // standard empty-seat ladder (12% at 4%)
 function t1FloorFrac(pfKey){return 4*trancheFrac(pfKey);}   // T1 absolute DP floor (16% at 4%)
 
@@ -2341,24 +2342,81 @@ function atLitCap(ticker,pfKey,base){
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
 function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD);pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
 
-// DP reserved for armed limit orders (base ccy). Each armed limit order reserves one tranche:
-// v4.08 flat 4% of the P1+P3+DP cost-basis tranche base for every trigger (both portfolios).
-// Counts limit orders on ALL stocks — grid AND watchlist — that apply to this portfolio
-// (hasLimitOrder respects "personal"/"caca"/"both"). Capped at total dry powder.
+// v4.74: PER-STOCK, PER-PORTFOLIO LO tranche %. stocks[t].loPct = {personal:2|4, caca:2|4},
+// set via the LO manager modal (tap the Personal/Caca LO boxes). Default when unset: RISK
+// (Pool 3) stocks → 2% (riskTrancheFrac), everything else → 4% (trancheFrac). Persisted with
+// the stock object.
+function loPctFor(t,pfKey){
+  const side=pfKey==="nl"?"caca":"personal";
+  const o=stocks[t]?.loPct?.[side];
+  if(o===2||o===4)return o;
+  return Math.round((isRisk(t,pfKey)?riskTrancheFrac(pfKey):trancheFrac(pfKey))*100);
+}
+function toggleLoPct(t,pfKey){
+  if(!stocks[t])return;
+  const side=pfKey==="nl"?"caca":"personal";
+  if(!stocks[t].loPct)stocks[t].loPct={};
+  stocks[t].loPct[side]=loPctFor(t,pfKey)===4?2:4;
+  save();render();showLoManager(pfKey);
+}
+// DP reserved for armed limit orders (base ccy). Each armed limit order reserves one tranche
+// sized at the stock's per-portfolio LO % (loPctFor: manual 2%/4% override, else risk-aware
+// default) of the P1+P3+DP cost-basis tranche base. Counts limit orders on ALL stocks — grid
+// AND watchlist — that apply to this portfolio (hasLimitOrder respects "personal"/"caca"/
+// "both"). Capped at total dry powder.
 function dpReservedForLimitOrders(pfKey){
   const pf=portfolios[pfKey];if(!pf)return 0;
-  const sigKeys={mos:"MOS",tenCap:"10Cap",pbt:"PBT",pmos:"P-MOS"};
+  const keys=["mos","tenCap","pbt","pmos"];
+  const base=trancheBase(pfKey);
   let reserved=0;
-  const cacaTranche=pfKey==="nl"?Math.round(trancheBase("nl")*trancheFrac("nl")):0;
   Object.keys(stocks).forEach(t=>{
     const lo=stocks[t]?.limitOrders;if(!lo)return;
-    Object.keys(sigKeys).forEach(k=>{
-      if(lo[k]&&hasLimitOrder(t,k,pfKey)){
-        reserved+=pfKey==="nl"?cacaTranche:entrySizeForSignal(pfKey,sigKeys[k]);
-      }
-    });
+    const chunk=Math.round(base*loPctFor(t,pfKey)/100);
+    keys.forEach(k=>{if(lo[k]&&hasLimitOrder(t,k,pfKey))reserved+=chunk;});
   });
   return Math.min(reserved,pf.dryPowder||0);
+}
+// v4.74: LO manager modal — opened by tapping the Personal/Caca LO summary boxes. Lists every
+// armed LO for that portfolio grouped by stock, with a per-stock 2%/4% reservation toggle.
+function showLoManager(pfKey){
+  document.querySelector(".lo-mgr-overlay")?.remove();
+  const lbl={mos:"MOS",tenCap:"10Cap",pbt:"PBT",pmos:"P-MOS"};
+  const base=trancheBase(pfKey);const bc=pfBaseCcy(pfKey);const bs=bc==="USD"?"$":"€";
+  const rows=[];let total=0;
+  Object.keys(stocks).sort().forEach(t=>{
+    const lo=stocks[t]?.limitOrders;if(!lo)return;
+    const sigs=["mos","tenCap","pbt","pmos"].filter(k=>lo[k]&&hasLimitOrder(t,k,pfKey));
+    if(!sigs.length)return;
+    const pct=loPctFor(t,pfKey);
+    const chunk=Math.round(base*pct/100);
+    const amt=chunk*sigs.length;total+=amt;
+    const risk=isRisk(t,pfKey);
+    const overridden=stocks[t]?.loPct?.[pfKey==="nl"?"caca":"personal"]!=null;
+    rows.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700">${risk?'<span style="font-size:9px;color:#d97706;border:1px solid #d9770655;border-radius:3px;padding:0 3px;margin-right:4px">RISK</span>':""}${esc(t)}</div>
+        <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${sigs.map(k=>lbl[k]).join(" · ")} — ${sigs.length} order${sigs.length!==1?"s":""} × ${bs}${chunk.toLocaleString()}</div>
+      </div>
+      <div style="font-size:11px;font-family:var(--mono);color:var(--muted)">${bs}${amt.toLocaleString()}</div>
+      <div style="display:flex;border:1px solid #0e7490;border-radius:6px;overflow:hidden;cursor:pointer" onclick="toggleLoPct('${esc(t)}','${pfKey}')" title="Tap to switch — ${overridden?"manual override":"default ("+(risk?"risk 2%":"standard 4%")+")"}">
+        <span style="padding:3px 8px;font-size:11px;font-family:var(--mono);font-weight:700;${pct===2?"background:#0e7490;color:#fff":"color:var(--muted)"}">2%</span>
+        <span style="padding:3px 8px;font-size:11px;font-family:var(--mono);font-weight:700;${pct===4?"background:#0e7490;color:#fff":"color:var(--muted)"}">4%</span>
+      </div>
+    </div>`);
+  });
+  const capped=Math.min(total,portfolios[pfKey]?.dryPowder||0);
+  const h=`<div class="modal-overlay lo-mgr-overlay" onclick="if(event.target===this)this.remove()">
+    <div class="modal-sheet" style="padding:16px;max-height:85vh;overflow-y:auto">
+      <div style="font-size:15px;font-weight:800;margin-bottom:2px">${pfKey==="nl"?"🧓 Caca":"🧑 Personal"} limit orders</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Per-stock DP reservation — 2% or 4% of the P1+P3+DP cost base (${bs}${Math.round(base).toLocaleString()}). Default: risk 2% · standard 4%.</div>
+      ${rows.join("")||'<div style="font-size:11px;color:var(--muted);padding:8px 0">No armed limit orders for this portfolio.</div>'}
+      <div style="display:flex;justify-content:space-between;margin-top:10px">
+        <span style="font-size:11px;color:var(--muted)">Total reserved${capped<total?" (capped at DP)":""}</span>
+        <span style="font-size:13px;font-family:var(--mono);font-weight:700;color:#67e8f9">${bs}${capped.toLocaleString()}</span>
+      </div>
+      <button class="modal-done" style="margin-top:12px" onclick="this.closest('.lo-mgr-overlay').remove()">Close</button>
+    </div></div>`;
+  document.body.insertAdjacentHTML("beforeend",h);
 }
 // Count of armed limit orders applicable to a portfolio — across ALL stocks (grid + watchlist).
 function limitOrderCount(pfKey){
@@ -5746,13 +5804,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const _resP=Math.round(dpReservedForLimitOrders("personal"));
         const _resC=Math.round(dpReservedForLimitOrders("nl"));
         _wbarHTML+=`<div style="display:flex;gap:6px;margin:6px 0">
-          <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
-            <div style="font-size:9px;color:#67e8f9">🧑 Personal LO</div>
+          <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px;cursor:pointer" onclick="showLoManager('personal')" title="Tap to manage per-stock LO reservation %">
+            <div style="font-size:9px;color:#67e8f9">🧑 Personal LO ⚙</div>
             <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loPersonal} <span style="font-size:10px;opacity:.7">order${_loPersonal!==1?"s":""}</span></div>
             <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">$${_resP.toLocaleString()} reserved</div>
           </div>
-          <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px">
-            <div style="font-size:9px;color:#67e8f9">🧓 Caca LO</div>
+          <div style="flex:1;background:var(--card);border:1px solid #0e7490;border-radius:6px;padding:6px 8px;cursor:pointer" onclick="showLoManager('nl')" title="Tap to manage per-stock LO reservation %">
+            <div style="font-size:9px;color:#67e8f9">🧓 Caca LO ⚙</div>
             <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#67e8f9">${_loCaca} <span style="font-size:10px;opacity:.7">order${_loCaca!==1?"s":""}</span></div>
             <div style="font-size:9px;color:var(--muted);font-family:var(--mono)">€${_resC.toLocaleString()} reserved</div>
           </div>
@@ -6501,7 +6559,7 @@ function renderAllocator(c){
       // 2%-per-chunk risk tranche, shown across every listing currency. Promotion to a
       // non-risk (Pool 1) name reverts sizing to the standard entry tranche (4%).
       const _riskTbEur=toEUR(trancheBase(currentPf),_bc);
-      const _riskChunkEur=_riskTbEur*0.02;
+      const _riskChunkEur=_riskTbEur*riskTrancheFrac('personal'); // fixed 2% risk tranche
       const _nonRiskChunkEur=_riskTbEur*trancheFrac(currentPf);
       if(specStocks.length||specInPf.length){
         h+=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
