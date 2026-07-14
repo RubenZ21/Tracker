@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.74</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.75</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2047,10 +2047,10 @@ function unownedPool1Slots(pfKey){
 // v4.62 — TIERED DP RESERVATION (dp_tiered_reservation_spec_v2.md, 2026-07-03)
 // Third dpTargetMode ("tiered"), PERSONAL ONLY (Caca falls back to AUTO, §0).
 // Probability-weighted reserve: each unfired tranche on a filled grid seat
-// reserves 4% × tier weight of its drawdown-to-trigger (§2), plus a wMedian-
+// reserves 4% × continuous tier weight of its drawdown-to-trigger (§2), plus a wAvg-
 // discounted empty-seat term (§4). Floored by the flash-crash floor (§6:
-// owned d≤30% tranches + seat-bounded near watchlist names) and the 16%
-// Tier-1 absolute floor (§7). Capped by the structural max (§8: never reserve
+// owned + seat-bounded watchlist tranches, ramp-graded by floorWeight) and
+// the 16% Tier-1 absolute floor (§7). Capped by the structural max (§8: never reserve
 // above what the grid can actually deploy) and the policy cap
 // (settings.dpTieredCapPct, default 50%).
 //   • DISTANCE mute (§2.8.3 MUTE_PROMOTE/muteState) is deliberately NOT applied
@@ -2064,7 +2064,20 @@ function unownedPool1Slots(pfKey){
 //   • NO logging/persistence (§11) — computed live each render (§12); the
 //     breakdown popover (§13.6) is the single visibility mechanism.
 // All % fields in the returned object are percentages (×100) for display.
-function tierWeight(d){return d<=0.15?1.00:d<=0.30?0.50:d<=0.50?0.25:0.10;}
+// v4.75 (spec v3): CONTINUOUS piecewise-linear weight — same anchors as the old staircase
+// (1.00 @ ≤15% · 0.50 @ 30% · 0.25 @ 50% · 0.10 @ ≥80%), interpolated between them so a 1%
+// price move shifts a tranche's weight by ~0.03 instead of doubling it at a cliff.
+function tierWeight(d){
+  if(d<=0.15)return 1.00;
+  if(d<=0.30)return 1.00-(d-0.15)/0.15*0.50;
+  if(d<=0.50)return 0.50-(d-0.30)/0.20*0.25;
+  if(d<=0.80)return 0.25-(d-0.50)/0.30*0.15;
+  return 0.10;
+}
+// v4.75 (spec v3): §6 flash-crash floor membership as a WIDE ramp instead of the old d≤0.30
+// brick: full 4% credit at d≤0.20, fading linearly to 0 at d≥0.40. A name drifting across the
+// old cliff now adds ~0.2% per 1% of drawdown instead of +4% in one tick.
+function floorWeight(d){return d<=0.20?1:d>=0.40?0:(0.40-d)/0.20;}
 function dpTieredInfo(pfKey){
   const pf=portfolios[pfKey];
   const base=trancheBase(pfKey);
@@ -2090,13 +2103,13 @@ function dpTieredInfo(pfKey){
       const contrib=tc*w;
       tieredSlots+=contrib;
       if(w>0)structTranches++;                        // §8: only deployable tranches count at weight 1.00
-      if(!sm&&d<=0.30)ownedFloor+=tc;                 // §6 owned floor (Sticker-muted excluded per §3)
+      if(!sm)ownedFloor+=tc*floorWeight(d);           // §6 owned floor, ramp-graded (Sticker-muted excluded per §3)
       rows.push({t,k,trigger:s.cons[k],price:s.currentPrice,d,w,contrib,
                  pgOnly:sm&&hasValidUnfired,dead:sm&&!hasValidUnfired});
     });
   });
   // Watchlist scope (§5): NON-owned names only — getWatchlist() already excludes grid,
-  // risk-anywhere, and risklist-status stubs. They enter ONLY via wMedian (§4) and the
+  // risk-anywhere, and risklist-status stubs. They enter ONLY via wAvg (§4) and the
   // seat-bounded floor (§6) — never as unbounded per-tranche reservations.
   const wlRows=[];const wlWeights=[];let wlNear=0;
   getWatchlist().forEach(t=>{
@@ -2108,15 +2121,14 @@ function dpTieredInfo(pfKey){
       if(d<0)d=0;
       const w=tierWeight(d);
       wlWeights.push(w);
-      if(d<=0.30)wlNear+=tc;                          // §6: within flash-crash reach
+      wlNear+=tc*floorWeight(d);                      // §6: flash-crash reach, ramp-graded
       wlRows.push({t,k,trigger:s.cons[k],price:s.currentPrice,d,w});
     });
   });
-  wlWeights.sort((a,b)=>a-b);
   const nW=wlWeights.length;
-  const wMedian=nW?((nW%2)?wlWeights[(nW-1)/2]:(wlWeights[nW/2-1]+wlWeights[nW/2])/2):0.25; // §4 default 0.25
+  const wAvg=nW?wlWeights.reduce((a,b)=>a+b,0)/nW:0.25; // §4 v4.75: MEAN of continuous weights (default 0.25)
   const seats=availableNonT1Seats(pfKey);
-  const seatTerm=seats*seatFrac(pfKey)*wMedian;       // term B (§4)
+  const seatTerm=seats*seatFrac(pfKey)*wAvg;          // term B (§4)
   const tieredReserve=tieredSlots+seatTerm;           // §4
   const wlFloor=Math.min(wlNear,seats*seatFrac(pfKey)); // §6: bounded by seat capacity
   const floor=ownedFloor+wlFloor;                     // §6: wlFloor REPLACES seatTerm here — no double-count
@@ -2128,7 +2140,7 @@ function dpTieredInfo(pfKey){
   const cappedBy=frac>=uncapped-1e-12?null:(structuralMax<=policyCap?"structural":"policy");
   const amount=frac*base;
   return{amount,pct:base>0?amount/base*100:frac*100,mode:"tiered",
-    tieredSlots:tieredSlots*100,seatTerm:seatTerm*100,wMedian,
+    tieredSlots:tieredSlots*100,seatTerm:seatTerm*100,wAvg,
     ownedFloor:ownedFloor*100,wlFloor:wlFloor*100,wlNear:wlNear*100,floor:floor*100,
     uncappedPct:uncapped*100,structuralMaxPct:structuralMax*100,policyCapPct:policyCap*100,
     cappedBy,bindingTerm,theoreticalMaxPct:structuralMax*100,
@@ -2159,16 +2171,16 @@ function showTieredBreakdown(){
   const h=`<div class="modal-overlay tiered-bd-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:16px;max-height:85vh;overflow-y:auto">
       <div style="font-size:15px;font-weight:800;margin-bottom:2px">🧮 TIERED DP target — live breakdown</div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v2 · computed at open, nothing stored</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v3 (continuous ramps) · computed at open, nothing stored</div>
       <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM A — filled-seat unfired tranches (Σ 4% × w)</div>
       <table style="border-collapse:collapse;width:100%">${head(true)}${i.rows.map(rowH).join("")||`<tr><td colspan="7" style="${td};color:var(--muted)">none</td></tr>`}</table>
       ${line("Σ tieredSlots (term A)",i.tieredSlots.toFixed(2)+"%",null,"#67e8f9")}
       <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
-      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM B — empty seats × 12% × wMedian</div>
+      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM B — empty seats × 12% × wAvg</div>
       ${line("Empty non-T1 seats (84% ceiling)",String(i.seats))}
-      ${line("wMedian (watchlist proxy, "+i.wlCount+" triggers)",i.wMedian.toFixed(2),i.wlCount?null:"default — watchlist empty/no prices")}
-      ${line("seatTerm = "+i.seats+" × 12% × "+i.wMedian.toFixed(2),i.seatTerm.toFixed(2)+"%",null,"#67e8f9")}
-      <details style="margin:4px 0"><summary style="font-size:9px;color:var(--muted);cursor:pointer;font-family:var(--mono)">watchlist triggers behind wMedian / wlNear</summary>
+      ${line("wAvg (watchlist proxy, "+i.wlCount+" triggers)",i.wAvg.toFixed(2),i.wlCount?null:"default — watchlist empty/no prices")}
+      ${line("seatTerm = "+i.seats+" × 12% × "+i.wAvg.toFixed(2),i.seatTerm.toFixed(2)+"%",null,"#67e8f9")}
+      <details style="margin:4px 0"><summary style="font-size:9px;color:var(--muted);cursor:pointer;font-family:var(--mono)">watchlist triggers behind wAvg / wlNear</summary>
         <table style="border-collapse:collapse;width:100%">${head(false)}${i.wlRows.map(rowH).join("")||`<tr><td colspan="6" style="${td};color:var(--muted)">none</td></tr>`}</table></details>
       ${line("tieredReserve = A + B",(i.tieredSlots+i.seatTerm).toFixed(2)+"%",null,"var(--text)")}
       <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
