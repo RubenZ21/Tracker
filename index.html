@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.71</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.72</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -651,10 +651,13 @@ function slotWeight(t,sigKey,pfKey){
   return 1.0;
 }
 
-// v4.43 (Jun 26 2026): both portfolios use 3% per tranche, measured against the P1+P3+DP
-// cost-basis tranche base. Personal moved off 4% in v4.42; Caca follows in v4.43. Kept as a
-// per-portfolio function so a future split is a one-line change.
-function trancheFrac(pfKey){return 0.03;}
+// v4.72 (Jul 14 2026): both portfolios use 4% per tranche (reverting the v4.43 3% override),
+// measured against the P1+P3+DP cost-basis tranche base. Kept as a per-portfolio function so
+// a future split is a one-line change. Derived: seatFrac = 3 slots × tranche (standard non-T1
+// seat), t1FloorFrac = 4 slots × tranche (full Tier-1 cap = DP absolute floor).
+function trancheFrac(pfKey){return 0.04;}
+function seatFrac(pfKey){return 3*trancheFrac(pfKey);}      // standard empty-seat ladder (12% at 4%)
+function t1FloorFrac(pfKey){return 4*trancheFrac(pfKey);}   // T1 absolute DP floor (16% at 4%)
 
 // ============ STAGE E (v3.78, Jun 2 2026): CAPITAL-RECOVERY-AT-FAIR-VALUE NOTIFICATION ============
 // Framework §5 (June 2 2026 redesign): non-Tier-1 positions trigger a CAPITAL-RECOVERY action
@@ -971,7 +974,7 @@ function litTrancheTopups(ticker,pfKey,base){
     let curLocal=0;
     if(pos?.tranches){pos.tranches.forEach(tr=>{if(labelMap[sigKey].includes(tr.signal)){const sh=tr.bought-tr.sold;if(sh>0)curLocal+=sh*tr.buyPrice;}});}
     const curBase=fromEUR(toEUR(curLocal,s.currency),bc);
-    const targetFrac=slotWeight(ticker,sigKey,pfKey)*trancheFrac(pfKey);   // v4.42: Personal 3%, Caca 4%
+    const targetFrac=slotWeight(ticker,sigKey,pfKey)*trancheFrac(pfKey);   // v4.72: flat 4% both portfolios
     const targetBase=targetFrac*base;
     const roomBase=Math.max(0,targetBase-curBase);
     const roomLocal=fromEUR(toEUR(roomBase,bc),s.currency);
@@ -1904,7 +1907,7 @@ function recomputeCapacityState(pfKey){
     pos.graduated=trophyGates(t,pfKey,!!pos.graduated).graduated;
   });
 }
-// Full cap a name reserves on the grid (9/12/6% — slots × 3%). Reuses positionCapPct.
+// Full cap a name reserves on the grid (12/16/8% — slots × 4%). Reuses positionCapPct.
 function fullCapFrac(t,pfKey){return positionCapPct(t,pfKey);}
 // Σ full caps of on-grid (non-risk, non-trophy, open) Pool 1 names = "committed".
 function committedFrac(pfKey){
@@ -1916,18 +1919,18 @@ function committedFrac(pfKey){
   });
   return c;
 }
-// Mix-aware empty-seat pre-reservation: stage 9% standard ladders into headroom up to 84%.
+// Mix-aware empty-seat pre-reservation: stage standard seat ladders (3×tranche = 12%) into headroom up to 84%.
 function emptySeatSlots(pfKey){
   const headroom=Math.max(0,0.84-committedFrac(pfKey));
-  // +1e-9 guards floating-point: e.g. (0.84−0.66)/0.09 = 1.999… would floor to 1, leaking a seat.
-  return Math.floor(headroom/0.09+1e-9)*3;
+  // +1e-9 guards floating-point: a headroom/seatFrac of 1.999… would floor to 1, leaking a seat.
+  return Math.floor(headroom/seatFrac(pfKey)+1e-9)*3;
 }
-// v4.53 (corrected 2026-06-28): whole available non-Tier-1 seats (9% each) under the 84%
-// committed ceiling. Drives DP-target term 2 (× 9%) and the empty-seat pips. This is the
+// v4.53 (corrected 2026-06-28): whole available non-Tier-1 seats (seatFrac = 12% each) under
+// the 84% committed ceiling. Drives DP-target term 2 (× 12%) and the empty-seat pips. This is the
 // STOCK-COUNT/grid-capacity dimension — kept distinct from the per-slot DP-target term 1.
 function availableNonT1Seats(pfKey){
   const headroom=Math.max(0,0.84-committedFrac(pfKey));
-  return Math.floor(headroom/0.09+1e-9);
+  return Math.floor(headroom/seatFrac(pfKey)+1e-9);
 }
 
 // v4.53 §2.8 — capacity view: slot strip, three-part bar, committed gauge, trophy shelf.
@@ -1945,11 +1948,11 @@ function capacityViewHTML(pfKey){
     if(pos.graduated)trophy.push(t);else onGrid.push(t);
   });
   onGrid.sort((a,b)=>(stocks[a]?.priority||99)-(stocks[b]?.priority||99));
-  const emptySeats=Math.floor(Math.max(0,0.84-committed)/0.09+1e-9); // whole standard 9% seats staged (FP-guarded)
+  const emptySeats=Math.floor(Math.max(0,0.84-committed)/seatFrac(pfKey)+1e-9); // whole standard 12% seats staged (FP-guarded)
   // --- Slot strip: one pip per on-grid name (filled by owned-vs-cap), then hollow empty seats. ---
   let pips="";
   onGrid.forEach(t=>{
-    const cap=fullCapFrac(t,pfKey);                            // 0.06 / 0.09 / 0.12
+    const cap=fullCapFrac(t,pfKey);                            // 0.08 / 0.12 / 0.16
     const fillFrac=Math.max(0,Math.min(1,positionCostPctOfBase(t,pfKey)/cap)); // owned vs cap
     const t1=isOperationalTier1(t),buf=isBuffett(t);
     const w=buf?9:14;                                          // Buffett half-width
@@ -1958,7 +1961,7 @@ function capacityViewHTML(pfKey){
         +`<span style="position:absolute;left:0;bottom:0;width:100%;height:${Math.round(fillFrac*100)}%;background:var(--accent);opacity:.85"></span></span>`;
   });
   let empties="";
-  for(let i=0;i<emptySeats;i++)empties+=`<span title="empty seat (9% staged)" style="display:inline-block;width:14px;height:14px;border-radius:3px;background:transparent;border:1px dashed #3a3a4e;vertical-align:middle"></span>`;
+  for(let i=0;i<emptySeats;i++)empties+=`<span title="empty seat (12% staged)" style="display:inline-block;width:14px;height:14px;border-radius:3px;background:transparent;border:1px dashed #3a3a4e;vertical-align:middle"></span>`;
   const stripHTML=`<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin:6px 0 2px">${pips}${empties?`<span style="width:6px"></span>${empties}`:""}</div>`;
   // --- Three-part bar: Deployed (cost basis) / Reserved-to-defend (committed−deployed) / DP-free. ---
   let deployedFrac=0;
@@ -2043,9 +2046,9 @@ function unownedPool1Slots(pfKey){
 // v4.62 — TIERED DP RESERVATION (dp_tiered_reservation_spec_v2.md, 2026-07-03)
 // Third dpTargetMode ("tiered"), PERSONAL ONLY (Caca falls back to AUTO, §0).
 // Probability-weighted reserve: each unfired tranche on a filled grid seat
-// reserves 3% × tier weight of its drawdown-to-trigger (§2), plus a wMedian-
+// reserves 4% × tier weight of its drawdown-to-trigger (§2), plus a wMedian-
 // discounted empty-seat term (§4). Floored by the flash-crash floor (§6:
-// owned d≤30% tranches + seat-bounded near watchlist names) and the 12%
+// owned d≤30% tranches + seat-bounded near watchlist names) and the 16%
 // Tier-1 absolute floor (§7). Capped by the structural max (§8: never reserve
 // above what the grid can actually deploy) and the policy cap
 // (settings.dpTieredCapPct, default 50%).
@@ -2064,7 +2067,7 @@ function tierWeight(d){return d<=0.15?1.00:d<=0.30?0.50:d<=0.50?0.25:0.10;}
 function dpTieredInfo(pfKey){
   const pf=portfolios[pfKey];
   const base=trancheBase(pfKey);
-  const tc=trancheFrac(pfKey);                        // 3% per tranche
+  const tc=trancheFrac(pfKey);                        // 4% per tranche
   const rows=[];                                      // per-tranche detail for the popover (term A universe)
   let tieredSlots=0,ownedFloor=0,structTranches=0;
   if(pf)Object.keys(pf.positions||{}).forEach(t=>{
@@ -2112,13 +2115,13 @@ function dpTieredInfo(pfKey){
   const nW=wlWeights.length;
   const wMedian=nW?((nW%2)?wlWeights[(nW-1)/2]:(wlWeights[nW/2-1]+wlWeights[nW/2])/2):0.25; // §4 default 0.25
   const seats=availableNonT1Seats(pfKey);
-  const seatTerm=seats*0.09*wMedian;                  // term B (§4)
+  const seatTerm=seats*seatFrac(pfKey)*wMedian;       // term B (§4)
   const tieredReserve=tieredSlots+seatTerm;           // §4
-  const wlFloor=Math.min(wlNear,seats*0.09);          // §6: bounded by seat capacity
+  const wlFloor=Math.min(wlNear,seats*seatFrac(pfKey)); // §6: bounded by seat capacity
   const floor=ownedFloor+wlFloor;                     // §6: wlFloor REPLACES seatTerm here — no double-count
-  const structuralMax=structTranches*tc+seats*0.09;   // §8: theoretical max at weight 1.00
+  const structuralMax=structTranches*tc+seats*seatFrac(pfKey); // §8: theoretical max at weight 1.00
   const policyCap=(settings.dpTieredCapPct??50)/100;  // §8
-  const uncapped=Math.max(tieredReserve,floor,0.12);  // §9 (§7: 12% T1 absolute floor)
+  const uncapped=Math.max(tieredReserve,floor,t1FloorFrac(pfKey)); // §9 (§7: T1 absolute floor = full T1 cap, 16% at 4%)
   const bindingTerm=uncapped===tieredReserve?"tiered":(uncapped===floor?"floor":"t1floor");
   const frac=Math.min(uncapped,structuralMax,policyCap);
   const cappedBy=frac>=uncapped-1e-12?null:(structuralMax<=policyCap?"structural":"policy");
@@ -2149,21 +2152,21 @@ function showTieredBreakdown(){
     <td style="${td};text-align:right;color:${wCol(r.w)}">${r.w.toFixed(2)}</td>
     ${r.contrib!=null?`<td style="${td};text-align:right">${(r.contrib*100).toFixed(2)}%</td>`:""}
   </tr>`;
-  const head=(withC)=>`<tr><th style="${th};text-align:left">Stock</th><th style="${th};text-align:left">Trig</th><th style="${th}">Trigger</th><th style="${th}">Price</th><th style="${th}">d</th><th style="${th}">w</th>${withC?`<th style="${th}">3%×w</th>`:""}</tr>`;
+  const head=(withC)=>`<tr><th style="${th};text-align:left">Stock</th><th style="${th};text-align:left">Trig</th><th style="${th}">Trigger</th><th style="${th}">Price</th><th style="${th}">d</th><th style="${th}">w</th>${withC?`<th style="${th}">4%×w</th>`:""}</tr>`;
   const line=(l,v,extra,col)=>`<div style="display:flex;justify-content:space-between;gap:8px;margin:2px 0"><span style="font-size:10px;color:${col||'var(--muted)'}">${l}</span><span style="font-size:11px;font-family:var(--mono);color:${col||'var(--text)'}">${v}${extra?` <span style="opacity:.6;font-size:9px">${extra}</span>`:""}</span></div>`;
-  const bindLbl={tiered:"tiered reserve",floor:"flash-crash floor",t1floor:"T1 12% floor"}[i.bindingTerm];
+  const bindLbl={tiered:"tiered reserve",floor:"flash-crash floor",t1floor:"T1 16% floor"}[i.bindingTerm];
   const h=`<div class="modal-overlay tiered-bd-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:16px;max-height:85vh;overflow-y:auto">
       <div style="font-size:15px;font-weight:800;margin-bottom:2px">🧮 TIERED DP target — live breakdown</div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v2 · computed at open, nothing stored</div>
-      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM A — filled-seat unfired tranches (Σ 3% × w)</div>
+      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM A — filled-seat unfired tranches (Σ 4% × w)</div>
       <table style="border-collapse:collapse;width:100%">${head(true)}${i.rows.map(rowH).join("")||`<tr><td colspan="7" style="${td};color:var(--muted)">none</td></tr>`}</table>
       ${line("Σ tieredSlots (term A)",i.tieredSlots.toFixed(2)+"%",null,"#67e8f9")}
       <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
-      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM B — empty seats × 9% × wMedian</div>
+      <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM B — empty seats × 12% × wMedian</div>
       ${line("Empty non-T1 seats (84% ceiling)",String(i.seats))}
       ${line("wMedian (watchlist proxy, "+i.wlCount+" triggers)",i.wMedian.toFixed(2),i.wlCount?null:"default — watchlist empty/no prices")}
-      ${line("seatTerm = "+i.seats+" × 9% × "+i.wMedian.toFixed(2),i.seatTerm.toFixed(2)+"%",null,"#67e8f9")}
+      ${line("seatTerm = "+i.seats+" × 12% × "+i.wMedian.toFixed(2),i.seatTerm.toFixed(2)+"%",null,"#67e8f9")}
       <details style="margin:4px 0"><summary style="font-size:9px;color:var(--muted);cursor:pointer;font-family:var(--mono)">watchlist triggers behind wMedian / wlNear</summary>
         <table style="border-collapse:collapse;width:100%">${head(false)}${i.wlRows.map(rowH).join("")||`<tr><td colspan="6" style="${td};color:var(--muted)">none</td></tr>`}</table></details>
       ${line("tieredReserve = A + B",(i.tieredSlots+i.seatTerm).toFixed(2)+"%",null,"var(--text)")}
@@ -2171,11 +2174,11 @@ function showTieredBreakdown(){
       <div style="font-size:10px;color:var(--amber);font-family:var(--mono);margin-bottom:2px">FLASH-CRASH FLOOR (§6)</div>
       ${line("ownedFloor (owned-seat valid tranches d≤30%)",i.ownedFloor.toFixed(2)+"%")}
       ${line("wlNear (watchlist valid d≤30%)",i.wlNear.toFixed(2)+"%")}
-      ${line("wlFloor = min(wlNear, "+i.seats+"×9%="+(i.seats*9).toFixed(0)+"%)",i.wlFloor.toFixed(2)+"%",i.wlNear>i.seats*9?"seat bound won":"wlNear won")}
+      ${line("wlFloor = min(wlNear, "+i.seats+"×12%="+(i.seats*12).toFixed(0)+"%)",i.wlFloor.toFixed(2)+"%",i.wlNear>i.seats*12?"seat bound won":"wlNear won")}
       ${line("floor = ownedFloor + wlFloor",i.floor.toFixed(2)+"%",null,"var(--amber)")}
-      ${line("T1 absolute floor (§7)","12%")}
+      ${line("T1 absolute floor (§7)","16%")}
       <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
-      ${line("UNCAPPED = max(tiered, floor, 12%)",i.uncappedPct.toFixed(2)+"%","binding: "+bindLbl,"var(--text)")}
+      ${line("UNCAPPED = max(tiered, floor, 16%)",i.uncappedPct.toFixed(2)+"%","binding: "+bindLbl,"var(--text)")}
       ${line("Structural max (§8)",i.structuralMaxPct.toFixed(2)+"%")}
       ${line("Policy cap (§8, setting)",i.policyCapPct.toFixed(0)+"%")}
       ${line("FINAL DP target",i.pct.toFixed(2)+"%",i.cappedBy?("compressed by "+i.cappedBy+" cap — uncapped "+i.uncappedPct.toFixed(1)+"%"):"no cap binding",i.cappedBy?"var(--amber)":"var(--green)")}
@@ -2200,15 +2203,14 @@ function dpTargetInfo(pfKey){
     // v4.53 §2.8.6/2.8.7 (corrected 2026-06-28): DP target is TWO separate terms — it does
     // NOT fold empty seats into the per-slot count (that conflated DP target with the Pool-1
     // grid-capacity target). DP target reserves cash for:
-    //   term 1 = (Σ unowned, un-muted slots on owned grid names) × 3%  — fund next legs down
-    //   term 2 = (available full non-T1 seats under the 84% ceiling) × 9% — stage ONE new name
-    // e.g. 9 names × 2 unowned slots = 54%; 8 non-T1 × 2 unowned + 1 seat fits = 48% + 9% = 57%.
-    // 12% floor = full Tier-1 cap (never forced to sell a trophy to fund a T1 that finally fires).
+    //   term 1 = (Σ unowned, un-muted slots on owned grid names) × 4%  — fund next legs down
+    //   term 2 = (available full non-T1 seats under the 84% ceiling) × 12% — stage ONE new name
+    // 16% floor = full Tier-1 cap (never forced to sell a trophy to fund a T1 that finally fires).
     const litSlots=unownedPool1Slots(pfKey);              // term-1 slot count (already mute/owned-gated)
     const seats=availableNonT1Seats(pfKey);               // term-2 whole 9% seats
-    const term1=trancheFrac(pfKey)*litSlots;              // × 3%
-    const term2=seats*0.09;                               // × 9% per seat
-    const autoFrac=Math.max(0.12,term1+term2);
+    const term1=trancheFrac(pfKey)*litSlots;              // × 4%
+    const term2=seats*seatFrac(pfKey);                    // × 12% per seat
+    const autoFrac=Math.max(t1FloorFrac(pfKey),term1+term2);
     const amount=autoFrac*base;
     return{amount,pct:base>0?amount/base*100:0,mode,slots:litSlots,litSlots,seats,
            term1Pct:term1*100,term2Pct:term2*100};
@@ -2216,7 +2218,7 @@ function dpTargetInfo(pfKey){
   const pct=(settings.dpFloorPct??30);
   return{amount:pct/100*base,pct,mode};
 }
-// initial entry size from combined P1+P3+DP cost basis (v4.42: Personal 3%, Caca 4%)
+// initial entry size from combined P1+P3+DP cost basis (v4.72: flat 4%)
 function initialEntrySize(pfKey){return Math.round(trancheBase(pfKey)*trancheFrac(pfKey));}
 // === v4.09: per-position cost basis (open shares × buyPrice) in the portfolio base ccy. ===
 // Excludes trophy tranches (they're not part of the Pool 1/3 allocation math), matching the
@@ -2258,7 +2260,7 @@ function trancheAllocStatus(ticker,pfKey){
   const nNonTrophy=pos.tranches.filter(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0).length;
   if(nNonTrophy<=0)return null;                           // nothing deployed in the allocation pool
   const tb=trancheBase(pfKey);                            // current cost base, no future income
-  const target=nNonTrophy*trancheFrac(pfKey)*tb;          // v4.42: Personal 3%, Caca 4%
+  const target=nNonTrophy*trancheFrac(pfKey)*tb;          // v4.72: flat 4% both portfolios
   const actual=posCostBasisBase(ticker,pfKey);
   const diff=actual-target;                               // +over / −under
   const pct=target>0?diff/target*100:0;
@@ -2267,10 +2269,10 @@ function trancheAllocStatus(ticker,pfKey){
 // Per-trigger entry size (base currency). v4.08: FLAT 4% for every signal (incl. P-MOS) in
 // both portfolios. The old Personal P-MOS=3% asymmetry is retired.
 function entrySizeForSignal(pfKey,sigKey){
-  return Math.round(trancheBase(pfKey)*trancheFrac(pfKey)); // v4.42: Personal 3%, Caca 4%
+  return Math.round(trancheBase(pfKey)*trancheFrac(pfKey)); // v4.72: flat 4% both portfolios
 }
 // Per-stock position cap. v4.32: trigger-count-driven — cap = (valid trigger slots) × 4%.
-//   2 slots (Buffett) =  8%   ·   3 slots (standard) = 12%   ·   4 slots (Tier 1) = 16%
+//   2 slots (Buffett) =  8%   ·   3 slots (standard) = 12%   ·   4 slots (Tier 1) = 16%   (at 4%)
 // Measured against the P1+P3+DP COST-BASIS tranche base (incl. new salary at allocation time),
 // not market value — so it agrees with the per-card "% of P1+P3+DP" figure.
 // When at/above cap, the monthly allocator drops the stock from distribution entirely; its
@@ -2279,7 +2281,7 @@ function entrySizeForSignal(pfKey,sigKey){
 // NOW/PGR/WKL are grandfathered above caps in Caca — handled at display layer (Stage G), not here.
 function positionCapPct(ticker,pfKey){
   const slots=validTriggerSlots(ticker,pfKey);   // 2 / 3 / 4
-  return Math.max(2,slots)*trancheFrac(pfKey);   // v4.42: Personal 6/9/12%, Caca 8/12/16%; floor 2 slots
+  return Math.max(2,slots)*trancheFrac(pfKey);   // v4.72: 8/12/16% both portfolios; floor 2 slots
 }
 function positionMVPct(ticker,pfKey){const pf=portfolios[pfKey];if(!pf)return 0;const s=stocks[ticker];if(!s)return 0;const pos=pf.positions?.[ticker];if(!pos)return 0;const p1=pool1Value(pfKey)+pool3HoldingsValue(pfKey);if(p1<=0)return 0;const base=pfBaseCcy(pfKey);const mv=fromEUR(toEUR(posShares(pos)*(s.currentPrice||0),s.currency),base);return mv/p1;}
 // v4.32: cap is measured on COST BASIS vs the P1+P3+DP tranche base. extraBase lets the
@@ -2294,22 +2296,22 @@ function atPositionCap(ticker,pfKey,extraBase){
   return positionCostPctOfBase(ticker,pfKey,extraBase)>=positionCapPct(ticker,pfKey);
 }
 // v4.64→v4.67: OWNED∪LIT SLOT cap — the BINDING per-stock deployment ceiling. Total position
-// cost basis (ALL tranches) may not exceed (owned∪lit slots) × 3% of the post-salary base.
+// cost basis (ALL tranches) may not exceed (owned∪lit slots) × 4% of the post-salary base.
 // A slot counts once when it is currently deploying (firing/piggyback/P-MOS) OR has open
-// tranche shares. Each lit slot targets a 3% tranche; each owned-but-dark tranche keeps its
-// 3% allowance (v4.64 counted its cost against the cap with no allowance, starving lit
+// tranche shares. Each lit slot targets a 4% tranche; each owned-but-dark tranche keeps its
+// 4% allowance (v4.64 counted its cost against the cap with no allowance, starving lit
 // siblings). Still nets OVERFILLED tranches against underfilled ones (the original v4.32
 // bug fix stands): e.g. a lit 10Cap at 2.14% next to an overfilled dark PBT at 3.96% gets
-// room = 2×3% − 6.10% = zero, not the naive 0.86%. positionCapPct (validSlots × 3%) stays
+// room = 2×tranche − overfill = zero, not the naive remainder. positionCapPct (validSlots × 4%) stays
 // as the hard outer ceiling.
 // v4.67: OWNED∪LIT slot cap (supersedes the v4.64 lit-only rule). Each distinct signal slot
 // that is EITHER currently deploying (firing/piggyback/P-MOS) OR already owned (open tranche
-// shares, incl. legacy labels like a pre-reclassification MOS tranche) earns a 3% allowance.
+// shares, incl. legacy labels like a pre-reclassification MOS tranche) earns a 4% allowance.
 // v4.64 counted an owned-but-dark tranche's COST against the cap while granting it no
 // allowance, so a lit sibling could never top up (e.g. lit 10Cap at 1% starved by a dark PBT
-// tranche at 3%: cap 1×3% vs total 4% → zero room). Now: owned slots keep their 3% allowance,
-// and a lit-but-unowned slot earns its 3% so first buys always fire — each lit signal means a
-// 3% buy, mechanically. Hard outer ceiling (validSlots×3%, v4.32) is still applied via the
+// tranche over-cap → zero room). Now: owned slots keep their 4% allowance,
+// and a lit-but-unowned slot earns its 4% so first buys always fire — each lit signal means a
+// 4% buy, mechanically. Hard outer ceiling (validSlots×4%, v4.32) is still applied via the
 // caller's min() and binds any legacy-ownership edge case where owned∪lit > valid slots.
 function capSlotCount(ticker,pfKey){
   const s=stocks[ticker];if(!s?.cons||s.gate===false)return 0;
@@ -2385,7 +2387,7 @@ function cacaInfo(){
   const total=mv+(pf.dryPowder||0); // Pool 1 MV + Pool 3 MV (trophy excluded) + DP — display only
   const ixVal=indexValue("nl");
   const totalWithIndex=total+ixVal;
-  // v4.43: tranche = 3% × COST BASIS (Pool1 cost + Pool3 cost), NOT market value.
+  // v4.72: tranche = 4% × COST BASIS (Pool1 cost + Pool3 cost), NOT market value.
   const tranchePct=Math.round(trancheFrac("nl")*100);
   const trancheCostBase=trancheBase("nl");
   return{total,tranche:Math.round(trancheCostBase*tranchePct/100),mv,totalWithIndex,ixVal,tranchePct,trancheCostBase};
@@ -5720,23 +5722,23 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
         const _dpPct=_base>0?_dp/_base*100:0;
         const _tiered=_dpTgtI.mode==="tiered";
-        const _bindLbl=_tiered?({tiered:"tiered",floor:"floor",t1floor:"T1 12%"}[_dpTgtI.bindingTerm]):"";
+        const _bindLbl=_tiered?({tiered:"tiered",floor:"floor",t1floor:"T1 16%"}[_dpTgtI.bindingTerm]):"";
         const _tgtLbl=_tiered
           ? `target ${_tgt}% · tiered (${_dpTgtI.tieredSlots.toFixed(0)}%+${_dpTgtI.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_dpTgtI.cappedFloorPct)}%⌉ · ${_bindLbl} binds${_dpTgtI.cappedBy?` · at ${_dpTgtI.cappedBy} cap — uncapped target ${Math.round(_dpTgtI.uncappedPct)}%`:""}) ⓘ`
           : _dpTgtI.mode==="auto"
-          ? `target ${_tgt}% · auto (${_dpTgtI.litSlots}×3% slots + ${_dpTgtI.seats}×9% seat${_dpTgtI.seats!==1?"s":""} = ${Math.round(_dpTgtI.term1Pct)}%+${Math.round(_dpTgtI.term2Pct)}%)`
+          ? `target ${_tgt}% · auto (${_dpTgtI.litSlots}×4% slots + ${_dpTgtI.seats}×12% seat${_dpTgtI.seats!==1?"s":""} = ${Math.round(_dpTgtI.term1Pct)}%+${Math.round(_dpTgtI.term2Pct)}%)`
           : `target ${_tgt}%`;
-        // v4.52: green at/above target, amber below target but ≥12%, red below 12% floor.
+        // v4.52: green at/above target, amber below target but ≥ the T1 floor, red below it.
         // v4.62 tiered (§10): red line = CAPPED floor min(floor, structuralMax, policyCap);
         // a binding cap forces 🟡 even at/above the capped target so compression stays visible.
-        const _redLine=12; // v4.63: hard red only below the 12% bare minimum; amber between 12% and target
+        const _redLine=Math.round(t1FloorFrac("personal")*100); // v4.72: T1 absolute floor (16% at 4%); amber between floor and target
         const _capBind=_tiered&&_dpTgtI.cappedBy&&_dpTgtI.uncappedPct>_dpTgtI.pct+0.01;
         const _dpCol=(_dpPct>=_tgt&&!_capBind)?"var(--green)":(_dpPct>=_redLine?"var(--amber)":"var(--red)");
         const _dpDot=(_dpPct>=_tgt&&!_capBind)?"🟢":(_dpPct>=_redLine?"🟡":"🔴");
         _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap"${_tiered?' onclick="showTieredBreakdown()" title="Tap for live TIERED breakdown"':''}>
           <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpDot} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
           <span style="font-size:9px;color:${_tiered?'#67e8f9':'var(--muted)'};font-family:var(--mono)${_tiered?';cursor:pointer':''}">${_tgtLbl}</span>
-          ${_dpPct<_redLine?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW 12% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:(_capBind?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ AT CAP</span>`:""))}
+          ${_dpPct<_redLine?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW ${_redLine}% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:(_capBind?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ AT CAP</span>`:""))}
         </div>`;
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
@@ -6298,8 +6300,8 @@ function renderAllocator(c){
     // Cost-basis anchor: Pool1 cost + Pool3 cost + DP + new income (all base ccy). pool1CostBasis
     // already includes DP. Same base atPositionCap uses internally — shared by the lit-slot cap.
     const _capBase=pool1CostBasis('personal')+pool3CostBasis('personal')+income;
-    // v4.67: a stock is "capped" when at the hard slots×3% cap OR at the owned∪lit slot cap
-    // ((owned∪lit)×3% vs TOTAL position cost basis). Both route its share away from deployment.
+    // v4.67: a stock is "capped" when at the hard slots×4% cap OR at the owned∪lit slot cap
+    // ((owned∪lit)×4% vs TOTAL position cost basis). Both route its share away from deployment.
     const _isCapped=t=>atPositionCap(t,'personal',_capExtra)||atLitCap(t,'personal',_capBase);
     const cappedLit=firingStocks.reduce((n,t)=>n+(_isCapped(t)?deployCount(t,'personal'):0),0);
     const cappedLitWeighted=firingStocks.reduce((n,t)=>n+(_isCapped(t)?weightedLit(t,'personal'):0),0);
@@ -6328,19 +6330,19 @@ function renderAllocator(c){
     // === PER-STOCK CAP + ITERATIVE REDISTRIBUTION (v4.32, owned∪lit slot cap v4.67) ===
     // (_capBase defined above, next to _capExtra.)
     // Per-stock room = Σ lit-tranche room (base ccy), bounded so total cost basis can't exceed
-    // the binding aggregate cap. litTrancheTopups targets 3% per lit slot; its per-tranche rooms
-    // are independent, so two clamps apply on top: the hard slots×3% ceiling (v4.32) and the
-    // (owned∪lit)×3% slot cap (v4.67) — the latter nets OVERFILLED tranches (lit or unlit)
+    // the binding aggregate cap. litTrancheTopups targets 4% per lit slot; its per-tranche rooms
+    // are independent, so two clamps apply on top: the hard slots×4% ceiling (v4.32) and the
+    // (owned∪lit)×4% slot cap (v4.67) — the latter nets OVERFILLED tranches (lit or unlit)
     // against underfilled ones, so a position at/above its slot cap in aggregate gets zero room even
-    // when one of its tranches is individually below its 3% target. A capped stock → 0 room.
+    // when one of its tranches is individually below its 4% target. A capped stock → 0 room.
     const stockRoom={};                                     // ticker → room in base ccy
     firingStocks.forEach(t=>{
       if(atPositionCap(t,'personal',_capExtra)){stockRoom[t]=0;return;}
       const tops=litTrancheTopups(t,'personal',_capBase);
       let room=tops.reduce((a,x)=>a+x.roomBase,0);
-      // v4.32 hard-ceiling clamp: total cost basis can never pass slots × 3% of the base.
+      // v4.32 hard-ceiling clamp: total cost basis can never pass slots × 4% of the base.
       const _capHeadroom=Math.max(0, positionCapPct(t,'personal')*_capBase - posCostBasisBase(t,'personal'));
-      // v4.64 lit-slot clamp: total cost basis can't pass (deploying slots) × 3% of the base.
+      // v4.64 lit-slot clamp: total cost basis can't pass (deploying slots) × 4% of the base.
       const _litHeadroom=litCapHeadroomBase(t,'personal',_capBase);
       stockRoom[t]=Math.min(room,_capHeadroom,_litHeadroom);
     });
@@ -6400,7 +6402,7 @@ function renderAllocator(c){
         <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">= ${_altSym}${_altIncome.toLocaleString()} <span style="opacity:.5">@ ${settings.fxRate}</span></div></div>
       <div class="input-box" style="flex:0 0 92px"><div class="input-label" style="display:flex;gap:3px;align-items:center"><span>DP Target</span><span onclick="settings.dpTargetMode=(settings.dpTargetMode==='auto'?'tiered':settings.dpTargetMode==='tiered'?'pct':'auto');save();render()" style="cursor:pointer;font-size:8px;padding:1px 4px;border-radius:3px;background:${settings.dpTargetMode==='tiered'?'#0d2b33':settings.dpTargetMode==='auto'?'#0d3320':'#1a1a2e'};color:${settings.dpTargetMode==='tiered'?'#67e8f9':settings.dpTargetMode==='auto'?'var(--green)':'var(--muted)'};font-family:var(--mono)" title="Cycle FIXED → AUTO → TIERED. TIERED: probability-weighted per-tranche reserve (spec v2). Tap the ⓘ or DP status line for the live breakdown.">${settings.dpTargetMode==='tiered'?'TIERED':settings.dpTargetMode==='auto'?'AUTO':'FIXED'}</span></div>
         <div class="input-field"><input type="number" value="${settings.dpTargetMode==='auto'||settings.dpTargetMode==='tiered'?Math.round(dpTargetInfo('personal').pct):(settings.dpFloorPct??30)}" min="0" max="100" ${settings.dpTargetMode==='auto'||settings.dpTargetMode==='tiered'?'disabled style="width:40px;text-align:center;opacity:.4"':'style="width:40px;text-align:center"'} onchange="settings.dpFloorPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${(()=>{const _m=settings.dpTargetMode;if(_m==='tiered'){const _ti=dpTargetInfo('personal');return `<span style="cursor:pointer;color:#67e8f9" onclick="showTieredBreakdown()" title="Open live breakdown">tiered · ${_ti.tieredSlots.toFixed(0)}%+${_ti.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_ti.cappedFloorPct)}%⌉ ⓘ</span>`;}if(_m==='auto')return `auto · 3%×${dpTargetInfo('personal').litSlots}+9%×${dpTargetInfo('personal').seats}`;return 'floor';})()}</div></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)">${(()=>{const _m=settings.dpTargetMode;if(_m==='tiered'){const _ti=dpTargetInfo('personal');return `<span style="cursor:pointer;color:#67e8f9" onclick="showTieredBreakdown()" title="Open live breakdown">tiered · ${_ti.tieredSlots.toFixed(0)}%+${_ti.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_ti.cappedFloorPct)}%⌉ ⓘ</span>`;}if(_m==='auto')return `auto · 4%×${dpTargetInfo('personal').litSlots}+12%×${dpTargetInfo('personal').seats}`;return 'floor';})()}</div></div>
       ${settings.dpTargetMode==='tiered'?`<div class="input-box" style="flex:0 0 64px" title="§8 policy cap — hard ceiling on the TIERED DP target as % of the tranche base. Above ~50% the portfolio is a cash position with an equity kicker (AQR/Vanguard cash-drag evidence)."><div class="input-label">DP Cap</div>
         <div class="input-field"><input type="number" value="${settings.dpTieredCapPct??50}" min="0" max="100" style="width:36px;text-align:center" onchange="settings.dpTieredCapPct=Math.max(0,Math.min(100,+this.value||0));save();render()"><span>%</span></div>
         <div style="font-size:9px;color:var(--muted);margin-top:4px;font-family:var(--mono)">policy cap</div></div>`:''}
@@ -6445,14 +6447,14 @@ function renderAllocator(c){
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Tranche cap (${Math.round(trancheFrac(currentPf)*100)}% of cost base)</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${Math.round(_capBase*trancheFrac(currentPf)).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Deploy (${litDeploying} lit signals${cappedLit>0?`, ${cappedLit} at cap → DP`:""})</span><span style="font-size:13px;font-family:var(--mono);color:#60a5fa">${_bs}${deployTotal.toLocaleString()}</span></div>
       ${trancheCapOverflow>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:#d97706">Overflow → DP${cappedLit>0?` (incl. ${cappedLit} at cap)`:""}</span><span style="font-size:13px;font-family:var(--mono);color:#d97706">${_bs}${trancheCapOverflow.toLocaleString()}</span></div>`:""}
-      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${_dpTgt.mode==="tiered"?`<span style="cursor:pointer;color:#67e8f9" onclick="showTieredBreakdown()">tiered · ${_dpTgt.tieredSlots.toFixed(0)}%+${_dpTgt.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_dpTgt.cappedFloorPct)}%⌉${_dpTgt.cappedBy?" · at "+_dpTgt.cappedBy+" cap":""} ⓘ</span>`:_dpTgt.mode==="auto"?`auto · ${Math.round(trancheFrac("personal")*100)}%×${_dpTgt.litSlots} slots + 9%×${_dpTgt.seats} seat${_dpTgt.seats!==1?"s":""}`:`${Math.round(_dpFloorPct*100)}% of P1+P3+DP`})</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;color:var(--muted)">DP floor (${_dpTgt.mode==="tiered"?`<span style="cursor:pointer;color:#67e8f9" onclick="showTieredBreakdown()">tiered · ${_dpTgt.tieredSlots.toFixed(0)}%+${_dpTgt.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_dpTgt.cappedFloorPct)}%⌉${_dpTgt.cappedBy?" · at "+_dpTgt.cappedBy+" cap":""} ⓘ</span>`:_dpTgt.mode==="auto"?`auto · ${Math.round(trancheFrac("personal")*100)}%×${_dpTgt.litSlots} slots + 12%×${_dpTgt.seats} seat${_dpTgt.seats!==1?"s":""}`:`${Math.round(_dpFloorPct*100)}% of P1+P3+DP`})</span><span style="font-size:13px;font-family:var(--mono);color:var(--muted)">${_bs}${Math.round(dpFloorThreshold).toLocaleString()}</span></div>
       <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:${dpTopUp>0?'#34d399':'var(--muted)'}">${dpAfterIncome>=dpFloorThreshold?'Floor met — full deploy':'Below floor — DP top-up'}</span><span style="font-size:13px;font-family:var(--mono);color:${dpTopUp>0?'#34d399':'var(--muted)'}">${_bs}${Math.round(dpTopUp).toLocaleString()}</span></div>
       <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">→ DP</span><span style="font-size:13px;font-family:var(--mono);color:var(--text)">${_bs}${toDP.toLocaleString()} <span style="font-size:10px;opacity:.6">(${income>0?Math.round(toDP/income*100):0}%)</span></span></div></div>
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + per-lit-tranche top-ups
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
       const capped=atPositionCap(t,'personal',_capExtra);const capPct=positionCapPct(t,'personal');const mvPct=positionCostPctOfBase(t,'personal',_capExtra);
-      // v4.67: owned∪lit slot cap state — total cost basis at/above (owned∪lit slots) × 3%.
+      // v4.67: owned∪lit slot cap state — total cost basis at/above (owned∪lit slots) × 4%.
       const litCapped=!capped&&atLitCap(t,'personal',_capBase);const litCapPctDisp=dc*trancheFrac('personal')*100;
       // v3.96: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
       const deployBase=_stockDeployBase[t]||0;
@@ -6476,7 +6478,7 @@ function renderAllocator(c){
         const full=x.roomBase<=shareBase+0.5;
         return `${x.label} ${fmt(Math.round(shareLocal),s.currency)}${full?"":" ▸"}`;
       });
-      const subline=capped?`${(capPct*100).toFixed(0)}% of P1+P3+DP reached — routed to DP`:litCapped?`total cost ≥ ${dc} lit × 3% — waits for base growth or new signal`:floored?`${fmt(Math.round(fromEUR(toEUR(flooredAmt,_bc),s.currency)),s.currency)} share &lt; $500 min — fees too high, routed to DP`:`~${sh} sh`;
+      const subline=capped?`${(capPct*100).toFixed(0)}% of P1+P3+DP reached — routed to DP`:litCapped?`total cost ≥ ${dc} lit × 4% — waits for base growth or new signal`:floored?`${fmt(Math.round(fromEUR(toEUR(flooredAmt,_bc),s.currency)),s.currency)} share &lt; $500 min — fees too high, routed to DP`:`~${sh} sh`;
       const trancheNote=trancheLines.length?`<div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:2px">${trancheLines.join(" · ")}</div>`:"";
       h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}${(capped||litCapped)?' <span style="font-size:10px;color:#d97706">🔒</span>':""}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → ${litDest} · ${unlit} unlit${pbNote}</div>${trancheNote}</div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${amtCol}">${amtVal}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">${subline}</div></div></div>`;
@@ -6497,7 +6499,7 @@ function renderAllocator(c){
       const specInPf=specStocks.filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0);
       const specValBase=specInPf.reduce((v,t)=>{const s=stocks[t];const pos=pf.positions[t];return v+fromEUR(toEUR(posShares(pos)*posAvgPrice(pos),s.currency),_bc);},0);
       // 2%-per-chunk risk tranche, shown across every listing currency. Promotion to a
-      // non-risk (Pool 1) name reverts sizing to the standard entry tranche (Personal 3%).
+      // non-risk (Pool 1) name reverts sizing to the standard entry tranche (4%).
       const _riskTbEur=toEUR(trancheBase(currentPf),_bc);
       const _riskChunkEur=_riskTbEur*0.02;
       const _nonRiskChunkEur=_riskTbEur*trancheFrac(currentPf);
@@ -6533,7 +6535,7 @@ function renderAllocator(c){
       }
     }
 
-    // === NEW ENTRY DEPLOYMENT (Personal 3% of P1+P3+DP cost basis) ===
+    // === NEW ENTRY DEPLOYMENT (Personal 4% of P1+P3+DP cost basis) ===
     const dpAvailable=pf.dryPowder;
     if(pf.dryPowder>0){
       const _tb=trancheBase("personal");const entrySize=initialEntrySize("personal");
@@ -6640,7 +6642,7 @@ function renderAllocator(c){
       if(!isTrophy){pvTotal+=toEUR(sh*s.currentPrice,s.currency);slotsFilled+=posTranchesOwned(nlPos[t]);}});
     pvTotal+=pf.dryPowder; // DP is EUR for caca
     const ixValNl=indexValue("nl"); // Index value for display (not for tranche calc)
-    const TRANCHE_PCT=Math.round(trancheFrac("nl")*100); // v4.43: 3% (was 4%)
+    const TRANCHE_PCT=Math.round(trancheFrac("nl")*100); // v4.72: 4% (was 3%)
     const nlCostBase=trancheBase("nl"); // Pool1 cost + Pool3 cost + DP (EUR base)
     // TARGET_SLOTS is now a derived display value (≈ how many tranches fit at this %).
     const TARGET_SLOTS=Math.max(1,Math.round(100/TRANCHE_PCT));const TARGET_STOCKS=Math.round(TARGET_SLOTS/4);
@@ -6768,7 +6770,7 @@ function renderAllocator(c){
       }
     }
 
-    // === NEW ENTRY DEPLOYMENT (Caca 3% rule + waterfall) ===
+    // === NEW ENTRY DEPLOYMENT (Caca 4% rule + waterfall) ===
     const fmtAlloc=(v,ccy)=>{if(ccy==="GBp")return"£"+Math.round(v/100).toLocaleString();return fmt(Math.round(v),ccy);};
     const wlNL=Object.keys(stocks).filter(t=>!isRisk(t,"nl")&&!isBlocked(t)); // 4M block excluded (v4.07)
     const readyNL=[];
