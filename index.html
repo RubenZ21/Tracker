@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.76</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.77</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1857,6 +1857,20 @@ function nextMuteState(s,key,prior){
   if(dd<=MUTE_DEMOTE())return false;
   return !!prior;                                         // 40–50% band holds
 }
+// v4.77 (spec v3.2 §6b) — CORRELATED-BEAR FLOOR band. A trigger is a bear-floor MEMBER
+// while reachable in a standard bear market. Banded 30/25 hysteresis (mirrors §2.8.3):
+// enter when d ≤ 25%, exit when d > 30%, 25–30% holds prior state (flicker guard).
+// INIT rule: first observation (prior === undefined) uses the EXIT threshold — member
+// iff d ≤ 30% (generous toward reserving). Persisted per-trigger on pos.bearState;
+// flips only on band crossings. Separate flag from muteState (different mechanism).
+const BEAR_ENTER=0.25, BEAR_EXIT=0.30, BEAR_HAIRCUT=0.70; // §6b: 30% bear depth, 0.7 participation
+function nextBearState(s,key,prior){
+  const dd=trigDrawdown(s,key);
+  if(dd==null)return false;
+  if(dd<=BEAR_ENTER)return true;
+  if(dd>BEAR_EXIT)return false;
+  return prior===undefined?true:!!prior;                  // 25–30% holds; init at exit threshold
+}
 // Present ladder trigger keys for a stock (Buffett: tenCap+pbt; std: +mos; Tier-1: +pmos).
 function ladderKeys(t){
   const s=stocks[t];if(!s?.cons)return[];
@@ -1905,6 +1919,8 @@ function recomputeCapacityState(pfKey){
     const s=stocks[t],pos=pf.positions[t];if(!s?.cons)return;
     pos.muteState=pos.muteState||{};
     ladderKeys(t).forEach(k=>{pos.muteState[k]=nextMuteState(s,k,pos.muteState[k]);});
+    pos.bearState=pos.bearState||{};                      // v4.77 §6b bear-floor membership
+    ladderKeys(t).forEach(k=>{pos.bearState[k]=nextBearState(s,k,pos.bearState[k]);});
     pos.graduated=trophyGates(t,pfKey,!!pos.graduated).graduated;
   });
 }
@@ -2073,12 +2089,41 @@ function tierWeight(d){return Math.max(0.10,Math.pow(2,-d/0.15));}
 // at d≤0.10, fading linearly to 0 at d≥0.35. Strictly looser on average than the old
 // d≤0.30 brick and than the v4.75 0.20–0.40 ramp.
 function floorWeight(d){return d<=0.10?1:d>=0.35?0:(0.35-d)/0.25;}
+// v4.77 (spec v3.2): §6b CORRELATED-BEAR FLOOR. Term A prices each trigger's drawdown
+// INDEPENDENTLY, but drawdowns are correlated — a standard −30% bear fires every trigger
+// within 30% reach TOGETHER. The bear floor prices that joint scenario directly:
+//   bearFloor = 0.70 × Σ 4% over unfired, non-Sticker-muted, bear-MEMBER tranches
+// on filled non-trophy grid seats. Membership is banded 30/25 (BEAR_ENTER/EXIT above,
+// persisted pos.bearState — the spec's single, scoped exception to §11 "nothing stored").
+// 0.70 = participation haircut (not every stock falls in lockstep with the index).
+// Joins §9 as: FINAL = min( max(tiered, flashFloor, bearFloor, T1 16%), structural, policy ).
+// v4.77 — Layer 1 trim-source detection (framework §5.2). A grid position is a Layer-1
+// source when: open shares, non-trophy, non-risk, 0 firing signals, and price at/above its
+// fair-value anchor (fairValueThreshold — null for Tier 1, which is Layer-1-exempt).
+// Sorted weakest moat first (highest M-priority number), per §5.2 trim priority.
+// Used to gate the ONLY red DP state: below floor AND a prescribed action actually exists.
+function layer1Sources(pfKey){
+  const pf=portfolios[pfKey];if(!pf)return[];
+  const out=[];
+  Object.keys(pf.positions||{}).forEach(t=>{
+    if(isRisk(t,pfKey))return;
+    const pos=pf.positions[t];if(!pos||pos.graduated)return;   // trophies Layer-1-ineligible
+    const open=pos.tranches?.some(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0);
+    if(!open)return;
+    const s=stocks[t];if(!s?.cons||s.currentPrice==null)return;
+    if(ladderKeys(t).some(k=>s.signals?.[k]))return;           // must be at 0 firing
+    const fvt=fairValueThreshold(t,pfKey);
+    if(fvt==null||s.currentPrice<fvt)return;                   // must be above anchor
+    out.push(t);
+  });
+  return out.sort((a,b)=>(+stocks[b]?.priority||0)-(+stocks[a]?.priority||0));
+}
 function dpTieredInfo(pfKey){
   const pf=portfolios[pfKey];
   const base=trancheBase(pfKey);
   const tc=trancheFrac(pfKey);                        // 4% per tranche
   const rows=[];                                      // per-tranche detail for the popover (term A universe)
-  let tieredSlots=0,ownedFloor=0,structTranches=0;
+  let tieredSlots=0,ownedFloor=0,structTranches=0,bearFloor=0,bearMembers=0; // v4.77 §6b
   if(pf)Object.keys(pf.positions||{}).forEach(t=>{
     if(isRisk(t,pfKey))return;                        // Pool 3 / risk → nothing (§1)
     const pos=pf.positions[t];if(!pos||pos.graduated)return; // trophy seats → nothing (§1)
@@ -2099,7 +2144,12 @@ function dpTieredInfo(pfKey){
       tieredSlots+=contrib;
       if(w>0)structTranches++;                        // §8: only deployable tranches count at weight 1.00
       if(!sm)ownedFloor+=tc*floorWeight(d);           // §6 owned floor, ramp-graded (Sticker-muted excluded per §3)
-      rows.push({t,k,trigger:s.cons[k],price:s.currentPrice,d,w,contrib,
+      // v4.77 §6b — correlated-bear floor: banded 30/25 membership (persisted flag;
+      // fallback = live init at exit threshold if overlay not yet computed).
+      // Sticker-muted tranches excluded entirely, consistent with the §6 flash floor.
+      const bm=!sm&&(pos.bearState?.[k]??(d<=BEAR_EXIT));
+      if(bm){bearFloor+=tc*BEAR_HAIRCUT;bearMembers++;}
+      rows.push({t,k,trigger:s.cons[k],price:s.currentPrice,d,w,contrib,bm,
                  pgOnly:sm&&hasValidUnfired,dead:sm&&!hasValidUnfired});
     });
   });
@@ -2129,14 +2179,16 @@ function dpTieredInfo(pfKey){
   const floor=ownedFloor+wlFloor;                     // §6: wlFloor REPLACES seatTerm here — no double-count
   const structuralMax=structTranches*tc+seats*seatFrac(pfKey); // §8: theoretical max at weight 1.00
   const policyCap=(settings.dpTieredCapPct??50)/100;  // §8
-  const uncapped=Math.max(tieredReserve,floor,t1FloorFrac(pfKey)); // §9 (§7: T1 absolute floor = full T1 cap, 16% at 4%)
-  const bindingTerm=uncapped===tieredReserve?"tiered":(uncapped===floor?"floor":"t1floor");
+  // v4.77 §9: bear floor joins the max chain — max(tiered, flashFloor, bearFloor, T1 floor)
+  const uncapped=Math.max(tieredReserve,floor,bearFloor,t1FloorFrac(pfKey)); // §7: T1 absolute floor = full T1 cap, 16% at 4%
+  const bindingTerm=uncapped===tieredReserve?"tiered":(uncapped===floor?"floor":(uncapped===bearFloor?"bear":"t1floor"));
   const frac=Math.min(uncapped,structuralMax,policyCap);
   const cappedBy=frac>=uncapped-1e-12?null:(structuralMax<=policyCap?"structural":"policy");
   const amount=frac*base;
   return{amount,pct:base>0?amount/base*100:frac*100,mode:"tiered",
     tieredSlots:tieredSlots*100,seatTerm:seatTerm*100,wAvg,
     ownedFloor:ownedFloor*100,wlFloor:wlFloor*100,wlNear:wlNear*100,floor:floor*100,
+    bearFloor:bearFloor*100,bearMembers,                              // v4.77 §6b
     uncappedPct:uncapped*100,structuralMaxPct:structuralMax*100,policyCapPct:policyCap*100,
     cappedBy,bindingTerm,theoreticalMaxPct:structuralMax*100,
     ratioToTheoretical:structuralMax>0?frac/structuralMax:0,          // §9 drift indicator (~0.18–0.22 expected)
@@ -2153,7 +2205,7 @@ function showTieredBreakdown(){
   const num=v=>v!=null?(+v).toFixed(2):"—";
   const rowH=r=>`<tr style="${r.dead?'opacity:.35':''}">
     <td style="${td}">${esc(r.t)}</td>
-    <td style="${td}">${lbl[r.k]||esc(r.k)}${r.pgOnly?' <span title="Sticker-muted — reserves for piggyback only, excluded from floor">🐖</span>':''}${r.dead?' <span title="Sticker-muted, no valid sibling — cannot deploy, weight 0">✕</span>':''}</td>
+    <td style="${td}">${lbl[r.k]||esc(r.k)}${r.bm?' <span title="Bear-floor member — reachable in a standard bear (banded 30/25)">🐻</span>':''}${r.pgOnly?' <span title="Sticker-muted — reserves for piggyback only, excluded from floor">🐖</span>':''}${r.dead?' <span title="Sticker-muted, no valid sibling — cannot deploy, weight 0">✕</span>':''}</td>
     <td style="${td};text-align:right">${num(r.trigger)}</td>
     <td style="${td};text-align:right">${num(r.price)}</td>
     <td style="${td};text-align:right">${(r.d*100).toFixed(1)}%</td>
@@ -2162,11 +2214,11 @@ function showTieredBreakdown(){
   </tr>`;
   const head=(withC)=>`<tr><th style="${th};text-align:left">Stock</th><th style="${th};text-align:left">Trig</th><th style="${th}">Trigger</th><th style="${th}">Price</th><th style="${th}">d</th><th style="${th}">w</th>${withC?`<th style="${th}">4%×w</th>`:""}</tr>`;
   const line=(l,v,extra,col)=>`<div style="display:flex;justify-content:space-between;gap:8px;margin:2px 0"><span style="font-size:10px;color:${col||'var(--muted)'}">${l}</span><span style="font-size:11px;font-family:var(--mono);color:${col||'var(--text)'}">${v}${extra?` <span style="opacity:.6;font-size:9px">${extra}</span>`:""}</span></div>`;
-  const bindLbl={tiered:"tiered reserve",floor:"flash-crash floor",t1floor:"T1 16% floor"}[i.bindingTerm];
+  const bindLbl={tiered:"tiered reserve",floor:"flash-crash floor",bear:"bear floor",t1floor:"T1 16% floor"}[i.bindingTerm];
   const h=`<div class="modal-overlay tiered-bd-overlay" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet" style="padding:16px;max-height:85vh;overflow-y:auto">
       <div style="font-size:15px;font-weight:800;margin-bottom:2px">🧮 TIERED DP target — live breakdown</div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v3.1 (half-life weights) · computed at open, nothing stored</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px">dp_tiered_reservation_spec_v3.2 (half-life weights + correlated-bear floor) · computed at open · only 🐻 band state persisted</div>
       <div style="font-size:10px;color:#67e8f9;font-family:var(--mono);margin-bottom:2px">TERM A — filled-seat unfired tranches (Σ 4% × w)</div>
       <table style="border-collapse:collapse;width:100%">${head(true)}${i.rows.map(rowH).join("")||`<tr><td colspan="7" style="${td};color:var(--muted)">none</td></tr>`}</table>
       ${line("Σ tieredSlots (term A)",i.tieredSlots.toFixed(2)+"%",null,"#67e8f9")}
@@ -2184,9 +2236,13 @@ function showTieredBreakdown(){
       ${line("wlNear (watchlist valid d≤30%)",i.wlNear.toFixed(2)+"%")}
       ${line("wlFloor = min(wlNear, "+i.seats+"×12%="+(i.seats*12).toFixed(0)+"%)",i.wlFloor.toFixed(2)+"%",i.wlNear>i.seats*12?"seat bound won":"wlNear won")}
       ${line("floor = ownedFloor + wlFloor",i.floor.toFixed(2)+"%",null,"var(--amber)")}
+      <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
+      <div style="font-size:10px;color:var(--amber);font-family:var(--mono);margin-bottom:2px">🐻 CORRELATED-BEAR FLOOR (§6b)</div>
+      ${line("Members (unfired, banded d≤25% in / >30% out)",String(i.bearMembers),"× 4% × 0.70 participation")}
+      ${line("bearFloor = "+i.bearMembers+" × 4% × 0.70",i.bearFloor.toFixed(2)+"%",null,"var(--amber)")}
       ${line("T1 absolute floor (§7)","16%")}
       <div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>
-      ${line("UNCAPPED = max(tiered, floor, 16%)",i.uncappedPct.toFixed(2)+"%","binding: "+bindLbl,"var(--text)")}
+      ${line("UNCAPPED = max(tiered, flash, bear, 16%)",i.uncappedPct.toFixed(2)+"%","binding: "+bindLbl,"var(--text)")}
       ${line("Structural max (§8)",i.structuralMaxPct.toFixed(2)+"%")}
       ${line("Policy cap (§8, setting)",i.policyCapPct.toFixed(0)+"%")}
       ${line("FINAL DP target",i.pct.toFixed(2)+"%",i.cappedBy?("compressed by "+i.cappedBy+" cap — uncapped "+i.uncappedPct.toFixed(1)+"%"):"no cap binding",i.cappedBy?"var(--amber)":"var(--green)")}
@@ -2694,6 +2750,7 @@ function load(){
     const pf=portfolios[pk];if(!pf)return;
     Object.values(pf.positions).forEach(pos=>{
       if(pos.muteState===undefined)pos.muteState={};
+      if(pos.bearState===undefined)pos.bearState={};      // v4.77 §6b
       if(pos.graduated===undefined)pos.graduated=false;
     });
   });
@@ -4794,10 +4851,14 @@ function checkAlerts(){
     });
   });
 
-  // DP FLOOR ALERT — warn when DP drops below 25% of Pool 1
-  {const _dpPctP=dpPctOfPool1("personal");
-   if(_dpPctP<25&&_dpPctP>0){const k="dp-floor-breach";if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"🔴",
-     html:`<strong>DP at ${Math.round(_dpPctP)}%</strong> of P1+P3+DP cost — below 25% floor. Layer 1 trim eligible: sell shares from weakest-moat stock at 0/3 above fair value.`});}}
+  // v4.77 — DP FLOOR ALERT rewritten (was stale 25% — that floor was retired June 28 2026).
+  // Fires ONLY when the framework prescribes action: DP below the dynamic T1 floor AND a
+  // Layer-1-eligible source exists (§5.2). Low DP with nothing trim-eligible (i.e. deploying
+  // into a drawdown) is correct behavior and raises NO alert — next salary replenishes (§2.8.7).
+  {const _dpPctP=dpPctOfPool1("personal");const _fl=Math.round(t1FloorFrac("personal")*100);
+   const _src=(_dpPctP<_fl&&_dpPctP>0)?layer1Sources("personal"):[];
+   if(_src.length){const k="dp-floor-breach";if(!dismissedAlerts[k])alerts.push({key:k,type:"watch",icon:"🔴",
+     html:`<strong>DP at ${Math.round(_dpPctP)}%</strong> of P1+P3+DP cost — below the ${_fl}% floor with a Layer 1 source available: <strong>${_src[0]}</strong> at 0 signals above fair value. §5.2: trim only enough to restore the floor.`});}}
 
   // BUY SIGNALS — grid stocks with active signals (respecting Sticker Ceiling)
   GRID.forEach(t=>{
@@ -5787,23 +5848,36 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
         const _dpPct=_base>0?_dp/_base*100:0;
         const _tiered=_dpTgtI.mode==="tiered";
-        const _bindLbl=_tiered?({tiered:"tiered",floor:"floor",t1floor:"T1 16%"}[_dpTgtI.bindingTerm]):"";
+        const _bindLbl=_tiered?({tiered:"tiered",floor:"floor",bear:"🐻 bear",t1floor:"T1 16%"}[_dpTgtI.bindingTerm]):"";
         const _tgtLbl=_tiered
           ? `target ${_tgt}% · tiered (${_dpTgtI.tieredSlots.toFixed(0)}%+${_dpTgtI.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_dpTgtI.cappedFloorPct)}%⌉ · ${_bindLbl} binds${_dpTgtI.cappedBy?` · at ${_dpTgtI.cappedBy} cap — uncapped target ${Math.round(_dpTgtI.uncappedPct)}%`:""}) ⓘ`
           : _dpTgtI.mode==="auto"
           ? `target ${_tgt}% · auto (${_dpTgtI.litSlots}×4% slots + ${_dpTgtI.seats}×12% seat${_dpTgtI.seats!==1?"s":""} = ${Math.round(_dpTgtI.term1Pct)}%+${Math.round(_dpTgtI.term2Pct)}%)`
           : `target ${_tgt}%`;
-        // v4.52: green at/above target, amber below target but ≥ the T1 floor, red below it.
-        // v4.62 tiered (§10): red line = CAPPED floor min(floor, structuralMax, policyCap);
-        // a binding cap forces 🟡 even at/above the capped target so compression stays visible.
-        const _redLine=Math.round(t1FloorFrac("personal")*100); // v4.72: T1 absolute floor (16% at 4%); amber between floor and target
+        // v4.77 (C5): DP display is INFORMATION + prescribed ACTION, never a scold.
+        // Low DP after deploying into fired triggers is correct behavior — it must not
+        // render as failure. Colors: green at/above target (positive-only); NEUTRAL below
+        // target with a "next salary → DP" action chip (the §2.8.7 waterfall made visible);
+        // red ONLY when the framework genuinely prescribes selling — DP below the T1 floor
+        // AND ≥1 Layer-1-eligible trim source exists (§5.2: 0 firing, above fair value).
+        // In a real drawdown nothing is Layer-1-eligible, so the line stays neutral. No ⚠.
+        const _floorLn=Math.round(t1FloorFrac("personal")*100);
         const _capBind=_tiered&&_dpTgtI.cappedBy&&_dpTgtI.uncappedPct>_dpTgtI.pct+0.01;
-        const _dpCol=(_dpPct>=_tgt&&!_capBind)?"var(--green)":(_dpPct>=_redLine?"var(--amber)":"var(--red)");
-        const _dpDot=(_dpPct>=_tgt&&!_capBind)?"🟢":(_dpPct>=_redLine?"🟡":"🔴");
+        const _l1=_dpPct<_floorLn?layer1Sources("personal"):[];
+        const _red=_l1.length>0;
+        const _green=_dpPct>=_tgt&&!_capBind;
+        const _dpCol=_red?"var(--red)":(_green?"var(--green)":"var(--muted)");
+        const _dpDot=_red?"🔴":(_green?"🟢":"⚪");
+        const _gapUSD=Math.max(0,Math.round(_dpTgtI.amount-_dp));
+        const _chip=_red
+          ?`<span style="font-size:9px;color:var(--red);font-weight:600">Layer 1 eligible — trim ${esc(_l1[0])} (0 signals, above fair value) to restore ${_floorLn}% floor</span>`
+          :(_dpPct<_tgt&&_gapUSD>0
+            ?`<span style="font-size:9px;color:var(--muted);font-family:var(--mono)">→ next salary: reserve ~$${_gapUSD.toLocaleString()} to DP</span>`
+            :"");
         _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap"${_tiered?' onclick="showTieredBreakdown()" title="Tap for live TIERED breakdown"':''}>
           <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpDot} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
           <span style="font-size:9px;color:${_tiered?'#67e8f9':'var(--muted)'};font-family:var(--mono)${_tiered?';cursor:pointer':''}">${_tgtLbl}</span>
-          ${_dpPct<_redLine?`<span style="font-size:9px;color:var(--red);font-weight:600">⚠ BELOW ${_redLine}% FLOOR</span>`:(_dpPct<_tgt?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ BELOW TARGET</span>`:(_capBind?`<span style="font-size:9px;color:var(--amber);font-weight:600">⚠ AT CAP</span>`:""))}
+          ${_chip}
         </div>`;
       }
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
