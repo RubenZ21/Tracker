@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.78</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.79</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5841,45 +5841,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       // v4.50: DP comment relocated directly below the legend (forced yellow), with the
       // limit-order boxes stacked below it. Moved out of the main content stream so they
       // sit immediately under the weight-bar legend.
-      if(currentPf==="personal"&&!hideValues){
-        const _dpTgtI=dpTargetInfo("personal");
-        const _tgt=Math.round(_dpTgtI.pct);
-        const _dp=pf.dryPowder||0;
-        const _base=(pool1CostBasis("personal")-_dp)+pool3CostBasis("personal")+_dp;
-        const _dpPct=_base>0?_dp/_base*100:0;
-        const _tiered=_dpTgtI.mode==="tiered";
-        const _bindLbl=_tiered?({tiered:"tiered",floor:"floor",bear:"🐻 bear",t1floor:"T1 16%"}[_dpTgtI.bindingTerm]):"";
-        const _tgtLbl=_tiered
-          ? `target ${_tgt}% · tiered (${_dpTgtI.tieredSlots.toFixed(0)}%+${_dpTgtI.seatTerm.toFixed(0)}% ⌈fl ${Math.round(_dpTgtI.cappedFloorPct)}%⌉ · ${_bindLbl} binds${_dpTgtI.cappedBy?` · at ${_dpTgtI.cappedBy} cap — uncapped target ${Math.round(_dpTgtI.uncappedPct)}%`:""}) ⓘ`
-          : _dpTgtI.mode==="auto"
-          ? `target ${_tgt}% · auto (${_dpTgtI.litSlots}×4% slots + ${_dpTgtI.seats}×12% seat${_dpTgtI.seats!==1?"s":""} = ${Math.round(_dpTgtI.term1Pct)}%+${Math.round(_dpTgtI.term2Pct)}%)`
-          : `target ${_tgt}%`;
-        // v4.77 (C5): DP display is INFORMATION + prescribed ACTION, never a scold.
-        // Low DP after deploying into fired triggers is correct behavior — it must not
-        // render as failure. Colors: green at/above target (positive-only); NEUTRAL below
-        // target with a "next salary → DP" action chip (the §2.8.7 waterfall made visible);
-        // red ONLY when the framework genuinely prescribes selling — DP below the T1 floor
-        // AND ≥1 Layer-1-eligible trim source exists (§5.2: 0 firing, above fair value).
-        // In a real drawdown nothing is Layer-1-eligible, so the line stays neutral. No ⚠.
-        const _floorLn=Math.round(t1FloorFrac("personal")*100);
-        const _capBind=_tiered&&_dpTgtI.cappedBy&&_dpTgtI.uncappedPct>_dpTgtI.pct+0.01;
-        const _l1=_dpPct<_floorLn?layer1Sources("personal"):[];
-        const _red=_l1.length>0;
-        const _green=_dpPct>=_tgt&&!_capBind;
-        const _dpCol=_red?"var(--red)":(_green?"var(--green)":"var(--muted)");
-        const _dpDot=_red?"🔴":(_green?"🟢":"⚪");
-        const _gapUSD=Math.max(0,Math.round(_dpTgtI.amount-_dp));
-        const _chip=_red
-          ?`<span style="font-size:9px;color:var(--red);font-weight:600">Layer 1 eligible — trim ${esc(_l1[0])} (0 signals, above fair value) to restore ${_floorLn}% floor</span>`
-          :(_dpPct<_tgt&&_gapUSD>0
-            ?`<span style="font-size:9px;color:var(--muted);font-family:var(--mono)">→ salary to top up DP</span>`
-            :"");
-        _wbarHTML+=`<div style="display:flex;gap:6px;margin:4px 0 2px;align-items:center;flex-wrap:wrap"${_tiered?' onclick="showTieredBreakdown()" title="Tap for live TIERED breakdown"':''}>
-          <span style="font-size:10px;font-family:var(--mono);color:${_dpCol};font-weight:600">${_dpDot} DP ${Math.round(_dpPct)}% of P1+P3+DP cost</span>
-          <span style="font-size:9px;color:${_tiered?'#67e8f9':'var(--muted)'};font-family:var(--mono)${_tiered?';cursor:pointer':''}">${_tgtLbl}</span>
-          ${_chip}
-        </div>`;
-      }
+      // v4.79: DP status line REMOVED from the Portfolio tab. Portfolio is a monitoring
+      // surface — no DP decision is taken here, so a status line could only produce feelings,
+      // not actions. The DP target now lives solely where the decision happens: the Allocator
+      // (salary split, §2.8.7 waterfall) and its tiered-breakdown popover. The one genuine
+      // Portfolio-relevant state (Layer-1-eligible trim while below floor) is covered by the
+      // dp-floor-breach alert (v4.77), which is Layer-1-gated and names the source ticker.
+
       {const _loPersonal=limitOrderCount("personal");const _loCaca=limitOrderCount("nl");
       if((_loPersonal>0||_loCaca>0)&&!hideValues){
         const _resP=Math.round(dpReservedForLimitOrders("personal"));
