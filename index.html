@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.80</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.81</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -6996,7 +6996,7 @@ function renderWatchlist(c){
   h+=`<div class="wl-grid">`;
   wl.forEach(t=>{const s=stocks[t];const g=gapPct(t);const sc=sigCount(t);
     const _blk=isBlocked(t); // 4M block (v4.07): firing renders amber + BLOCKED, never green
-    const gStr=sc>0?sc+"/"+(isBuffett(t)?2:3)+(_blk?" FIRING — BLOCKED (4M)":" signals"):g!=null?g+"%":"—";
+    const gStr=sc>0?sc+"/"+validTriggerSlots(t,currentPf)+(_blk?" FIRING — BLOCKED (4M)":" signals"):g!=null?g+"%":"—";
     const gCol=sc>0?(_blk?"#fbbf24":"var(--green)"):g!=null&&g<15?"var(--amber)":"var(--muted)";
     const snoozed=isSnoozed(t);
     const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
@@ -7012,16 +7012,21 @@ function renderWatchlist(c){
     const _wlTrigs=isOperationalTier1(t)?[{l:"P-MOS",v:pmosPrice(s),p:null,k:"pmos"},..._baseTrigs]:_baseTrigs;
     _wlTrigs.forEach(({l,v,p,k})=>{
       if(!v&&!p)return; // skip empty triggers entirely
-      const muted=v&&isTriggerMuted(s,k);const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;
+      const muted=v&&isTriggerMuted(s,k);
+      // v4.81: P-MOS tile shows OPERATIONAL firing (pmosFires = raw AND not §2.6-suppressed),
+      // matching sigCount. Raw-firing-but-suppressed renders dim gold with a "⊘ deeper" hint.
+      const pmSupp=k==="pmos"&&v&&s.currentPrice!=null&&s.currentPrice<=v&&isPmosSuppressed(t);
+      const on=v&&s.currentPrice<=v&&!muted&&!pmSupp;const isClosest=ctr&&ctr.triggerName===l;
       // v4.41: per-trigger RoR = appreciation AND post-tax dividend yield both at THIS trigger
       // price (true yield-on-cost at that entry).
       const ir=v&&stk&&!muted?calcBuyReturn(s,stk,v):null;
-      const col=on?(k==="pmos"?"#fbbf24":"var(--green)"):muted?"#d97706":"var(--muted)";const lo=hasLimitOrder(t,k);
+      const col=on?(k==="pmos"?"#fbbf24":"var(--green)"):pmSupp?"#fbbf2488":muted?"#d97706":"var(--muted)";const lo=hasLimitOrder(t,k);
       const borderStyle=muted?"border:1.5px dashed #d97706":(isClosest?"border:1px solid var(--accent)":"");
       h+=`<div class="wl-trig" ${borderStyle?`style="${borderStyle}"`:''}>
         <div class="wl-trig-label">${l}${isClosest?" ★":""}${muted?" ⌀":""}</div>
         <div class="wl-trig-val" style="color:${col}${muted?";opacity:0.6":""}">${v?fmt(v,s.currency):"—"}</div>
         ${muted?`<div style="font-size:8px;color:#d97706;font-family:var(--mono)">≥ sticker</div>`:""}
+        ${pmSupp?`<div style="font-size:8px;color:#fbbf2488;font-family:var(--mono)" title="§2.6: a deeper trigger is firing — P-MOS suppressed, one tranche deploys at the deeper price">⊘ deeper firing</div>`:""}
         ${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}
         ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}
         ${v?`<div style="margin-top:2px;cursor:pointer;font-size:8px;font-family:var(--mono);padding:1px 4px;border-radius:3px;text-align:center;${lo?"background:#0e7490;color:#67e8f9":"background:var(--bg);color:var(--muted);opacity:0.5"}" onclick="event.stopPropagation();toggleLimitOrder('${t}','${k}')">${lo?loLabel(t,k)+" LO":"LO"}</div>`:""}
