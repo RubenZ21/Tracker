@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.81</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.82</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -622,26 +622,18 @@ function tier1Marker(t){return isOperationalTier1(t)?`<span style="font-size:9px
 function pmosPrice(s){return s?.cons?.mos!=null?+(s.cons.mos*1.5).toFixed(2):null;}
 // Raw firing: price <= pmosPrice. Suppression NOT applied here — that's pmosFires().
 function pmosFiresRaw(s){const pm=pmosPrice(s);return pm!=null&&s?.currentPrice!=null&&s.currentPrice<=pm;}
-// Suppression rule (framework §2.6): P-MOS suppresses when any OTHER firing signal has trigger
-// price ≤ pmosPrice. "Deeper" means lower-as-multiple-of-Sticker. Worked CSU example:
-// TenCap at 0.82×Sticker is SHALLOWER than P-MOS at 0.75×Sticker → does NOT suppress.
-// MOS at 0.50×Sticker IS deeper than P-MOS → DOES suppress.
-function isPmosSuppressed(t){
-  const s=stocks[t];if(!s?.signals||!s.cons)return false;
-  const pm=pmosPrice(s);if(pm==null)return false;
-  if(s.signals.mos&&s.cons.mos!=null&&s.cons.mos<=pm)return true;
-  if(s.signals.pbt&&s.cons.pbt!=null&&s.cons.pbt<=pm)return true;
-  if(s.signals.tenCap&&s.cons.tenCap!=null&&s.cons.tenCap<=pm)return true;
-  return false;
-}
-// Operational P-MOS firing: Tier 1 only, raw firing AND not suppressed AND gate not failed.
+// v4.82 (Jul 20 2026): §2.6 deeper-trigger suppression RETIRED by ratification. P-MOS now
+// behaves as a normal independent trigger — it fires whenever price ≤ pmosPrice, regardless
+// of MOS/DMOS/10Cap state. Tier-1-only restriction and Buffett exclusion unchanged. Deployment
+// pacing (e.g. one tranche per salary cycle) is handled manually at buy-confirm, not by signal
+// suppression.
+// Operational P-MOS firing: Tier 1 only, raw firing AND gate not failed.
 // FIX v3.70: Buffett structural exclusion (framework §2.6) — Buffett never gets P-MOS, even
 // if a stock is somehow both buffett-category and operational Tier 1. Defensive: no current stock
 // satisfies both, but this hardens the invariant at the single chokepoint all callers use.
 function pmosFires(t){
   const s=stocks[t];if(!s||!isOperationalTier1(t)||isBuffett(t)||s.gate===false)return false;
   if(!pmosFiresRaw(s))return false;
-  if(isPmosSuppressed(t))return false;
   return true;
 }
 // Slot weight in allocation denominator (framework §7, operations §2 Signal Function Hierarchy).
@@ -881,7 +873,7 @@ function sigCount(t){
 // MOS, DMOS, and P-MOS are never muted (all mathematically below Sticker by construction: 0.50/0.45/0.75 < 1.0).
 function isTriggerMuted(s,sigKey){if(sigKey==="mos"||sigKey==="pmos"||!s?.cons)return false;if(s.category==="buffett")return false;if(s.category==="highgr"&&sigKey==="pbt")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
 // Piggyback: a muted trigger deploys when price is below it AND at least one valid (non-muted) signal is firing.
-// P-MOS firing counts as a valid signal for piggyback gating (it's never muted; has its own suppression rule).
+// P-MOS firing counts as a valid signal for piggyback gating (it is never muted; independent trigger since v4.82).
 // `ticker` is optional for backward-compat with legacy callers; without it, P-MOS won't open the piggyback door.
 function isPiggyback(s,sigKey,ticker){
   if(!isTriggerMuted(s,sigKey))return false;
@@ -903,7 +895,7 @@ function allTriggersMutedHigh(ticker){
   return s.currentPrice>=sticker;
 }
 // Deploy count: lit firing signals + piggybacking muted signals + Caca legacy double-MOS (non-Tier-1).
-// Tier 1: P-MOS firing (when not suppressed) is included via sigCount.
+// Tier 1: P-MOS firing is included via sigCount (independent trigger since v4.82).
 function deployCount(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
   if(s.block)return 0; // 4M block (v4.07): firing state stays visible but deploys nothing
@@ -933,8 +925,7 @@ function weightedSlots(t,pfKey){
   return n;
 }
 // Weighted lit count for a single stock — sum of slot weights for currently-deploying signals (firing + piggyback).
-// On Personal Tier 1 with all four firing (P-MOS not suppressed): 3×1.0 + 0.6 = 3.6. With P-MOS suppressed
-// (because MOS/PBT/TenCap firing deeper): equals the three lit weights, P-MOS unlit goes to reserve.
+// v4.82: P-MOS is an independent trigger (suppression retired). All-four-firing Tier 1 sums all four slot weights.
 function weightedLit(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
   if(s.block)return 0; // 4M block (v4.07): no lit weight — capital never flows to a blocked stock
@@ -5351,7 +5342,7 @@ function signalChip(t,key,pfKey){
   const loTag=hasLimitOrder(t,key)?`<div class="chip-lo">${loLabel(t,key)} LO</div>`:"";
   const wrap=(inner,style,cls,title)=>`<div class="chip ${cls||''}" style="${style||''}" ${title?`title="${title}"`:''} onclick="event.stopPropagation();toggleLimitOrder('${t}','${key}')">${inner}${loTag}</div>`;
   const valFmt=(v)=>v!=null?fmt(v,s.currency):"—";
-  // ---- P-MOS (Tier 1 only): firing / suppressed / not-firing. No owned-state (no pmos tranche). ----
+  // ---- P-MOS (Tier 1 only): firing / not-firing. No owned-state (no pmos tranche). ----
   if(key==='pmos'){
     const pmP=pmosPrice(s);if(!isOperationalTier1(t)||pmP==null)return "";
     const valStr=valFmt(pmP);
@@ -5362,8 +5353,6 @@ function signalChip(t,key,pfKey){
     }
     if(pmosFires(t))
       return wrap(`<div class="chip-lbl" style="color:#000">${lbl}</div><div class="chip-val" style="color:#000">${valStr}</div><div class="chip-sub" style="color:#000">fires</div>`,`background:${col};border-color:${col};box-shadow:0 0 8px ${col}55`);
-    if(pmosFiresRaw(s)) // raw firing but suppressed by a deeper signal
-      return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${valStr}</div><div class="chip-sub" style="color:${col}aa">supp.</div>`,`border-color:${col}80`,'chip-faint');
     const p0=s.currentPrice;let sub0="";
     if(p0&&p0>pmP){const g=Math.round((p0-pmP)/p0*100);const gc=g<10?"#d97706":"#8a90a6";sub0=`<span style="color:${gc};font-weight:${g<10?700:400}">▼${g}%</span>`;}
     return wrap(`<div class="chip-lbl">${lbl}</div><div class="chip-val">${valStr}</div><div class="chip-sub">${sub0}</div>`,"",'chip-dim');
@@ -7013,20 +7002,17 @@ function renderWatchlist(c){
     _wlTrigs.forEach(({l,v,p,k})=>{
       if(!v&&!p)return; // skip empty triggers entirely
       const muted=v&&isTriggerMuted(s,k);
-      // v4.81: P-MOS tile shows OPERATIONAL firing (pmosFires = raw AND not §2.6-suppressed),
-      // matching sigCount. Raw-firing-but-suppressed renders dim gold with a "⊘ deeper" hint.
-      const pmSupp=k==="pmos"&&v&&s.currentPrice!=null&&s.currentPrice<=v&&isPmosSuppressed(t);
-      const on=v&&s.currentPrice<=v&&!muted&&!pmSupp;const isClosest=ctr&&ctr.triggerName===l;
+      // v4.82: §2.6 suppression retired — P-MOS is a normal independent trigger (Tier 1 only).
+      const on=v&&s.currentPrice<=v&&!muted;const isClosest=ctr&&ctr.triggerName===l;
       // v4.41: per-trigger RoR = appreciation AND post-tax dividend yield both at THIS trigger
       // price (true yield-on-cost at that entry).
       const ir=v&&stk&&!muted?calcBuyReturn(s,stk,v):null;
-      const col=on?(k==="pmos"?"#fbbf24":"var(--green)"):pmSupp?"#fbbf2488":muted?"#d97706":"var(--muted)";const lo=hasLimitOrder(t,k);
+      const col=on?(k==="pmos"?"#fbbf24":"var(--green)"):muted?"#d97706":"var(--muted)";const lo=hasLimitOrder(t,k);
       const borderStyle=muted?"border:1.5px dashed #d97706":(isClosest?"border:1px solid var(--accent)":"");
       h+=`<div class="wl-trig" ${borderStyle?`style="${borderStyle}"`:''}>
         <div class="wl-trig-label">${l}${isClosest?" ★":""}${muted?" ⌀":""}</div>
         <div class="wl-trig-val" style="color:${col}${muted?";opacity:0.6":""}">${v?fmt(v,s.currency):"—"}</div>
         ${muted?`<div style="font-size:8px;color:#d97706;font-family:var(--mono)">≥ sticker</div>`:""}
-        ${pmSupp?`<div style="font-size:8px;color:#fbbf2488;font-family:var(--mono)" title="§2.6: a deeper trigger is firing — P-MOS suppressed, one tranche deploys at the deeper price">⊘ deeper firing</div>`:""}
         ${ir!=null?`<div style="font-size:9px;font-family:var(--mono);color:${col}">${(ir*100).toFixed(1)}%</div>`:""}
         ${p?`<div class="wl-trig-phil">Phil: ${fmt(p,s.currency)}</div>`:""}
         ${v?`<div style="margin-top:2px;cursor:pointer;font-size:8px;font-family:var(--mono);padding:1px 4px;border-radius:3px;text-align:center;${lo?"background:#0e7490;color:#67e8f9":"background:var(--bg);color:var(--muted);opacity:0.5"}" onclick="event.stopPropagation();toggleLimitOrder('${t}','${k}')">${lo?loLabel(t,k)+" LO":"LO"}</div>`:""}
