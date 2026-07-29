@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.82</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.83</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -447,21 +447,63 @@ function calcFreshness(ts){
 // Earnings calendar: format and classify earnings date relative to today and lastCalcDate
 function earningsInfo(s){
   const ed=s.earningsDate;const lc=s.lastCalcDate;
+  const fmtD=ts=>new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  // v4.83: pending review — a passed earnings date was auto-rolled forward to the next
+  // quarter by the Yahoo earnings fetch before the user looked at the report. Keep
+  // flagging the OLD date until triggers are recalced (lastCalc catches up) or the
+  // user taps ✓ Reviewed on the banner.
+  if(s.pendingEarningsReview){
+    const pd=s.pendingEarningsReview;
+    const done=(lc&&lc>=pd)||(s.earningsReviewed&&s.earningsReviewed>=pd);
+    if(done){delete s.pendingEarningsReview;}
+    else return{label:"📅 "+fmtD(pd)+" → review",color:"var(--amber)",status:"stale",days:Math.ceil((pd-Date.now())/86400000),soon:false,pendingDate:pd,nextDate:ed};
+  }
   if(!ed)return null;
-  const now=Date.now();const dt=new Date(ed);
+  const now=Date.now();
   const daysUntil=Math.ceil((ed-now)/86400000);
-  const fmt=dt.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  const fmt=fmtD(ed);
   // Upcoming: within next 30 days
   if(daysUntil>0&&daysUntil<=30)return{label:"📅 "+fmt,color:"var(--accent)",status:"upcoming",days:daysUntil,soon:daysUntil<=14};
-  // Just reported: in the past, check if triggers are stale
+  // Just reported: in the past, check if triggers are stale (recalc OR explicit ✓ Reviewed clears it)
   if(daysUntil<=0&&daysUntil>=-90){
-    if(lc&&lc>=ed)return{label:"✓ "+fmt,color:"var(--green)",status:"fresh",days:daysUntil,soon:false};
+    if((lc&&lc>=ed)||(s.earningsReviewed&&s.earningsReviewed>=ed))return{label:"✓ "+fmt,color:"var(--green)",status:"fresh",days:daysUntil,soon:false};
     return{label:"📅 "+fmt+" → update",color:"var(--amber)",status:"stale",days:daysUntil,soon:false};
   }
   // Far future (>30 days)
   if(daysUntil>30)return{label:"📅 "+fmt,color:"var(--muted)",status:"future",days:daysUntil,soon:false};
   // Old (>90 days ago)
   return null;
+}
+
+// v4.83: apply an auto-fetched earnings date without losing the "you haven't looked at
+// the last report yet" prompt, and without ever clearing a stored date (Yahoo returning
+// nothing for a symbol simply leaves the old date in place — this fn is never called).
+// Returns true if s.earningsDate actually changed.
+function applyEarningsDate(s,newEd){
+  if(!newEd)return false;
+  const old=s.earningsDate;
+  if(newEd===old)return false;
+  const now=Date.now();
+  // Yahoo behind our data (a past date older than the stored one) → keep ours.
+  if(old&&newEd<old&&newEd<now)return false;
+  // Stored date has passed and Yahoo rolled to the next quarter: preserve the review
+  // prompt on the old date unless triggers were already recalced / marked reviewed.
+  if(old&&old<now&&newEd>old){
+    const done=(s.lastCalcDate&&s.lastCalcDate>=old)||(s.earningsReviewed&&s.earningsReviewed>=old);
+    if(!done&&!s.pendingEarningsReview)s.pendingEarningsReview=old;
+  }
+  s.earningsDate=newEd;
+  return true;
+}
+
+// v4.83: ✓ Reviewed on the earnings banner — "I've looked at this report". Clears the
+// stale/pending flag without requiring a trigger recalc (Q-only reviews per framework:
+// quarterly data alone never updates lastCalc, so recalc can't be the only clear path).
+function markEarningsReviewed(t){
+  const s=stocks[t];if(!s)return;
+  s.earningsReviewed=s.pendingEarningsReview||s.earningsDate;
+  delete s.pendingEarningsReview;
+  save();render();
 }
 
 // Earnings date display snippet for stock cards
@@ -2900,8 +2942,8 @@ async function fetchPrices(){
           const mult=(s.priceMult&&s.priceMult>0)?s.priceMult:1;
           if(!s.priceMult||s.priceMult<=0){s.priceMult=1;window._priceDiag.zeroPriceMult.push(t);}
           s.currentPrice=q.price*mult;s.lastUpdate=Date.now();s.priceSource="yahoo";
-          if(q.earningsTimestamp&&q.earningsTimestamp>0){s.earningsDate=q.earningsTimestamp*1000;}
-          else if(q.earningsDate&&q.earningsDate>0){s.earningsDate=q.earningsDate;}
+          if(q.earningsTimestamp&&q.earningsTimestamp>0){applyEarningsDate(s,q.earningsTimestamp*1000);}
+          else if(q.earningsDate&&q.earningsDate>0){applyEarningsDate(s,q.earningsDate);}
           updateSignals(t);yfOk++;
           window._priceDiag.applied.push({t,sym,price:q.price});
         }else{
@@ -2925,6 +2967,31 @@ async function fetchPrices(){
       }catch(e){}
     }
     checkEtfDrawdowns(); // v4.05: fire -10/-20/-30% band notifications vs 12m trailing high
+  }
+
+  // 3c. v4.83: Earnings dates via push worker /earnings (crumb-authenticated Yahoo v7 quote).
+  // Dates change rarely — fetch at most once per 20h. A symbol Yahoo has no date for is
+  // absent from the response and its stored date is left untouched (never cleared).
+  if(settings.pushWorkerUrl&&(!settings.lastEarningsFetch||Date.now()-settings.lastEarningsFetch>20*3600*1000)){
+    try{
+      const eStocks=Object.entries(stocks).filter(([t,s])=>s.finnhubSymbol);
+      const eBase=settings.pushWorkerUrl.replace(/\/+$/,"");
+      let eApplied=0;
+      for(let i=0;i<eStocks.length;i+=20){
+        const batch=eStocks.slice(i,i+20);
+        const syms=batch.map(([t,s])=>s.finnhubSymbol).join(",");
+        const er=await fetch(`${eBase}/earnings?symbols=${encodeURIComponent(syms)}`);
+        const edata=await er.json();
+        if(edata&&edata._error){console.warn("earnings worker:",edata._error);continue;}
+        batch.forEach(([t,s])=>{
+          const e=edata&&edata[s.finnhubSymbol];
+          if(e&&e.earningsTimestamp>0){if(applyEarningsDate(s,e.earningsTimestamp*1000))eApplied++;}
+        });
+      }
+      settings.lastEarningsFetch=Date.now();
+      if(eApplied)save();else localStorage.setItem("r1-settings",JSON.stringify(settings));
+      window._priceDiag.earningsApplied=eApplied;
+    }catch(e){console.warn("earnings fetch failed",e);}
   }
 
   // Re-enable buy modals, then queue for signals that genuinely changed (off before refresh → on after)
@@ -5129,11 +5196,15 @@ function renderEarningsBanner(){
     const icon=ei.status==="upcoming"?"📅":"⚠️";
     const msg=ei.status==="upcoming"?
       `<strong>${s.flag} ${t}</strong> reports in <strong>${ei.days}d</strong> — prep trigger inputs`:
+      ei.pendingDate?
+      `<strong>${s.flag} ${t}</strong> reported ${ei.label.replace("📅 ","").replace(" → review","")} — <strong>review earnings call</strong> · next ${new Date(ei.nextDate).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}`:
       `<strong>${s.flag} ${t}</strong> reported ${ei.label.replace("📅 ","").replace(" → update","")} — <strong>triggers need update</strong>`;
     // Upcoming → hide until earnings day. Stale → snooze for the rest of today.
     const dismissTitle=ei.status==="upcoming"?"Dismiss until earnings day":"Snooze until tomorrow";
+    // v4.83: ✓ Reviewed permanently clears the stale/pending flag (× only snoozes a day)
+    const reviewBtn=ei.status==="stale"?` <span class="alert-dismiss" style="color:var(--green)" onclick="event.stopPropagation();markEarningsReviewed('${t}')" title="Mark earnings call reviewed — clears this flag">✓</span>`:"";
     const dismissBtn=` <span class="alert-dismiss" onclick="event.stopPropagation();dismissEarningsBanner('${t}')" title="${dismissTitle}">×</span>`;
-    h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px;display:flex;align-items:center"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px;flex:1">${msg}</span>${dismissBtn}</div>`;
+    h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px;display:flex;align-items:center"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px;flex:1">${msg}</span>${reviewBtn}${dismissBtn}</div>`;
   });
   h+='</div>';return h;
 }
@@ -8052,7 +8123,7 @@ function openEditStock(t){
     if(gateVal==="FAIL"&&s.gate!==false){
       if(!confirm(`⚠️ Setting ${t} gate to FAIL triggers a SELL ALL alert.\n\nThis means the business fundamentals have broken down and all tranches should be sold immediately.\n\nAre you sure?`)){return false;}
     }
-    const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed))s.earningsDate=ed.getTime();}else{s.earningsDate=null;}
+    const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed)){s.earningsDate=ed.getTime();if(s.pendingEarningsReview){s.earningsReviewed=s.pendingEarningsReview;delete s.pendingEarningsReview;}}}else{s.earningsDate=null;delete s.pendingEarningsReview;}
     s.gate=(gateVal==="FAIL")?false:true;
     // Category — Phil Town / Buffett / Risk (Risk is per-portfolio: applies to currentPf only)
     const catVal=gv("es-cat");
