@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.83</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.84</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2433,6 +2433,25 @@ function litCapHeadroomBase(ticker,pfKey,base){
 // True when a lit stock's TOTAL cost basis is at/above its owned∪lit slot cap — deploys nothing.
 function atLitCap(ticker,pfKey,base){
   return deployCount(ticker,pfKey)>0 && litCapHeadroomBase(ticker,pfKey,base)<=0.5;
+}
+// === v4.84: SHARED per-stock deployable-room calculation ===
+// Single source of truth used by BOTH the monthly Allocator and the Tranche Balance card, so
+// their numbers can never diverge again. The only difference between the two call sites is the
+// base: the Allocator passes base = P1+P3+DP cost + THIS MONTH'S SALARY (extraBase = income),
+// while Tranche Balance passes base = trancheBase(pfKey) (P1+P3+DP as it sits right now,
+// extraBase = 0) — i.e. what could be deployed from CURRENT dry powder today.
+// room = min( Σ per-lit-tranche room (each lit tranche targets 4% of base, matched by tranche
+// label), hard-cap headroom (validSlots × 4%, v4.32), owned∪lit slot-cap headroom (v4.67, nets
+// overfilled tranches — lit or dark — against underfilled lit siblings) ).
+// Returns {room, capped, litCapped, tops}: room in base ccy; capped = at hard position cap;
+// litCapped = at owned∪lit cap; tops = per-lit-tranche breakdown from litTrancheTopups.
+function stockDeployRoomBase(ticker,pfKey,base,extraBase){
+  if(atPositionCap(ticker,pfKey,extraBase||0))return{room:0,capped:true,litCapped:false,tops:[]};
+  const tops=litTrancheTopups(ticker,pfKey,base);
+  const rawRoom=tops.reduce((a,x)=>a+x.roomBase,0);
+  const capHeadroom=Math.max(0,positionCapPct(ticker,pfKey)*base-posCostBasisBase(ticker,pfKey));
+  const litHeadroom=litCapHeadroomBase(ticker,pfKey,base);
+  return{room:Math.min(rawRoom,capHeadroom,litHeadroom),capped:false,litCapped:atLitCap(ticker,pfKey,base),tops};
 }
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
@@ -6357,31 +6376,47 @@ function renderMonthlyBanner(){
   });
   h+=`</div></div>`;return h;
 }
-// === v4.09: Tranche Balance card — over/under-bought per stock at flat 4%/tranche. ===
-// Uses CURRENT cost basis only (trancheBase = Pool1 cost + Pool3 cost + DP). No future salary
-// is added. For every owned non-trophy position the target is (open tranches × 4% × base);
-// actual is the position's cost basis. Sorted most over-allocated → most under-allocated.
+// === v4.09 → v4.84: Tranche Balance card — SAME math as the monthly Allocator. ===
+// v4.84 rewrite: the deployable amount per stock now comes from stockDeployRoomBase(), the exact
+// function the Allocator uses — per-LIT-tranche 4% targets matched by tranche label, clamped by
+// the hard slots×4% cap (v4.32) and the owned∪lit slot cap (v4.67). The ONLY difference vs the
+// Allocator: base here = trancheBase(pfKey) (P1+P3+DP cost AS IT SITS NOW — deploy from current
+// dry powder), while the Allocator adds this month's salary to the base before calculating.
+// A row turns GREEN ("BUY") when its deployable room exceeds the $500 transaction floor — a
+// standing prompt that DP could be deployed into that stock's lit tranches right now.
+// The old owned-tranches×4% target is kept for the OVER/trim side (Layer 1/2 prompts) and for
+// the informational gap on dark (unlit) tranches, which deploy nothing until their signal fires.
 // Works for both Personal and Caca (pfKey).
 function renderTrancheBalanceCard(pfKey){
   const pf=portfolios[pfKey];if(!pf)return"";
-  const bs=pfSym(pfKey);const tb=trancheBase(pfKey);
+  const bs=pfSym(pfKey);const tb=trancheBase(pfKey);const _bc=pfBaseCcy(pfKey);
   const _tFrac=trancheFrac(pfKey);const _tPct=Math.round(_tFrac*100);
   const trancheVal=tb*_tFrac;
+  // $500 transaction-cost floor (same constant as the Allocator), in base ccy.
+  const _minDeployBase=fromEUR(toEUR(500,"USD"),_bc);
   const rows=[];
   Object.keys(pf.positions||{}).forEach(t=>{
     if(isRisk(t,pfKey))return;                            // v4.13: risk bucket (Pool 3) excluded — it has its own card
-    const st=trancheAllocStatus(t,pfKey);if(!st)return;
-    rows.push({ticker:t,...st});
+    const st=trancheAllocStatus(t,pfKey);if(!st)return;   // owned-tranche target (OVER/trim + dark-gap info)
+    const dr=stockDeployRoomBase(t,pfKey,tb,0);           // v4.84: allocator-identical room, DP-only base
+    const buyable=dr.room>_minDeployBase;                 // green threshold: room > $500
+    rows.push({ticker:t,...st,room:dr.room,tops:dr.tops,litCapped:dr.litCapped,hardCapped:dr.capped,buyable});
   });
   if(!rows.length)return"";
-  // Most over-allocated first, then balanced, then most under-allocated.
-  rows.sort((a,b)=>b.diff-a.diff);
+  // Actionable first: green BUY rows (largest room first), then OVER rows (largest excess), then rest.
+  rows.sort((a,b)=>{
+    if(a.buyable!==b.buyable)return a.buyable?-1:1;
+    if(a.buyable)return b.room-a.room;
+    const aOver=a.status==="over",bOver=b.status==="over";
+    if(aOver!==bOver)return aOver?-1:1;
+    return b.diff-a.diff;
+  });
   let h=`<div class="alloc-card" style="margin-top:12px;border:1px solid #60a5fa33">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <span style="font-size:14px;font-weight:700;color:var(--accent)">⚖️ Tranche Balance</span>
-      <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_tPct}%/tranche · current size</span></div>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_tPct}%/tranche · from current DP</span></div>
     <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:10px;color:var(--muted)">1 tranche = ${_tPct}% of P1+P3+DP cost (${bs}${Math.round(tb).toLocaleString()})</span>
+      <span style="font-size:10px;color:var(--muted)">1 tranche = ${_tPct}% of P1+P3+DP cost (${bs}${Math.round(tb).toLocaleString()}) · allocator adds salary, this card doesn't</span>
       <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${bs}${Math.round(trancheVal).toLocaleString()}</span></div>`;
   rows.forEach(r=>{
     const s=stocks[r.ticker];const flag=s?.flag||"";
@@ -6395,33 +6430,41 @@ function renderTrancheBalanceCard(pfKey){
     const dual=(baseAmt)=>sameCcy?`${bs}${Math.round(baseAmt).toLocaleString()}`:`${bs}${Math.round(baseAmt).toLocaleString()} · ${nat(baseAmt)}`;
     // v4.11: dim when triggers are muted because price ran above sticker.
     // v4.12: also dim when no signal is currently lit (deployCount 0) — the position may be
-    // underallocated, but it's not time to add (price is above every live trigger). The row stays
-    // visible (you still see the tranche count + gap) but greyed so it doesn't read as a buy prompt.
+    // underallocated, but it's not time to add (price is above every live trigger).
     const mutedHigh=allTriggersMutedHigh(r.ticker);
     const unlit=deployCount(r.ticker,pfKey)===0;          // nothing would deploy right now
-    // v4.71 display rules for OVER rows (replaces v4.23 trigger-coupled highlighting):
-    //  · OVER (>10% above tranche target) and in profit → AMBER — loss-free trim available
-    //  · OVER but below avg cost (underwater)           → dimmed/dark — trim would book a loss
-    // UNDER rows: GREEN only when a trigger is actually lit (undervalued + signal firing);
-    // otherwise dimmed as before. mutedHigh/unlit no longer dim an OVER-in-profit row —
-    // those flags gate BUY prompts, and an over-in-profit row is a TRIM prompt.
-    // (Note: trancheAllocStatus only reports "over" when the position is >10% above its
-    // tranche target, so the 10%-overallocation threshold is already baked into r.status.)
+    // v4.71 display rules for OVER rows (unchanged in v4.84):
+    //  · OVER (>10% above owned-tranche target) and in profit → AMBER — loss-free trim available
+    //  · OVER but below avg cost (underwater)                  → dimmed — trim would book a loss
+    // v4.84 BUY rows: GREEN when allocator-identical deployable room (DP-only base) > $500 —
+    // the same dollars the Allocator would send this stock if salary were zero. Room already
+    // respects per-lit-tranche 4% targets, the hard slots×4% cap and the owned∪lit cap, so a
+    // green row is always actually buyable from current DP.
     const marginPct=posProfitMarginPct(r.ticker,pfKey);   // % above avg cost, null if unknown
     const overInProfit=r.status==="over"&&posInProfit(r.ticker,pfKey);
     const overUnderwater=r.status==="over"&&!overInProfit;
+    const buy=r.buyable&&!overInProfit&&!overUnderwater;  // OVER outranks BUY (shouldn't co-occur — caps prevent it)
+    const smallRoom=!buy&&r.status!=="over"&&r.room>0.5;  // lit room exists but ≤ $500 floor
+    // Dark-tranche gap: shortfall vs the owned-tranche target that sits in UNLIT tranches —
+    // informational only, deploys nothing until the signal fires. Netting via max(0,…).
+    const darkGap=Math.max(0,(r.target-r.actual)-r.room);
     const dimmed=overUnderwater||((mutedHigh||unlit)&&!overInProfit);
-    const col=dimmed?"var(--muted)":overInProfit?"var(--amber)":r.status==="under"?"var(--green)":"var(--muted)";
-    const bg=dimmed?"var(--bg)":overInProfit?"#332d0d":r.status==="under"?"#0d332060":"var(--bg)";
-    const tag=r.status==="over"?"OVER":r.status==="under"?"UNDER":"✓ balanced";
-    const gapTxt=r.status==="balanced"
-      ? `within 10%`
-      : `${r.diff>0?"+":"−"}${dual(Math.abs(r.diff))} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
+    const col=buy?"var(--green)":dimmed?"var(--muted)":overInProfit?"var(--amber)":"var(--muted)";
+    const bg=buy?"#0d332060":dimmed?"var(--bg)":overInProfit?"#332d0d":"var(--bg)";
+    const tag=buy?"🟢 BUY":r.status==="over"?"OVER":smallRoom?"UNDER":r.status==="under"?"UNDER":"✓ balanced";
+    const gapTxt=buy?`+${dual(r.room)} deployable`
+      :r.status==="balanced"&&!smallRoom?`within 10%`
+      :smallRoom?`+${dual(r.room)} room`
+      :`${r.diff>0?"+":"−"}${dual(Math.abs(r.diff))} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
+    // Per-lit-tranche breakdown for BUY rows (same labels + amounts the Allocator shows).
+    const buyLines=buy?r.tops.filter(x=>x.roomBase>0.5).map(x=>`${x.label} ${fmt(Math.round(x.roomLocal),x.ccy)}`).join(" · "):"";
     const action=overUnderwater?"over target but below avg cost — trim would book a loss"
       :overInProfit?`over target, in profit${marginPct!=null?" ("+marginPct.toFixed(0)+"% above avg cost)":""} — trim possible without loss`
+      :buy?`deployable from current DP now${darkGap>0.5?` · dark-tranche gap ${dual(darkGap)} waits for signal`:""}`
+      :smallRoom?`lit room ${dual(r.room)} below $500 floor — hold`
+      :r.litCapped&&!unlit?`total cost ≥ owned∪lit × ${_tPct}% — waits for base growth or new signal`
       :mutedHigh?"price above sticker — all triggers muted"
       :unlit?(r.status==="under"?"underallocated — no signal firing, hold":"no signal firing")
-      :r.status==="under"?`room for ${dual(Math.abs(r.diff))} more`
       :"on target";
     h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px${dimmed?";opacity:0.5":""}">
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -6430,6 +6473,7 @@ function renderTrancheBalanceCard(pfKey){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
         <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">have ${dual(r.actual)}</span>
         <span style="font-size:10px;font-family:var(--mono);color:${col}">${gapTxt}</span></div>
+      ${buyLines?`<div style="font-size:10px;color:var(--green);font-family:var(--mono);margin-top:2px">${buyLines}</div>`:""}
       <div style="font-size:9px;color:var(--muted);margin-top:2px">${action}</div></div>`;
   });
   h+=`</div>`;
@@ -6503,16 +6547,9 @@ function renderAllocator(c){
     // against underfilled ones, so a position at/above its slot cap in aggregate gets zero room even
     // when one of its tranches is individually below its 4% target. A capped stock → 0 room.
     const stockRoom={};                                     // ticker → room in base ccy
-    firingStocks.forEach(t=>{
-      if(atPositionCap(t,'personal',_capExtra)){stockRoom[t]=0;return;}
-      const tops=litTrancheTopups(t,'personal',_capBase);
-      let room=tops.reduce((a,x)=>a+x.roomBase,0);
-      // v4.32 hard-ceiling clamp: total cost basis can never pass slots × 4% of the base.
-      const _capHeadroom=Math.max(0, positionCapPct(t,'personal')*_capBase - posCostBasisBase(t,'personal'));
-      // v4.64 lit-slot clamp: total cost basis can't pass (deploying slots) × 4% of the base.
-      const _litHeadroom=litCapHeadroomBase(t,'personal',_capBase);
-      stockRoom[t]=Math.min(room,_capHeadroom,_litHeadroom);
-    });
+    // v4.84: room math extracted to stockDeployRoomBase (shared with the Tranche Balance card).
+    // Allocator base = P1+P3+DP + this month's salary; Tranche Balance uses the DP-only base.
+    firingStocks.forEach(t=>{stockRoom[t]=stockDeployRoomBase(t,'personal',_capBase,_capExtra).room;});
     // Iterative fill: distribute deployable income across lit, under-cap stocks by weighted-lit
     // share. When a stock fills its room, the unabsorbed remainder is redistributed across the
     // stocks that still have room (next pass), until either the income is exhausted or no stock
