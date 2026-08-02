@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.84</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.85</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5439,7 +5439,9 @@ function signalChip(t,key,pfKey){
     if(hasTrancheForSignal(t,'pmos',pfKey)){ // P-MOS tranche held → owned (action done)
       if(pmosFiresRaw(s)) // owned AND price back at/below P-MOS → re-firing, louder treatment
         return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${valStr}</div><div class="chip-sub" style="color:#34d399;font-weight:700">✓●fires</div>`,`background:${col}26;border-color:${col};box-shadow:0 0 6px ${col}55`,'','Owned & firing again');
-      return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${valStr}</div><div class="chip-sub" style="color:#34d399">✓ owned</div>`,`background:${col}12;border-color:${col}55`);
+      const _pmP0=s.currentPrice;let _pmGap="";
+      if(_pmP0&&_pmP0>pmP){const g=Math.round((_pmP0-pmP)/_pmP0*100);const gc=g<10?"#d97706":"#8a90a6";_pmGap=` <span style="color:${gc};font-weight:${g<10?700:400}">▼${g}%</span>`;}
+      return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${valStr}</div><div class="chip-sub" style="color:#34d399">✓ owned${_pmGap}</div>`,`background:${col}12;border-color:${col}55`);
     }
     if(pmosFires(t))
       return wrap(`<div class="chip-lbl" style="color:#000">${lbl}</div><div class="chip-val" style="color:#000">${valStr}</div><div class="chip-sub" style="color:#000">fires</div>`,`background:${col};border-color:${col};box-shadow:0 0 8px ${col}55`);
@@ -5479,8 +5481,11 @@ function signalChip(t,key,pfKey){
   }
   if(st.cls==='hold'){
     // OWNED, QUIET: held but price is above the trigger — no live signal. Faint tint, muted caption.
+    // v4.85: show ▼X% drop-to-refire so owned tranches read the same as unowned ones.
     const act=activationPrice(s,t);
-    return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:#34d399">✓ owned</div>`,`background:${col}12;border-color:${col}55`,'',act?`Owned — activation ${fmt(act,s.currency)}`:'Owned');
+    const _hP=s.currentPrice,_hTr=s.cons[key];let _hGap="";
+    if(_hP&&_hTr&&_hP>_hTr){const g=Math.round((_hP-_hTr)/_hP*100);const gc=g<10?"#d97706":"#8a90a6";_hGap=` <span style="color:${gc};font-weight:${g<10?700:400}">▼${g}%</span>`;}
+    return wrap(`<div class="chip-lbl" style="color:${col}">${lbl}</div><div class="chip-val" style="color:${col}">${tv}</div><div class="chip-sub" style="color:#34d399">✓ owned${_hGap}</div>`,`background:${col}12;border-color:${col}55`,'',act?`Owned — activation ${fmt(act,s.currency)}`:'Owned');
   }
   if(st.cls==='track')
     return wrap(`<div class="chip-lbl" style="color:#60a5fa">${lbl}</div><div class="chip-val" style="color:#60a5fa">${st.sub}</div><div class="chip-sub" style="color:#60a5fa">trail</div>`,`background:#60a5fa18;border-color:#60a5fa55`);
@@ -6098,6 +6103,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             <span class="tr-signal" style="background:${col}22;color:${col}">${tr.signal}</span>
             <span style="font-size:13px;font-family:var(--mono);font-weight:600">${fmtSh(sh)} sh</span>
             <span style="font-size:10px;color:var(--muted)">@ ${fmt(tr.buyPrice,s.currency)}</span>
+            ${(()=>{if(!cp||!tr.buyPrice)return"";const _tp=(cp-tr.buyPrice)/tr.buyPrice*100;const _tc=_tp<0?"var(--green)":"var(--accent)";return `<span style="font-size:9px;color:${_tc};font-weight:700" title="Current price vs this tranche's own cost basis">${_tp<0?"":"+"}${_tp.toFixed(1)}%</span>`;})()}
           </div>
           <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px" onclick="openTrEdit('${currentPf}','${ticker}',${origIdx})">edit</span>
         </div>`;
