@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.85</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.86</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -6081,9 +6081,20 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
     // MOS reserve bar removed (v2.94)
 
-    // Tranche rows with unified activation price — sorted PBT/DMOS → 10Cap/20Cap → MOS
-    const sigOrder={PBT:0,DMOS:0,"10Cap":1,"20Cap":1,MOS:2,trophy:3,hold:4};
-    const active=pos.tranches.filter(t=>(t.bought-t.sold)>0).sort((a,b)=>(sigOrder[a.signal]??9)-(sigOrder[b.signal]??9));
+    // Tranche rows — sorted by TRIGGER PRICE (high → low), matching the chip-strip ordering
+    // convention (chipStripHtml sorts the same way). Tranches with no trigger (trophy/hold/manual
+    // "avg" entries) sort last since there's nothing to rank them against.
+    // v4.86: per-tranche figure changed from price-vs-buyPrice gain% (wrong metric — that's
+    // just this tranche's personal P&L) to this tranche's OWN cost basis as a % of the same
+    // P1+P3+DP base used for the stock-level figure above, so the per-tranche %s sum to it.
+    const _sigToTrigKey={"MOS":"mos","10Cap":"tenCap","20Cap":"tenCap",PBT:"pbt",DMOS:"pbt","P-MOS":"pmos"};
+    const trTrigPrice=(sig)=>{const k=_sigToTrigKey[sig];return k?chipTrigValue(ticker,k):null;};
+    const _baseCcy=pfBaseCcy(currentPf),_trB=trancheBase(currentPf);
+    const active=pos.tranches.filter(t=>(t.bought-t.sold)>0).sort((a,b)=>{
+      const pa=trTrigPrice(a.signal),pb=trTrigPrice(b.signal);
+      if(pa==null&&pb==null)return 0;if(pa==null)return 1;if(pb==null)return -1;
+      return pb-pa;
+    });
     active.forEach((tr,i)=>{
       const origIdx=pos.tranches.indexOf(tr);
       const sh=tr.bought-tr.sold;const col=SC[tr.signal]||"var(--muted)";
@@ -6096,14 +6107,17 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       const stopHit=dd>=25;
       const state=tr.state||"accumulating";
       const stateIcon=state==="stopped"?"🚨":state==="stopActive"?"📈":"";
+      const _trigP=trTrigPrice(tr.signal);
+      const _trCostPct=(!isTrophy&&_trB>0)?(fromEUR(toEUR(sh*tr.buyPrice,s.currency),_baseCcy)/_trB*100):null;
 
       h+=`<div style="padding:8px;background:var(--bg);border-radius:8px;border-left:3px solid ${col};margin-bottom:4px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div style="display:flex;align-items:center;gap:6px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <span class="tr-signal" style="background:${col}22;color:${col}">${tr.signal}</span>
             <span style="font-size:13px;font-family:var(--mono);font-weight:600">${fmtSh(sh)} sh</span>
             <span style="font-size:10px;color:var(--muted)">@ ${fmt(tr.buyPrice,s.currency)}</span>
-            ${(()=>{if(!cp||!tr.buyPrice)return"";const _tp=(cp-tr.buyPrice)/tr.buyPrice*100;const _tc=_tp<0?"var(--green)":"var(--accent)";return `<span style="font-size:9px;color:${_tc};font-weight:700" title="Current price vs this tranche's own cost basis">${_tp<0?"":"+"}${_tp.toFixed(1)}%</span>`;})()}
+            ${_trigP!=null?`<span style="font-size:9px;color:var(--muted)" title="Trigger price for this tranche's signal">trig ${fmt(_trigP,s.currency)}</span>`:""}
+            ${_trCostPct!=null?`<span style="font-size:9px;color:var(--accent);font-weight:700" title="This tranche's cost basis as % of the P1+P3+DP base">${_trCostPct.toFixed(1)}%</span>`:""}
           </div>
           <span style="font-size:10px;color:var(--accent);cursor:pointer;padding:2px 6px" onclick="openTrEdit('${currentPf}','${ticker}',${origIdx})">edit</span>
         </div>`;
