@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.86</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.87</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -372,7 +372,7 @@ const PF_DEFAULTS={
     WKL:{tranches:[{signal:"10Cap",bought:67.97,sold:0,buyPrice:61.82},{signal:"PBT",bought:67.96,sold:0,buyPrice:61.82}]}}}
 };
 
-let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,dpTargetMode:"pct",dpTieredCapPct:50,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",indexTickerFFE:"XFFE.L",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexTickerFFE:"XFFE.L",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
+let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,fxKRW:1640,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,dpTargetMode:"pct",dpTieredCapPct:50,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",indexTickerFFE:"XFFE.L",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexTickerFFE:"XFFE.L",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
 // watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
 let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
@@ -428,7 +428,7 @@ function capitalRecoverySizing(p,anchorPrice){
   return{sellShares:sell,residualShares:Math.max(0,openShares-sell),invested,anchorPrice};
 }
 function timeAgo(ts){if(!ts)return"—";const d=Date.now()-ts,m=Math.floor(d/60000),h=Math.floor(d/3600000),dy=Math.floor(d/86400000);if(m<1)return"just now";if(m<60)return m+"m ago";if(h<24)return h+"h ago";return dy+"d ago";}
-function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";if(ccy==="CAD")return"C$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="JPY")return"¥"+n.toLocaleString("en",{maximumFractionDigits:0});return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmt(v,ccy){if(v==null)return"—";const n=Number(v);if(isNaN(n))return"—";if(ccy==="EUR")return"€"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="GBp")return n.toLocaleString("en",{maximumFractionDigits:0})+"p";if(ccy==="CAD")return"C$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});if(ccy==="JPY")return"¥"+n.toLocaleString("en",{maximumFractionDigits:0});if(ccy==="KRW")return"₩"+n.toLocaleString("en",{maximumFractionDigits:0});return"$"+n.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtSh(n){if(n==null)return"0";return Number.isInteger(n)?String(n):n.toFixed(2);}
 // Escape HTML entities in user-supplied text to prevent injection
 function esc(s){if(!s)return"";return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
@@ -1327,9 +1327,9 @@ function getClosestTriggerReturn(t){const s=stocks[t];const mos=s?.cons?.mos;if(
   const liveReturn=calcBuyReturn(s,sticker,s.currentPrice);
   return{triggerName:closest.name,triggerPrice:closest.price,impliedReturn:ir,liveReturn,aboveMarr:ir>=0.15};}
 // FIX #5: Convert any currency amount to EUR for allocation
-function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="GBP")return amount/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;if(ccy==="JPY")return amount/settings.fxJPY;return amount;}
-function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;if(ccy==="GBP")return eur*settings.fxGBP;if(ccy==="CAD")return eur*settings.fxCAD;if(ccy==="JPY")return eur*settings.fxJPY;return eur;}
-// v4.15: format a EUR amount across every currency the app trades in (USD, EUR, GBP, CAD, JPY).
+function toEUR(amount,ccy){if(ccy==="EUR")return amount;if(ccy==="USD")return amount/settings.fxRate;if(ccy==="GBp")return(amount/100)/settings.fxGBP;if(ccy==="GBP")return amount/settings.fxGBP;if(ccy==="CAD")return amount/settings.fxCAD;if(ccy==="JPY")return amount/settings.fxJPY;if(ccy==="KRW")return amount/settings.fxKRW;return amount;}
+function fromEUR(eur,ccy){if(ccy==="EUR")return eur;if(ccy==="USD")return eur*settings.fxRate;if(ccy==="GBp")return eur*settings.fxGBP*100;if(ccy==="GBP")return eur*settings.fxGBP;if(ccy==="CAD")return eur*settings.fxCAD;if(ccy==="JPY")return eur*settings.fxJPY;if(ccy==="KRW")return eur*settings.fxKRW;return eur;}
+// v4.15: format a EUR amount across every currency the app trades in (USD, EUR, GBP, CAD, JPY, KRW).
 // Used by the New Entry Deployment tranche-size banners in both portfolios so the displayed
 // tranche size covers all listing currencies, not just USD/EUR/GBP.
 function fmtTrancheAllCcy(eur){
@@ -1339,6 +1339,7 @@ function fmtTrancheAllCcy(eur){
     "£"+Math.round(fromEUR(eur,"GBP")).toLocaleString(),
     "C$"+Math.round(fromEUR(eur,"CAD")).toLocaleString(),
     "¥"+Math.round(fromEUR(eur,"JPY")).toLocaleString(),
+    "₩"+Math.round(fromEUR(eur,"KRW")).toLocaleString(),
   ];
   return parts.join(" · ");
 }
@@ -1851,13 +1852,13 @@ function risklistTrancheAmountLocal(entry,n){
 // Ensure a minimal stocks{} stub exists for every Risklist ticker so the existing
 // price-fetch pipeline picks them up. Called on load and after every Risklist mutation.
 function syncRisklistStockStubs(){
-  const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+  const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
   risklist.forEach(e=>{
     if(!stocks[e.ticker]){
       // Create a price-only stub. Status "risklist" keeps it out of watchlist/grid views.
       // No cons/signals — Risklist has no formula-based triggers.
       stocks[e.ticker]={name:e.name||e.ticker,currency:e.currency||"USD",moat:"",sector:"",flag:flags[e.currency]||"🌍",
-        status:"risklist",finnhubSymbol:e.currency==="GBp"?e.ticker+".L":e.currency==="CAD"?e.ticker+".TO":e.currency==="JPY"?e.ticker+".T":e.ticker,
+        status:"risklist",finnhubSymbol:e.currency==="GBp"?e.ticker+".L":e.currency==="CAD"?e.ticker+".TO":e.currency==="JPY"?e.ticker+".T":e.currency==="KRW"?e.ticker+".KS":e.ticker,
         priceMult:1,currentPrice:0,gate:true,cons:null,phil:null,signals:null};
     }
   });
@@ -2616,9 +2617,11 @@ function load(){
     if(s.currency==="GBp"&&!s.finnhubSymbol)s.finnhubSymbol=t+".L";
     if(s.currency==="CAD"&&!s.finnhubSymbol)s.finnhubSymbol=t+".TO";
     if(s.currency==="JPY"&&!s.finnhubSymbol)s.finnhubSymbol=t+".T";
+    if(s.currency==="KRW"&&!s.finnhubSymbol)s.finnhubSymbol=t+".KS";
     // Fix CAD stocks that got plain ticker instead of .TO suffix
     if(s.currency==="CAD"&&s.finnhubSymbol===t)s.finnhubSymbol=t+".TO";
     if(s.currency==="JPY"&&s.finnhubSymbol===t)s.finnhubSymbol=t+".T";
+    if(s.currency==="KRW"&&s.finnhubSymbol===t)s.finnhubSymbol=t+".KS";
   });
   // Migration: fix stocks incorrectly classified as USD
   const FIX_EXCHANGES={
@@ -2630,7 +2633,7 @@ function load(){
     WKL:{ccy:"EUR",td:"WKL:AMS",fh:"WKL.AS"},ASML:{ccy:"EUR",td:"ASML:AMS",fh:"ASML.AS"},
     SAP:{ccy:"EUR",td:"SAP:XETR",fh:"SAP.DE"},ADYEN:{ccy:"EUR",td:"ADYEN:AMS",fh:"ADYEN.AS"},
   };
-  const ccyFlags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+  const ccyFlags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
   Object.entries(FIX_EXCHANGES).forEach(([t,ex])=>{
     if(stocks[t]&&stocks[t].currency!==ex.ccy){
       stocks[t].currency=ex.ccy;stocks[t].tdSymbol=ex.td;stocks[t].finnhubSymbol=ex.fh;stocks[t].flag=ccyFlags[ex.ccy];
@@ -2907,8 +2910,8 @@ async function fetchPrices(){
   //    Primary: api.frankfurter.dev (current canonical). Fallback: api.frankfurter.app (legacy redirect).
   let fxOk=false,fxErr=null;
   const FX_ENDPOINTS=[
-    "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD,GBP,CAD,JPY",
-    "https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,CAD,JPY"
+    "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD,GBP,CAD,JPY,KRW",
+    "https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,CAD,JPY,KRW"
   ];
   for(const url of FX_ENDPOINTS){
     try{
@@ -2920,8 +2923,9 @@ async function fetchPrices(){
       if(fxD.rates.GBP){settings.fxGBP=parseFloat(fxD.rates.GBP.toFixed(4));fxOk=true;}
       if(fxD.rates.CAD){settings.fxCAD=parseFloat(fxD.rates.CAD.toFixed(4));fxOk=true;}
       if(fxD.rates.JPY){settings.fxJPY=parseFloat(fxD.rates.JPY.toFixed(2));fxOk=true;}
+      if(fxD.rates.KRW){settings.fxKRW=parseFloat(fxD.rates.KRW.toFixed(2));fxOk=true;}
       if(fxOk){settings.lastFxUpdate=Date.now();settings.lastFxError=null;fxErr=null;break;}
-      fxErr="No expected currencies (USD/GBP/CAD/JPY) in response";
+      fxErr="No expected currencies (USD/GBP/CAD/JPY/KRW) in response";
     }catch(e){fxErr=e.message||String(e);}
   }
   if(!fxOk){
@@ -3685,9 +3689,9 @@ function handleCSVImport(e){
         const csvCcy=(row.currency||"").trim();
         const ex=_EXCHANGES[t];
         let ccy=csvCcy||ex?.ccy||"USD";
-        const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+        const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
         let td=ex?.td||(ccy==="GBp"?t+":LSE":t);
-        let fh=ex?.fh||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":ccy==="EUR"?undefined:t);
+        let fh=ex?.fh||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":ccy==="KRW"?t+".KS":ccy==="EUR"?undefined:t);
         const csvName=(row.name||"").trim();
         stocks[t]={name:csvName||ex?.name||t,currency:ccy,moat:"Wide",sector:ex?.sector||"",flag:flags[ccy]||"🌍",
           status:"watchlist",tdSymbol:td,finnhubSymbol:fh,priceMult:1,currentPrice:0,gate:true,
@@ -3838,9 +3842,9 @@ function _ensureStockEntry(ticker){
   if(!ticker||stocks[ticker])return false;
   const ex=_EXCHANGES[ticker];
   const ccy=ex?.ccy||"USD";
-  const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+  const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
   const td=ex?.td||(ccy==="GBp"?ticker+":LSE":ticker);
-  const fh=ex?.fh||(ccy==="GBp"?ticker+".L":ccy==="CAD"?ticker+".TO":ccy==="JPY"?ticker+".T":ccy==="EUR"?undefined:ticker);
+  const fh=ex?.fh||(ccy==="GBp"?ticker+".L":ccy==="CAD"?ticker+".TO":ccy==="JPY"?ticker+".T":ccy==="KRW"?ticker+".KS":ccy==="EUR"?undefined:ticker);
   stocks[ticker]={
     name:ex?.name||ticker,currency:ccy,moat:"Wide",sector:ex?.sector||"",
     flag:flags[ccy]||"🌍",status:"watchlist",tdSymbol:td,finnhubSymbol:fh,
@@ -4420,7 +4424,7 @@ function exportExcel(){
 
   // Sheet 3: Settings
   const stRows=[
-    {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},{key:"fxCAD",value:settings.fxCAD},{key:"fxJPY",value:settings.fxJPY},
+    {key:"fxRate",value:settings.fxRate},{key:"fxGBP",value:settings.fxGBP},{key:"fxCAD",value:settings.fxCAD},{key:"fxJPY",value:settings.fxJPY},{key:"fxKRW",value:settings.fxKRW},
     {key:"monthlyIncome",value:settings.monthlyIncome},{key:"monthlyIncomeUSD",value:settings.monthlyIncomeUSD},{key:"dpDivisor",value:settings.dpDivisor},{key:"dpFloor",value:settings.dpFloor},
     {key:"ibkrWorker",value:settings.ibkrWorker||""},{key:"ibkrTokenPersonal",value:settings.ibkrTokenPersonal||""},{key:"ibkrQueryPersonal",value:settings.ibkrQueryPersonal||""},
     {key:"ibkrTokenNl",value:settings.ibkrTokenNl||""},{key:"ibkrQueryNl",value:settings.ibkrQueryNl||""},
@@ -4568,7 +4572,7 @@ function handleExcelImport(e){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
           }else{
-            const ccy=String(row.currency||"USD");const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+            const ccy=String(row.currency||"USD");const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
             let mos=vn(row.mos);const eps=vn(row.eps);const pe=vn(row.pe);const gr=vn(row.gr);
             const rc=recalcSticker(eps,gr,pe);if(rc)mos=rc.mos;
             let tc=vn(row.tenCap);const oe=vn(row.oe);if(oe!=null)tc=+(oe*10).toFixed(2);
@@ -4641,6 +4645,7 @@ function handleExcelImport(e){
           if(k==="fxGBP"&&!empty(val))settings.fxGBP=Number(val);
           if(k==="fxCAD"&&!empty(val))settings.fxCAD=Number(val);
           if(k==="fxJPY"&&!empty(val))settings.fxJPY=Number(val);
+          if(k==="fxKRW"&&!empty(val))settings.fxKRW=Number(val);
           if(k==="monthlyIncome"&&!empty(val))settings.monthlyIncome=Number(val);
           if(k==="monthlyIncomeUSD"&&!empty(val))settings.monthlyIncomeUSD=Number(val);
           if(k==="dpDivisor"&&!empty(val))settings.dpDivisor=Number(val);
@@ -5309,7 +5314,7 @@ function render(){
     const fxStale=settings.lastFxUpdate?(Date.now()-settings.lastFxUpdate>24*60*60*1000):true;
     const fxErrTxt=settings.lastFxError?` · ⚠ FX: ${settings.lastFxError}`:(fxStale&&settings.lastFxUpdate?` · ⚠ FX stale ${fxAge}`:"");
     const fxColor=settings.lastFxError?"color:var(--red)":(fxStale?"color:var(--amber)":"");
-    fxEl.innerHTML=`<span style="${fxColor}" title="${settings.lastFxError||''}">1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD} · 1€=¥${settings.fxJPY}${ibkrAge?" · ⚡"+ibkrAge:""}${fxErrTxt}</span>`;}
+    fxEl.innerHTML=`<span style="${fxColor}" title="${settings.lastFxError||''}">1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD} · 1€=¥${settings.fxJPY} · 1€=₩${settings.fxKRW}${ibkrAge?" · ⚡"+ibkrAge:""}${fxErrTxt}</span>`;}
   ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   const _earBanner=renderEarningsBanner();
   const _contentEl=document.getElementById("content");
@@ -7328,7 +7333,7 @@ function openRisklistAddEditModal(entry){
     <div class="modal-field"><label>Ticker *</label><input type="text" id="rl-ticker" value="${esc(e.ticker)}" ${isEdit?"disabled":""} placeholder="IONQ" style="text-transform:uppercase"></div>
     <div class="modal-field"><label>Name *</label><input type="text" id="rl-name" value="${esc(e.name)}" placeholder="IonQ Inc"></div>
     <div class="modal-field"><label>Currency *</label><select id="rl-ccy">
-      ${["USD","EUR","GBp","CAD","JPY"].map(c=>`<option value="${c}" ${c===e.currency?"selected":""}>${c}</option>`).join("")}
+      ${["USD","EUR","GBp","CAD","JPY","KRW"].map(c=>`<option value="${c}" ${c===e.currency?"selected":""}>${c}</option>`).join("")}
     </select></div>
     <div class="modal-field"><label>Priority * (lower = higher conviction, decimals OK)</label><input type="number" step="any" id="rl-pri" value="${e.priority??""}" placeholder="1.5"></div>
     <div class="modal-field"><label>Triggers & Sizes (T1 ≥ T2 ≥ T3, 2% per chunk, total ≤ 6%)</label>
@@ -7950,7 +7955,7 @@ function renderSettings(c){
         <div style="flex:1"><div class="settings-desc">EUR/USD (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxRate}" onchange="settings.fxRate=+this.value;save()"></div>
         <div style="flex:1"><div class="settings-desc">GBP/EUR (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxGBP}" onchange="settings.fxGBP=+this.value;save()"></div>
         <div style="flex:1"><div class="settings-desc">CAD/EUR (auto)</div><input class="settings-input" type="number" step="0.001" value="${settings.fxCAD}" onchange="settings.fxCAD=+this.value;save()"></div></div>
-      <div style="display:flex;gap:8px;margin-top:4px"><div style="flex:1"><div class="settings-desc">JPY/EUR (auto)</div><input class="settings-input" type="number" step="0.1" value="${settings.fxJPY}" onchange="settings.fxJPY=+this.value;save()"></div><div style="flex:2"></div></div>
+      <div style="display:flex;gap:8px;margin-top:4px"><div style="flex:1"><div class="settings-desc">JPY/EUR (auto)</div><input class="settings-input" type="number" step="0.1" value="${settings.fxJPY}" onchange="settings.fxJPY=+this.value;save()"></div><div style="flex:1"><div class="settings-desc">KRW/EUR (auto)</div><input class="settings-input" type="number" step="0.1" value="${settings.fxKRW}" onchange="settings.fxKRW=+this.value;save()"></div></div>
       <div style="font-size:9px;color:var(--muted);margin-top:4px">Last FX update: ${settings.lastFxUpdate?new Date(settings.lastFxUpdate).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})+" ("+timeAgo(settings.lastFxUpdate)+")":"never"}</div></div>
 
     <div class="settings-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="settings-title" style="margin:0">📒 Deployment Log (${deployLog.length})</div>
@@ -8222,7 +8227,7 @@ function openAddStock(){
   showModal("Add New Stock",[
     {id:"ns-ticker",label:"Ticker",val:"",placeholder:"COST"},
     {id:"ns-name",label:"Name",val:"",placeholder:"Costco"},
-    {id:"ns-ccy",label:"Currency",val:"USD",select:["USD","EUR","GBp","CAD","JPY"]},
+    {id:"ns-ccy",label:"Currency",val:"USD",select:["USD","EUR","GBp","CAD","JPY","KRW"]},
     {id:"ns-moat",label:"Moat",val:"Excellent",select:["Excellent","Strong"]},
     {id:"ns-fh",label:"Yahoo Symbol",val:"",placeholder:"COST, WKL.AS, AUTO.L"},
     {id:"ns-price",label:"Current Price",val:"",type:"number"},
@@ -8241,7 +8246,7 @@ function openAddStock(){
   ],()=>{
     const t=(gv("ns-ticker")||"").toUpperCase().trim();if(!t){alert("Enter ticker");return false;}
     if(stocks[t]){alert(t+" exists");return false;}
-    const ccy=gv("ns-ccy")||"USD";const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵"};
+    const ccy=gv("ns-ccy")||"USD";const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
     const eps=nv("ns-eps");const gr=nv("ns-gr");const pe=nv("ns-pe");
     let mos=nv("ns-mos");const oe=nv("ns-oe");const fcf=nv("ns-fcf");
     let tc=nv("ns-tc");let pbt=nv("ns-pbt");let sticker=mos?mos*2:null;
@@ -8250,7 +8255,7 @@ function openAddStock(){
     if(r){mos=r.mos;sticker=r.sticker;}
     const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
     stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
-      status:"watchlist",finnhubSymbol:((gv("ns-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,""))||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
+      status:"watchlist",finnhubSymbol:((gv("ns-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,""))||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":ccy==="KRW"?t+".KS":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
       cons:{sticker,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,eps,pe,prevSticker:null},
       phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
     // Auto-calc tenCap + pbt from oe/fcf (category-aware; new stocks start uncategorized so this
