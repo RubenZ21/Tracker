@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.89</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.90</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -416,7 +416,7 @@ function posTranchesOwned(p){if(!p?.tranches)return 0;return p.tranches.filter(t
 // Trophy tranches are excluded — they keep their own 25% trailing-stop discipline.
 function posInvestedCapital(p){if(!p?.tranches)return 0;let c=0;p.tranches.forEach(t=>{if(t.signal==="trophy")return;const sh=t.bought-t.sold;if(sh>0)c+=sh*t.buyPrice;});return c;}
 // Shares to sell at the anchor to recover invested capital, and the residual left to ride.
-// anchorPrice is the current-year fair-value anchor (Sticker for PT/HIGHGR, 20Cap for Buffett).
+// anchorPrice is the current-year fair-value anchor (Sticker for PT/HIGHGR, Cash-Cow Cap for cashcow).
 // Capped at open non-trophy shares (degenerate case: heavy averaging-up → recovery may need
 // nearly the whole position; framework documents this as intended, no special-casing).
 function capitalRecoverySizing(p,anchorPrice){
@@ -559,9 +559,9 @@ function render13F(){
 // Trailing stops are retained ONLY for trophy tranches (tr.signal === "trophy", e.g. ASML) —
 // a deliberate user-chosen long-hold backstop, kept per explicit instruction (Jun 2 2026).
 // Everything else uses the framework §5 capital-recovery mechanic instead:
-//   - Pool 1 non-Tier-1 (PT/HIGHGR/Buffett): recover at the fair-value anchor.
+//   - Pool 1 non-Tier-1 (PT/HIGHGR/Cashcow): recover at the fair-value anchor.
 //   - Pool 3 / risk bucket non-Tier-1: recover at 2× average cost (see riskRecoveryAnchor).
-//   - Caca: recover at Sticker / 20Cap.
+//   - Caca: recover at Sticker / Cash-Cow Cap.
 //   - Tier 1 (any pool, incl. CSU in Pool 3): forever-hold, tripwires only.
 // Pool 1 exit triggers: capital recovery at anchor, moat failure (s.gate === false), Layer 2 recycle.
 function usesTrailingStop(ticker,pfKey,tr){
@@ -634,8 +634,16 @@ function riskAnchorCardBlock(ticker,pk,s,pos,cp){
   return h;
 }
 
-// Buffett Category: wide-moat low-growth stocks evaluated by Ten Cap + PBT only (no MOS/Sticker)
-function isBuffett(t){return stocks[t]?.category==="buffett";}
+// Cash-Cow Category (framework §9, Aug 20 2026 — supersedes the Buffett Category): high-payout
+// moderate-organic-growth compounders evaluated by Ten Cap + PBT only (no MOS/Sticker).
+// For cashcow rows the CSV `gr` field holds g_organic; `mos` is empty and must never render or fire.
+function isCashcow(t){return stocks[t]?.category==="cashcow";}
+// Cash-Cow Cap = OE/share ÷ (MARR − g_organic), MARR 10% (framework §9). The SELL ANCHOR for
+// cashcow rows, replacing the retired 20Cap = OE×20. Generalizes both cash-yield anchors:
+// g_organic = 0 → Ten Cap (10× OE); g_organic = 5% → 20Cap (20× OE). Derived, never stored (§9/CSV rule).
+// Returns null when oe or gr is missing, or gr outside [0,10) (divisor guard — the §9 gates
+// admit only 2.5–6%, so a valid cashcow row always sits well inside the guard).
+function cashcowCap(s){const oe=s?.cons?.oe,gr=s?.cons?.gr;if(oe==null||gr==null||gr<0||gr>=10)return null;return +(oe/(0.10-gr/100)).toFixed(2);}
 // High-Growth Phil Town: gr>=16% stocks where Ten Cap->20Cap (OE*20) and PBT->DMOS (MOS*0.9).
 // Column reuse: s.cons.tenCap stores 20Cap value, s.cons.pbt stores DMOS value. MOS unchanged.
 function isHighgr(t){return stocks[t]?.category==="highgr";}
@@ -666,15 +674,15 @@ function pmosPrice(s){return s?.cons?.mos!=null?+(s.cons.mos*1.5).toFixed(2):nul
 function pmosFiresRaw(s){const pm=pmosPrice(s);return pm!=null&&s?.currentPrice!=null&&s.currentPrice<=pm;}
 // v4.82 (Jul 20 2026): §2.6 deeper-trigger suppression RETIRED by ratification. P-MOS now
 // behaves as a normal independent trigger — it fires whenever price ≤ pmosPrice, regardless
-// of MOS/DMOS/10Cap state. Tier-1-only restriction and Buffett exclusion unchanged. Deployment
+// of MOS/DMOS/10Cap state. Tier-1-only restriction and cashcow exclusion unchanged. Deployment
 // pacing (e.g. one tranche per salary cycle) is handled manually at buy-confirm, not by signal
 // suppression.
 // Operational P-MOS firing: Tier 1 only, raw firing AND gate not failed.
-// FIX v3.70: Buffett structural exclusion (framework §2.6) — Buffett never gets P-MOS, even
-// if a stock is somehow both buffett-category and operational Tier 1. Defensive: no current stock
+// FIX v3.70 (relabeled v4.90): Cash-Cow structural exclusion (framework §2.6) — cashcow never gets
+// P-MOS, even if a stock is somehow both cashcow-category and operational Tier 1. Defensive: no current stock
 // satisfies both, but this hardens the invariant at the single chokepoint all callers use.
 function pmosFires(t){
-  const s=stocks[t];if(!s||!isOperationalTier1(t)||isBuffett(t)||s.gate===false)return false;
+  const s=stocks[t];if(!s||!isOperationalTier1(t)||isCashcow(t)||s.gate===false)return false;
   if(!pmosFiresRaw(s))return false;
   return true;
 }
@@ -699,7 +707,8 @@ function t1FloorFrac(pfKey){return 4*trancheFrac(pfKey);}   // T1 absolute DP fl
 // when price crosses the fair-value anchor from below — sell exactly enough shares to recover
 // total invested capital (shares = invested capital ÷ anchor price), then hold the residual
 // forever. No half-sell fraction, no trailing stop. Anchor = Sticker for PT/HIGHGR, 20Cap
-// (OE/share × 20) for Buffett. Tier 1 suppressed entirely (forever-hold, §9). Pool 3 (risk
+// forever. No half-sell fraction, no trailing stop. Anchor = Sticker for PT/HIGHGR, Cash-Cow Cap
+// (OE ÷ (0.10 − g_organic)) for cashcow. Tier 1 suppressed entirely (forever-hold). Pool 3 (risk
 // bucket) suppressed here — handled by its own 2×-cost capital-recovery path. Caca and Personal
 // both notified — the §5 mechanic applies to both portfolios uniformly.
 //
@@ -707,12 +716,12 @@ function t1FloorFrac(pfKey){return 4*trancheFrac(pfKey);}   // T1 absolute DP fl
 // the capital-recovery sale manually in IBKR (Highest-Cost lot matching) after notification.
 
 // Compute fair-value anchor for a position. Returns null if none applies (Tier 1, or missing
-// inputs). Pool 3 non-Tier-1 → 2× average cost. PT/HIGHGR → Sticker. Buffett → 20Cap.
+// inputs). Pool 3 non-Tier-1 → 2× average cost. PT/HIGHGR → Sticker. Cashcow → Cash-Cow Cap.
 function fairValueThreshold(t,pk){
   if(isOperationalTier1(t))return null;
   if(isRisk(t,pk))return riskRecoveryAnchor(t,pk); // Pool 3 non-Tier-1: 2× average cost
   const s=stocks[t];if(!s)return null;
-  if(isBuffett(t))return activationPrice(s,t); // 20Cap = OE/share × 20
+  if(isCashcow(t))return activationPrice(s,t); // Cash-Cow Cap = OE ÷ (0.10 − g_organic)
   return s.cons?.mos?+(s.cons.mos*2).toFixed(2):null; // Sticker
 }
 
@@ -742,7 +751,7 @@ function checkFairValueCrossings(){
       // branch is only hit if a new position was added mid-session above FVT, in which case
       // suppressing is the correct conservative default (no false sell signal).
       if(isAbove&&wasAbove===false){
-        fires.push({pk,ticker:t,price:s.currentPrice,fvt,pfName:pf.name,buf:isBuffett(t),risk:isRisk(t,pk)});
+        fires.push({pk,ticker:t,price:s.currentPrice,fvt,pfName:pf.name,buf:isCashcow(t),risk:isRisk(t,pk)});
       }
       prevAboveFVT[key]=isAbove;
     });
@@ -784,7 +793,7 @@ function buildRecoveryEntries(ticker,s){
     // sellShares at openShares, so sell+residual === openShares). Guard against fully-trophy/empty.
     const openShares=sz.sellShares+sz.residualShares;
     if(openShares<=0)return;
-    const anchorLabel=isRisk(ticker,pk)?(riskAnchorMode(ticker)==="sticker"&&riskStickerAnchor(ticker)?"Sticker":"2× cost"):(isBuffett(ticker)?"20Cap":"Sticker");
+    const anchorLabel=isRisk(ticker,pk)?(riskAnchorMode(ticker)==="sticker"&&riskStickerAnchor(ticker)?"Sticker":"2× cost"):(isCashcow(ticker)?"CC Cap":"Sticker");
     out.push({
       anchor:fvt,
       anchorLabel,
@@ -906,14 +915,16 @@ function toggleTripwire(ticker,which){
 
 function sigCount(t){
   const s=stocks[t];if(!s?.signals||s.gate===false)return 0;
-  const buf=isBuffett(t);
+  const buf=isCashcow(t);
   let n=(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);
   if(pmosFires(t))n++;
   return n;
 }
-// Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2). Buffett stocks: no ceiling.
+// Sticker Ceiling: a non-MOS trigger is "muted" if its price >= sticker (mos×2).
+// Cashcow rows: pro-forma Cap-Ceiling (§9) — a cash trigger at/above the Cash-Cow Cap is muted,
+// mirroring §3. Structurally near-impossible (Ten Cap ≤ 0.75 × Cap at g ≥ 2.5%); recorded for completeness.
 // MOS, DMOS, and P-MOS are never muted (all mathematically below Sticker by construction: 0.50/0.45/0.75 < 1.0).
-function isTriggerMuted(s,sigKey){if(sigKey==="mos"||sigKey==="pmos"||!s?.cons)return false;if(s.category==="buffett")return false;if(s.category==="highgr"&&sigKey==="pbt")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
+function isTriggerMuted(s,sigKey){if(sigKey==="mos"||sigKey==="pmos"||!s?.cons)return false;if(s.category==="cashcow"){const cap=cashcowCap(s);const tp=s.cons[sigKey];return cap!=null&&tp!=null&&tp>=cap;}if(s.category==="highgr"&&sigKey==="pbt")return false;const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;const tp=s.cons[sigKey];return tp!=null&&tp>=sticker;}
 // Piggyback: a muted trigger deploys when price is below it AND at least one valid (non-muted) signal is firing.
 // P-MOS firing counts as a valid signal for piggyback gating (it is never muted; independent trigger since v4.82).
 // `ticker` is optional for backward-compat with legacy callers; without it, P-MOS won't open the piggyback door.
@@ -925,14 +936,14 @@ function isPiggyback(s,sigKey,ticker){
   if(ticker&&pmosFires(ticker))return true;
   return false;
 }
-function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;const buf=s.category==="buffett";return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
+function sigCount_raw(s){if(!s?.signals||s.gate===false)return 0;const buf=s.category==="cashcow";return(buf?0:(s.signals.mos?1:0))+(s.signals.tenCap?1:0)+(s.signals.pbt?1:0);}
 // v4.11: true when every entry trigger is unavailable because the price has run too high —
 // i.e. the price is at/above Sticker (mos×2) so MOS can't fire and the non-MOS triggers are
-// all muted by the Sticker Ceiling. Buffett stocks anchor on Ten Cap (no Sticker), so "too high"
+// all muted by the Sticker Ceiling. Cashcow rows anchor entries on Ten Cap (no Sticker), so "too high"
 // means price at/above Ten Cap. Used only for display dimming in the Tranche Balance card.
 function allTriggersMutedHigh(ticker){
   const s=stocks[ticker];if(!s?.cons||!s.currentPrice)return false;
-  if(isBuffett(ticker)){const tc=s.cons.tenCap;return tc!=null&&s.currentPrice>=tc;}
+  if(isCashcow(ticker)){const tc=s.cons.tenCap;return tc!=null&&s.currentPrice>=tc;}
   const sticker=s.cons.mos?s.cons.mos*2:null;if(!sticker)return false;
   return s.currentPrice>=sticker;
 }
@@ -949,10 +960,10 @@ function deployCount(t,pfKey){
   return n;
 }
 // Discrete trigger slot count — for "X/Y" displays and MOS-reserve unlit counts.
-// Buffett: 2 (tenCap+pbt). Non-Tier-1 PT: 3. Tier 1 PT: 4 (adds P-MOS). Identical Personal and Caca (MOS-double retired June 13 2026).
+// Cashcow: 2 (tenCap+pbt). Non-Tier-1 PT: 3. Tier 1 PT: 4 (adds P-MOS). Identical Personal and Caca (MOS-double retired June 13 2026).
 function validTriggerSlots(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
-  if(isBuffett(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
+  if(isCashcow(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});return n;}
   let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n++;});
   // Tier 1: P-MOS as 4th slot (cons.mos populated → pmos derived).
   if(isOperationalTier1(t)&&s.cons.mos!=null)n++;
@@ -961,7 +972,7 @@ function validTriggerSlots(t,pfKey){
 // Weighted slot count for the allocation denominator. Tier 1 Personal: 3.6 (1+1+1+0.6). All others = discrete count × 1.0.
 function weightedSlots(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
-  if(isBuffett(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n+=slotWeight(t,k,pfKey);});return n;}
+  if(isCashcow(t)){let n=0;["tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n+=slotWeight(t,k,pfKey);});return n;}
   let n=0;["mos","tenCap","pbt"].forEach(k=>{if(s.cons[k]!=null)n+=slotWeight(t,k,pfKey);});
   if(isOperationalTier1(t)&&s.cons.mos!=null)n+=slotWeight(t,'pmos',pfKey);
   return n;
@@ -972,7 +983,7 @@ function weightedLit(t,pfKey){
   const s=stocks[t];if(!s?.cons||s.gate===false)return 0;
   if(s.block)return 0; // 4M block (v4.07): no lit weight — capital never flows to a blocked stock
   let n=0;
-  if(!isBuffett(t)&&s.signals?.mos)n+=slotWeight(t,'mos',pfKey);
+  if(!isCashcow(t)&&s.signals?.mos)n+=slotWeight(t,'mos',pfKey);
   if(s.signals?.tenCap)n+=slotWeight(t,'tenCap',pfKey);
   if(s.signals?.pbt)n+=slotWeight(t,'pbt',pfKey);
   if(pmosFires(t))n+=slotWeight(t,'pmos',pfKey);
@@ -995,13 +1006,13 @@ function litTrancheTopups(ticker,pfKey,base){
   const bc=pfBaseCcy(pfKey);
   // Which signals are lit (firing or piggybacking)?
   const lit=[];
-  if(!isBuffett(ticker)&&s.signals?.mos)lit.push('mos');
+  if(!isCashcow(ticker)&&s.signals?.mos)lit.push('mos');
   if(s.signals?.tenCap||isPiggyback(s,'tenCap',ticker))lit.push('tenCap');
   if(s.signals?.pbt||isPiggyback(s,'pbt',ticker))lit.push('pbt');
   if(pmosFires(ticker))lit.push('pmos');
   // Canonical tranche labels per sigKey (mirrors hasTrancheForSignal).
   const labelMap={mos:["MOS"],tenCap:["10Cap","20Cap"],pbt:["PBT","DMOS"],pmos:["P-MOS"]};
-  const dispLabel={mos:"MOS",tenCap:isHighgr(ticker)?"20Cap":isBuffett(ticker)?"10Cap":"10Cap",pbt:isHighgr(ticker)?"DMOS":"PBT",pmos:"P-MOS"};
+  const dispLabel={mos:"MOS",tenCap:isHighgr(ticker)?"20Cap":"10Cap",pbt:isHighgr(ticker)?"DMOS":"PBT",pmos:"P-MOS"};
   const out=[];
   lit.forEach(sigKey=>{
     // Current cost basis of this tranche (matching label rows, open shares), in stock ccy → base ccy.
@@ -1111,7 +1122,7 @@ function applyRecalcSticker(s){
 
 // Recompute the tenCap and pbt columns from inputs, category-aware.
 // MUST be called AFTER applyRecalcSticker so s.cons.mos is current (DMOS depends on it).
-//   Standard / Buffett: tenCap = oe*10        ; pbt = 8yr cumulative growing FCF
+//   Standard / Cashcow: tenCap = oe*10        ; pbt = 8yr cumulative growing FCF (cashcow gr = g_organic, §9)
 //   High-Growth      : tenCap = oe*20 (20Cap); pbt = mos*0.9 (DMOS, = sticker*0.45)
 function recalcConsTriggers(s){
   if(!s?.cons)return;
@@ -1199,13 +1210,14 @@ function firingGridSize(pfKey){return getGrid(pfKey).filter(t=>sigCount(t)>0).re
 function updateSignals(t){const s=stocks[t];if(!s?.currentPrice||!s?.cons)return;const p=s.currentPrice;
   // Store previous signals to detect signal-off events
   const prev=s.signals?{...s.signals}:{mos:false,tenCap:false,pbt:false};
-  const buf=s.category==="buffett";
-  // Buffett: no MOS, no Sticker Ceiling. Phil Town: tenCap/pbt gated by sticker (mos×2).
-  const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
+  const cc=s.category==="cashcow";
+  // Cashcow: no MOS; cash triggers gated by the pro-forma Cap-Ceiling (Cash-Cow Cap, §9).
+  // Phil Town: tenCap/pbt gated by the Sticker Ceiling (mos×2).
+  const ceil=cc?cashcowCap(s):(s.cons.mos?s.cons.mos*2:null);
   s.signals={
-    mos:buf?false:(s.cons.mos?p<=s.cons.mos:false),
-    tenCap:s.cons.tenCap?p<=s.cons.tenCap&&(sticker==null||s.cons.tenCap<sticker):false,
-    pbt:s.cons.pbt?p<=s.cons.pbt&&(sticker==null||s.cons.pbt<sticker):false
+    mos:cc?false:(s.cons.mos?p<=s.cons.mos:false),
+    tenCap:s.cons.tenCap?p<=s.cons.tenCap&&(ceil==null||s.cons.tenCap<ceil):false,
+    pbt:s.cons.pbt?p<=s.cons.pbt&&(ceil==null||s.cons.pbt<ceil):false
   };
   // Detect signal changes for alerts
   if(!s._sigChanges)s._sigChanges=[];
@@ -1746,7 +1758,7 @@ function dpPctOfPool1(pfKey){const tb=trancheBase(pfKey);if(!tb)return 0;const p
 // HOLD/ACCUMULATE → TRIPWIRE FIRING (surfaced in Stage F).
 function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0,label:"—",color:"var(--muted)"};
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
-  const buf=isBuffett(ticker);const isSpec=isRisk(ticker,pfKey);
+  const buf=isCashcow(ticker);const isSpec=isRisk(ticker,pfKey);
   const isT1=isOperationalTier1(ticker);
   // Stage F (v3.69): Tier 1 with any tripwire firing → TRIPWIRE FIRING phase (operations §3).
   // Replaces TRAILING/SELL mechanical states for Tier 1 — those are price-derived and Tier 1
@@ -1754,7 +1766,7 @@ function positionPhase(ticker,pfKey){const s=stocks[ticker];if(!s)return{phase:0
   // out of HOLD/ACCUMULATE, and the action depends on which tripwire (T1/T3 audit-pending vs
   // T6 immediate half-weight sell — see operations §7).
   if(isT1&&hasAnyTripwireFiring(ticker))return{phase:6,label:"TRIPWIRE FIRING",color:"var(--red)"};
-  // Fair-value anchor: Sticker for non-Tier-1 PT/HIGHGR, 20Cap (OE×20) for Buffett,
+  // Fair-value anchor: Sticker for non-Tier-1 PT/HIGHGR, Cash-Cow Cap for cashcow,
   // 2× average cost for Pool 3 non-Tier-1, null for Tier 1 (forever-hold, no anchor).
   const fvt=isT1?null:fairValueThreshold(ticker,pfKey);
   // Trophy still uses a trailing stop (phases 4/5 below).
@@ -1905,10 +1917,10 @@ function nextBearState(s,key,prior){
   if(dd>BEAR_EXIT)return false;
   return prior===undefined?true:!!prior;                  // 25–30% holds; init at exit threshold
 }
-// Present ladder trigger keys for a stock (Buffett: tenCap+pbt; std: +mos; Tier-1: +pmos).
+// Present ladder trigger keys for a stock (cashcow: tenCap+pbt; std: +mos; Tier-1: +pmos).
 function ladderKeys(t){
   const s=stocks[t];if(!s?.cons)return[];
-  const keys=isBuffett(t)?["tenCap","pbt"]:["mos","tenCap","pbt"];
+  const keys=isCashcow(t)?["tenCap","pbt"]:["mos","tenCap","pbt"];
   if(isOperationalTier1(t))keys.push("pmos");
   return keys.filter(k=>s.cons[k]!=null);
 }
@@ -2005,8 +2017,8 @@ function capacityViewHTML(pfKey){
   onGrid.forEach(t=>{
     const cap=fullCapFrac(t,pfKey);                            // 0.08 / 0.12 / 0.16
     const fillFrac=Math.max(0,Math.min(1,positionCostPctOfBase(t,pfKey)/cap)); // owned vs cap
-    const t1=isOperationalTier1(t),buf=isBuffett(t);
-    const w=buf?9:14;                                          // Buffett half-width
+    const t1=isOperationalTier1(t),buf=isCashcow(t);
+    const w=buf?9:14;                                          // Cashcow half-width
     const ring=t1?"box-shadow:0 0 0 1.5px var(--accent);":"";
     pips+=`<span title="${esc(t)} · cap ${Math.round(cap*100)}% · filled ${Math.round(fillFrac*100)}%" style="position:relative;display:inline-block;width:${w}px;height:14px;border-radius:3px;background:#1a1a2e;border:1px solid #2a2a3e;${ring}overflow:hidden;vertical-align:middle">`
         +`<span style="position:absolute;left:0;bottom:0;width:100%;height:${Math.round(fillFrac*100)}%;background:var(--accent);opacity:.85"></span></span>`;
@@ -2370,7 +2382,7 @@ function entrySizeForSignal(pfKey,sigKey){
   return Math.round(trancheBase(pfKey)*trancheFrac(pfKey)); // v4.72: flat 4% both portfolios
 }
 // Per-stock position cap. v4.32: trigger-count-driven — cap = (valid trigger slots) × 4%.
-//   2 slots (Buffett) =  8%   ·   3 slots (standard) = 12%   ·   4 slots (Tier 1) = 16%   (at 4%)
+//   2 slots (Cashcow) =  8%   ·   3 slots (standard) = 12%   ·   4 slots (Tier 1) = 16%   (at 4%)
 // Measured against the P1+P3+DP COST-BASIS tranche base (incl. new salary at allocation time),
 // not market value — so it agrees with the per-card "% of P1+P3+DP" figure.
 // When at/above cap, the monthly allocator drops the stock from distribution entirely; its
@@ -2414,7 +2426,7 @@ function atPositionCap(ticker,pfKey,extraBase){
 function capSlotCount(ticker,pfKey){
   const s=stocks[ticker];if(!s?.cons||s.gate===false)return 0;
   const litMap={
-    mos:!isBuffett(ticker)&&!!s.signals?.mos,
+    mos:!isCashcow(ticker)&&!!s.signals?.mos,
     tenCap:!!(s.signals?.tenCap||isPiggyback(s,"tenCap",ticker)),
     pbt:!!(s.signals?.pbt||isPiggyback(s,"pbt",ticker)),
     pmos:pmosFires(ticker)
@@ -2576,7 +2588,7 @@ function cacaInfo(){
 // since avg cost almost always sits between trigger prices and made the old "trBelow"
 // comparison unreliable.
 // v4.08: targetTranches CAPS at the per-stock category limit so 4×4% targets align with Tier 1's
-// 16% cap intent, 3×4% with non-Tier-1 PT/HIGHGR, and 2×4% with Buffett. (Category MV caps in
+// 16% cap intent, 3×4% with non-Tier-1 PT/HIGHGR, and 2×4% with Cashcow. (Category MV caps in
 // positionCapPct are unchanged; this is the tranche-count alignment only.)
 //   Tier 1 (PT/HIGHGR): max 4 tranches (incl. P-MOS) → 16% target
 
@@ -2599,6 +2611,9 @@ function load(){
   // Migration: add gate field (default PASS) and prevSticker if missing
   Object.values(stocks).forEach(s=>{
     if(s.gate===undefined)s.gate=true;
+    // Migration Aug 20 2026 (v4.90): Cash-Cow Category supersedes Buffett (framework §9) —
+    // legacy "buffett" category values normalize to "cashcow" (transitional per watchlist §1).
+    if(s.category==="cashcow")s.category="cashcow";
     if(s.cons&&s.cons.prevSticker===undefined)s.cons.prevSticker=s.cons.sticker||null;
     // Migration: add oe/fcf fields if missing
     if(s.cons&&s.cons.oe===undefined)s.cons.oe=null;
@@ -3470,7 +3485,7 @@ function exportCSV(){
     const tw=x=>x?"Y":"";
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
-    const cat=s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"";
+    const cat=s.category==="cashcow"?"cashcow":s.category==="highgr"?"highgr":"";
     csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
@@ -3729,8 +3744,8 @@ function handleCSVImport(e){
       else{s.lastCalcDate=Date.now();}
       // Import earnings date from CSV
       if(hdr.includes("earningsdate")&&row.earningsdate){const d=new Date(row.earningsdate);s.earningsDate=isNaN(d)?null:d.getTime();}
-      // Import category (buffett, highgr, or philtown/empty)
-      if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=cat==="buffett"?"buffett":cat==="highgr"?"highgr":undefined;}
+      // Import category (cashcow, highgr, or philtown/empty; legacy "buffett" → cashcow)
+      if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=(cat==="cashcow"||cat==="buffett")?"cashcow":cat==="highgr"?"highgr":undefined;}
       // Import notes (general stock comments)
       if(hdr.includes("notes")){const nv=(row.notes||"").trim();if(nv)s.notes=nv;else delete s.notes;}
       // Import specReason (risk thesis text). v3.31: text-only sync — risk-bucket membership
@@ -3803,17 +3818,17 @@ function handleCSVImport(e){
 // portfolio: "personal" or "caca" (CSV) ↔ "personal" or "nl" (internal pfKey)
 // trancheType enum (CSV) ↔ tranche.signal (internal):
 //   initial ↔ "initial"        mos ↔ "MOS"
-//   tenCap/buffettTenCap ↔ "10Cap"   pbt/buffettPbt ↔ "PBT"
+//   tenCap/cashcowTenCap ↔ "10Cap"   pbt/cashcowPbt ↔ "PBT"   (legacy buffettTenCap/buffettPbt accepted on import)
 //   trophy ↔ "trophy"          risk ↔ "risk" (also adds ticker to pf.riskStocks)
 //   index → writes to pf.indexPositions[us|eu] aggregate (shares/avgCost) — not as a tranche
-const HOLDINGS_TRANCHE_TYPES=["initial","mos","pmos","tenCap","pbt","buffettTenCap","buffettPbt","risk","trophy","index","cash"];
+const HOLDINGS_TRANCHE_TYPES=["initial","mos","pmos","tenCap","pbt","cashcowTenCap","cashcowPbt","buffettTenCap","buffettPbt","risk","trophy","index","cash"];
 // v3.96: stockType column — the framework classification of the stock in that portfolio.
-// "risk" is per-portfolio (pf.riskStocks); phil_town/buffett/highgr come from s.category.
-const HOLDINGS_STOCK_TYPES=["phil_town","buffett","highgr","risk","index","cash"];
+// "risk" is per-portfolio (pf.riskStocks); phil_town/cashcow/highgr come from s.category ("buffett" accepted on import as legacy alias → cashcow).
+const HOLDINGS_STOCK_TYPES=["phil_town","cashcow","highgr","risk","index","cash","buffett"];
 function _stockTypeForExport(t,pfKey){
   if(isRisk(t,pfKey))return"risk";
   const c=stocks[t]?.category;
-  return c==="buffett"?"buffett":c==="highgr"?"highgr":"phil_town";
+  return c==="cashcow"?"cashcow":c==="highgr"?"highgr":"phil_town";
 }
 const HOLDINGS_CASH_CCYS=["USD","EUR","GBP","JPY","CAD"];
 
@@ -3868,13 +3883,13 @@ function _trancheTypeForExport(t,pfKey,signal){
   if(signal==="trophy")return"trophy";
   if(signal==="initial")return"initial";
   if(signal==="risk")return"risk";
-  const buf=isBuffett(t);
+  const buf=isCashcow(t);
   if(signal==="MOS")return"mos";
   if(signal==="P-MOS")return"pmos";
   // 20Cap and 10Cap both live in the tenCap column → same CSV trancheType.
   // DMOS and PBT both live in the pbt column → same CSV trancheType.
-  if(signal==="10Cap"||signal==="20Cap")return buf?"buffettTenCap":"tenCap";
-  if(signal==="PBT"||signal==="DMOS")return buf?"buffettPbt":"pbt";
+  if(signal==="10Cap"||signal==="20Cap")return buf?"cashcowTenCap":"tenCap";
+  if(signal==="PBT"||signal==="DMOS")return buf?"cashcowPbt":"pbt";
   return"initial"; // unknown / fallback
 }
 // ticker context lets us pick highgr-era labels on round-trip; if a tenCap-column tranche is being
@@ -3882,8 +3897,8 @@ function _trancheTypeForExport(t,pfKey,signal){
 function _trancheTypeToSignal(tt,ticker){
   if(tt==="mos")return"MOS";
   if(tt==="pmos")return"P-MOS";
-  if(tt==="tenCap"||tt==="buffettTenCap")return ticker&&isHighgr(ticker)?"20Cap":"10Cap";
-  if(tt==="pbt"||tt==="buffettPbt")return ticker&&isHighgr(ticker)?"DMOS":"PBT";
+  if(tt==="tenCap"||tt==="cashcowTenCap"||tt==="buffettTenCap")return ticker&&isHighgr(ticker)?"20Cap":"10Cap";
+  if(tt==="pbt"||tt==="cashcowPbt"||tt==="buffettPbt")return ticker&&isHighgr(ticker)?"DMOS":"PBT";
   if(tt==="trophy")return"trophy";
   if(tt==="initial")return"initial";
   if(tt==="risk")return"risk";
@@ -4301,7 +4316,7 @@ function _applyHoldingsImport(parsed,warnings){
     if(tt==="index"||tt==="cash"||!ticker)return;
     if(!stocks[ticker])_ensureStockEntry(ticker);
     if(!stocks[ticker])return;
-    if(st==="buffett")stocks[ticker].category="buffett";
+    if(st==="cashcow"||st==="buffett")stocks[ticker].category="cashcow";
     else if(st==="highgr")stocks[ticker].category="highgr";
     else if(st==="phil_town")delete stocks[ticker].category;
     // v4.68 FIX: st==="risk" no longer deletes s.category. Risk membership is per-portfolio
@@ -4400,7 +4415,7 @@ function exportExcel(){
     pbt:s.cons.pbt,pbtYrs:s.cons.pbtYrs,gr:s.cons.gr,oe:s.cons.oe||null,fcf:s.cons.fcf||null,eps:s.cons.eps||null,pe:s.cons.pe||null,divPerShare:s.cons.divPerShare||null,gate:s.gate===false?"FAIL":"PASS",prevSticker:s.cons.prevSticker||null,
     philSticker:s.phil?.sticker||null,philMOS:s.phil?.mos||null,philTenCap:s.phil?.tenCap||null,
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
-    category:s.category==="buffett"?"buffett":s.category==="highgr"?"highgr":"",
+    category:s.category==="cashcow"?"cashcow":s.category==="highgr"?"highgr":"",
     sector:s.sector||"",
     specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null,
     t1Firing:s.t1Firing?"Y":"",t3Firing:s.t3Firing?"Y":"",t6Firing:s.t6Firing?"Y":""};});
@@ -4555,9 +4570,9 @@ function handleExcelImport(e){
                 if(fires)s[key]=true;else delete s[key];
               }
             });
-            // Category: "buffett"/"highgr" → set; empty cell in present column → clear; column absent → preserve.
+            // Category: "cashcow"/"highgr" → set (legacy "buffett" → cashcow); empty cell in present column → clear; column absent → preserve.
             // MUST happen before recalcConsTriggers below so highgr formulas apply.
-            if(hasCategoryCol){const cat=String(row.category||"").trim().toLowerCase();if(cat==="buffett")s.category="buffett";else if(cat==="highgr")s.category="highgr";else delete s.category;}
+            if(hasCategoryCol){const cat=String(row.category||"").trim().toLowerCase();if(cat==="cashcow"||cat==="buffett")s.category="cashcow";else if(cat==="highgr")s.category="highgr";else delete s.category;}
             // Auto-calc chain: eps+gr+pe → sticker+mos
             applyRecalcSticker(s);
             // Auto-calc tenCap + pbt (category-aware: highgr → 20Cap/DMOS)
@@ -4593,7 +4608,7 @@ function handleExcelImport(e){
               earningsDate:row.earningsDate?(isNaN(new Date(row.earningsDate))?null:new Date(row.earningsDate).getTime()):null,
               priority:vn(row.priority)||null,
               compounderPriority:vn(row.compounderPriority)||null};
-            if(catRaw==="buffett")stocks[t].category="buffett";
+            if(catRaw==="cashcow"||catRaw==="buffett")stocks[t].category="cashcow";
             // Stage F (v3.69): seed tripwire firing flags on new-stock Excel restore.
             [["t1Firing","t1Firing"],["t3Firing","t3Firing"],["t6Firing","t6Firing"]].forEach(([col,key])=>{
               const raw=String(row[col]||"").toUpperCase().trim();
@@ -4801,22 +4816,22 @@ function handleExcelImport(e){
 
 // The optional `ticker` arg lets callers gate the Tier 1 check (returns null for Tier 1).
 // Fair-value anchor (framework §5, June 2 2026 redesign):
-//   Buffett        → 20Cap = OE/share × 20  (= 2 × Ten Cap; replaces retired Ten Cap × 1.333)
+//   Cashcow        → Cash-Cow Cap = OE/share ÷ (0.10 − g_organic)  (Aug 20 2026; replaces retired 20Cap = OE×20)
 //   PT / HIGHGR    → Sticker (= MOS × 2)
 //   Tier 1         → null (forever-hold, tripwires only)
 // Derived from current-year s.cons (oe / mos), so refreshes at each annual review — never frozen.
 function activationPrice(s,ticker){
   if(ticker&&isOperationalTier1(ticker))return null;
-  if(s.category==="buffett"){const oe=s.cons?.oe;return oe?+(oe*20).toFixed(2):null;}
+  if(s.category==="cashcow")return cashcowCap(s); // Cash-Cow Cap = OE ÷ (0.10 − g_organic), replaces retired 20Cap
   const stk=s.cons?.mos?s.cons.mos*2:null;return stk?+stk.toFixed(2):null;
 }
 // Targeted SELL price for the grid's right block. Phil Town / High-Growth: tranche Sticker = MOS×2
 // (sell activation = Sticker×1.333, but the Sticker is the headline "fair value to sell at" the user
-// tracks toward). Buffett Category: OE×20 (= activationPrice). Tier 1 compounders hold forever with
+// tracks toward). Cash-Cow Category: Cash-Cow Cap (= activationPrice). Tier 1 compounders hold forever with
 // no price-based exit, so there is no sell target — returns null and the row shows "—".
 function sellTarget(s,ticker){
   if(ticker&&isOperationalTier1(ticker))return null; // Tier 1: hold forever, tripwire-only exit
-  if(s.category==="buffett"){const oe=s.cons?.oe;return oe?+(oe*20).toFixed(2):null;}
+  if(s.category==="cashcow")return cashcowCap(s); // Cash-Cow Cap = OE ÷ (0.10 − g_organic), replaces retired 20Cap
   return s.cons?.mos?+(s.cons.mos*2).toFixed(2):null;
 }
 function sellBase(s,signal){
@@ -4918,7 +4933,7 @@ function checkAlerts(){
   });
 
   // CAPITAL-RECOVERY-AT-FAIR-VALUE — Stage E. Non-Tier-1 owned positions above their anchor
-  // (Sticker for PT/HIGHGR, 20Cap for Buffett, 2× cost for Pool 3). Fires per position; the
+  // (Sticker for PT/HIGHGR, Cash-Cow Cap for cashcow, 2× cost for Pool 3). Fires per position; the
   // user executes the capital-recovery sale manually (highest-cost first). Tier 1 (forever-hold)
   // is suppressed inside fairValueThreshold(). Persists while above anchor until dismissed.
   ["personal","nl"].forEach(pk=>{
@@ -4930,7 +4945,7 @@ function checkAlerts(){
       if(fvt==null||s.currentPrice<=fvt)return;
       const k=`caprecover-${pk}-${t}`;
       if(dismissedAlerts[k])return;
-      const fvtLabel=isRisk(t,pk)?"2× cost":(isBuffett(t)?"20Cap":"Sticker");
+      const fvtLabel=isRisk(t,pk)?"2× cost":(isCashcow(t)?"CC Cap":"Sticker");
       const szl=capitalRecoverySizing(pos,fvt);
       const action=szl?`<strong>Sell ${szl.sellShares.toFixed(2)} shares</strong> (highest-cost first) to recover invested capital ${fmt(szl.invested,s.currency)}; hold residual ${szl.residualShares.toFixed(2)} forever.`:`<strong>Recover invested capital</strong> (sell invested ÷ anchor shares, highest-cost first); hold residual forever.`;
       alerts.push({key:k,type:"sell",icon:"🎯",
@@ -4979,7 +4994,7 @@ function checkAlerts(){
       html:`<strong>${s.flag} ${t}</strong> approaching buy zone — ${fmt(s.currentPrice,s.currency)} is ${Math.round(gap*100)}% above trigger ${fmt(nt,s.currency)}`});}
     else if(gap<=0){
       // Build list of ALL firing signals for this watchlist stock (respecting Sticker Ceiling + per-signal snooze)
-      const p=s.currentPrice,c=s.cons,fires=[],buf=s.category==="buffett",hg=s.category==="highgr";
+      const p=s.currentPrice,c=s.cons,fires=[],buf=s.category==="cashcow",hg=s.category==="highgr";
       if(!buf&&c.mos&&p<=c.mos&&!isSnoozed(t,"mos"))fires.push(`🟢 MOS ${fmt(c.mos,s.currency)}`);
       if(c.tenCap&&p<=c.tenCap&&!isTriggerMuted(s,"tenCap")&&!isSnoozed(t,"tenCap"))fires.push(`🔵 ${hg?"20Cap":"10Cap"} ${fmt(c.tenCap,s.currency)}`);
       if(c.pbt&&p<=c.pbt&&!isTriggerMuted(s,"pbt")&&!isSnoozed(t,"pbt"))fires.push(`🟣 ${hg?"DMOS":"PBT"} ${fmt(c.pbt,s.currency)}`);
@@ -4992,7 +5007,7 @@ function checkAlerts(){
             html:`<strong>${s.flag} ${t}</strong> FIRING — <strong style="color:#fbbf24">BLOCKED (4M)</strong> — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals — review only, do not deploy</strong> <span style="cursor:pointer;text-decoration:underline" onclick="openBlockPanel('${t}')">details</span>`});
         }else{
           alerts.push({key:k,type:"watchlist-buy",icon:isSpec?"⚡":"🔥",
-            html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"BUFFETT":hg?"HIGH-GROWTH":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});
+            html:`<strong>${s.flag} ${t}</strong> ${isSpec?"RISK":buf?"CASHCOW":hg?"HIGH-GROWTH":"WATCHLIST"} BUY — ${fmt(p,s.currency)} · ${fires.join(" · ")} · <strong>${fires.length}/${maxSigs} signals${isSpec?"":` — add to grid!`}</strong>`});
         }
       }}
     }
@@ -5424,12 +5439,12 @@ function chipLabel(t,key){
   return key;
 }
 // Eligible chips per category + Tier 1, in display order (operations §2 + framework §2.6):
-//   Buffett   : 10Cap, PBT          (no MOS)
+//   Cashcow   : 10Cap, PBT          (no MOS)
 //   Phil Town : MOS, PBT, 10Cap
 //   HIGHGR    : MOS, DMOS, 20Cap    (pbt slot = DMOS, tenCap slot = 20Cap)
 //   + Tier 1  : P-MOS leads as the 4th chip on whichever menu applies (e.g. ASML = HIGHGR Tier 1)
 function chipKeys(t){
-  if(isBuffett(t))return ["tenCap","pbt"];
+  if(isCashcow(t))return ["tenCap","pbt"];
   const base=["mos","pbt","tenCap"];
   return isOperationalTier1(t)?["pmos",...base]:base;
 }
@@ -5535,7 +5550,7 @@ function sigRowHtml(t,pfKey,isSpec){
     :isSpec
     ?`<span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>`
     :isHighgr(t)?`<span style="font-size:9px;color:#a855f7;background:#a855f720;padding:1px 4px;border-radius:3px;margin-right:4px">HG</span>`
-    :isBuffett(t)?`<span style="font-size:9px;color:#38bdf8;background:#38bdf820;padding:1px 4px;border-radius:3px;margin-right:4px">WB</span>`
+    :isCashcow(t)?`<span style="font-size:9px;color:#38bdf8;background:#38bdf820;padding:1px 4px;border-radius:3px;margin-right:4px">CC</span>`
     :`<span style="font-size:9px;color:#34d399;background:#34d39920;padding:1px 4px;border-radius:3px;margin-right:4px">PT</span>`;
   const mBadge=`<span style="font-size:9px;color:var(--purple);font-family:var(--mono);margin-left:4px;font-weight:400">M${s.priority||"—"}</span>`;
   const cBadge=`<span style="font-size:9px;color:var(--accent);font-family:var(--mono);margin-left:3px;font-weight:400">C${s.compounderPriority||"—"}</span>`;
@@ -5563,7 +5578,7 @@ function sigRowHtml(t,pfKey,isSpec){
   let countTxt,countCol;
   if(isSpec){countTxt=`${dc||"0"}/${vSlots}`;countCol="#d97706";}
   else{
-    const _sk=isBuffett(t)?["tenCap","pbt"]:["mos","tenCap","pbt"];
+    const _sk=isCashcow(t)?["tenCap","pbt"]:["mos","tenCap","pbt"];
     const hasSell=_sk.some(k=>sigCellStatus(t,k,pfKey).cls==="sell");
     const hasWarn=_sk.some(k=>sigCellStatus(t,k,pfKey).cls==="warn");
     const hasMuted=_sk.some(k=>sigCellStatus(t,k,pfKey).cls==="muted");
@@ -5573,7 +5588,7 @@ function sigRowHtml(t,pfKey,isSpec){
   const rowStyle=`${gateFail?"opacity:.4;":(notFiring&&!isSpec)?"opacity:.75;":""}${isSpec?"border-top:1px dashed #d9770644;":""}`;
   // Sell-target line: targeted sell price + how far current price is below it (▲X% to reach sell).
   // Tier 1 compounders (incl. risk-bucket Tier 1 like CSU) have no price exit → "hold ∞".
-  // Risk rows honor the per-ticker anchor toggle (2× cost default, or Sticker); PT/Buffett use Sticker/20Cap.
+  // Risk rows honor the per-ticker anchor toggle (2× cost default, or Sticker); PT use Sticker, cashcow the Cash-Cow Cap.
   let sellStr="";
   {
     let tgt,tgtLabel;
@@ -5582,7 +5597,7 @@ function sigRowHtml(t,pfKey,isSpec){
       tgtLabel=riskAnchorMode(t)==="sticker"?"Sticker = MOS×2":"2× avg cost";
     }else{
       tgt=sellTarget(s,t);
-      tgtLabel=isBuffett(t)?"OE×20":"Sticker = MOS×2";
+      tgtLabel=isCashcow(t)?"Cap = OE÷(10%−g)":"Sticker = MOS×2";
     }
     if(isOperationalTier1(t)){
       sellStr=`<div style="font-size:8px;font-family:var(--mono);color:#8a90a6" title="Tier 1 compounder — hold forever, tripwire-only exit">hold ∞</div>`;
@@ -5631,9 +5646,9 @@ function sigRowHtml(t,pfKey,isSpec){
 // ============ CONVICTION CARD (panic antidote) ============
 function openConviction(t){
   const s=stocks[t];if(!s)return;
-  const p=s.currentPrice;const c=s.cons;const buf=isBuffett(t);const hg=isHighgr(t);
-  const refPrice=buf?c.tenCap:(c.mos?c.mos*2:(c.sticker||null));
-  const refLabel=buf?"ten cap":"sticker";
+  const p=s.currentPrice;const c=s.cons;const buf=isCashcow(t);const hg=isHighgr(t);
+  const refPrice=buf?cashcowCap(s):(c.mos?c.mos*2:(c.sticker||null));
+  const refLabel=buf?"cc cap":"sticker";
   const mosFromRef=refPrice&&p?Math.round((1-p/refPrice)*100):null;
   const sigs=[];const maxSigs=buf?2:3;
   const _tcLbl=hg?"20Cap":"Ten Cap";const _pbtLbl=hg?"DMOS":"PBT";
@@ -5647,7 +5662,7 @@ function openConviction(t){
     <div class="modal-sheet" style="padding:24px;text-align:center">
     <div style="font-size:40px;margin-bottom:8px">🛡️</div>
     <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:2px">${s.flag} ${t}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}${buf?` · <span style="color:#38bdf8">Buffett Category</span>`:hg?` · <span style="color:#a855f7">High-Growth</span>`:""}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${s.name}${buf?` · <span style="color:#38bdf8">Cash-Cow Category</span>`:hg?` · <span style="color:#a855f7">High-Growth</span>`:""}</div>
 
     <div style="text-align:left;margin-bottom:16px">
       <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:6px;border-left:3px solid var(--green)">
@@ -5724,7 +5739,7 @@ function checkNewSignals(){
     if(s.signals.tenCap&&!prev.tenCap&&!hasTrancheForSignal(t,"tenCap"))newFires.push({ticker:t,signal:trigT3LongLabel(t)});
     if(s.signals.pbt&&!prev.pbt&&!hasTrancheForSignal(t,"pbt"))newFires.push({ticker:t,signal:isHighgr(t)?"DMOS":"PBT"});
     // FIX v3.75: P-MOS firing isn't stored on s.signals (it's derived). Use operational pmosFires()
-    // which already bakes in Tier-1 gate, suppression rule, gate failures, and Buffett exclusion.
+    // which already bakes in Tier-1 gate, suppression rule, gate failures, and cashcow exclusion.
     if(pmosFires(t)&&!prev.pmos&&!hasTrancheForSignal(t,"pmos"))newFires.push({ticker:t,signal:"P-MOS"});
   });
   // Also check watchlist + speculative for new fires
@@ -6028,8 +6043,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const badge=s.status==="trophy"?`<span class="pos-badge" style="background:#332d0d;color:var(--amber)">TROPHY</span>`:
       isRisk(ticker,currentPf)?`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       s.status==="hold"?`<span class="pos-badge" style="background:#1a1a2e;color:#818cf8">HOLD</span>`:
-      _isGrid&&isBuffett(ticker)&&sig>0?`<span class="pos-badge" style="background:#1a2332;color:#38bdf8">BUFFETT ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
-      _isGrid&&isBuffett(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">BUFFETT 0/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid&&isCashcow(ticker)&&sig>0?`<span class="pos-badge" style="background:#1a2332;color:#38bdf8">CASHCOW ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
+      _isGrid&&isCashcow(ticker)?`<span class="pos-badge" style="background:#1a2332;color:#7dd3fc">CASHCOW 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&isHighgr(ticker)&&sig>0?`<span class="pos-badge" style="background:#2a1438;color:#a855f7">HG ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&isHighgr(ticker)?`<span class="pos-badge" style="background:#2a1438;color:#c4b5fd">HG 0/${validTriggerSlots(ticker,currentPf)}</span>`:
       _isGrid&&sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:
@@ -6037,11 +6052,11 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _phase=positionPhase(ticker,currentPf);
     const phaseBadge=s.status!=="trophy"?`<span class="pos-badge" style="background:transparent;color:${_phase.color};font-size:8px;padding:1px 4px;border:1px solid ${_phase.color}33">${_phase.label}</span>`:"";
 
-    // Sell-reference price (Sticker for Phil Town, Ten Cap for Buffett) drives the MOS%/above
-    // display only. The growth-anchored RETURN always anchors on Sticker = MOS×2 for ALL
-    // categories incl. Buffett (framework §4.3): R = g + (1/10)·ln(Sticker/price). At Sticker, R = gr.
-    const _refPrice=isBuffett(ticker)?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);
-    const _refLabel=isBuffett(ticker)?"ten cap":"stk";
+    // Sell-reference price (Sticker for Phil Town, Cash-Cow Cap for cashcow) drives the MOS%/above
+    // display only. The growth-anchored RETURN anchors on Sticker = MOS×2 where one exists
+    // (framework §4.3): R = g + (1/10)·ln(Sticker/price). Cashcow rows have no Sticker (§9).
+    const _refPrice=isCashcow(ticker)?cashcowCap(stocks[ticker]):(s.cons?.mos?s.cons.mos*2:null);
+    const _refLabel=isCashcow(ticker)?"cc cap":"stk";
     const _stkPrice=s.cons?.mos?s.cons.mos*2:null;
     // v4.37: BUY RoR (Return @ now) = price appreciation + live post-tax dividend yield.
     // Used to size a NEW tranche: today's price is the cost of new shares, so today's live
@@ -6053,10 +6068,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
     h+=`<div class="pos-card">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${blockBadge(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
-        <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isBuffett(ticker);const ref=buf?s.cons?.tenCap:(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"ten cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
+        <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isCashcow(ticker);const ref=buf?cashcowCap(s):(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"cc cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
     // Stats row — avg-cost return uses Sticker basis (all categories); MOS% display keeps
-    // the sell-reference (Sticker for PT, Ten Cap for Buffett).
+    // the sell-reference (Sticker for PT, Cash-Cow Cap for cashcow).
     // v4.37: SELL RoR (Avg Cost) = price appreciation from LIVE price + post-tax dividend
     // yield on AVG COST. Used to decide HOLD vs SELL: income is locked against what you paid,
     // appreciation is forward (cost is sunk). avgIR keeps the price-only base for the % chip.
@@ -6148,11 +6163,11 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           // v3.80: Caca risk-bucket position — same 2× cost ↔ Sticker toggle as Personal.
           h+=riskAnchorCardBlock(ticker,"nl",s,pos,cp);
         }else{
-        // Caca grid sell rules (framework §5): Phil Town → Sticker, Buffett → 20Cap (OE×20).
+        // Caca grid sell rules (framework §5): Phil Town → Sticker, Cashcow → Cash-Cow Cap (OE ÷ (0.10 − g_organic)).
         // At anchor, recover invested capital and hold residual. No trailing stop. No toggle —
         // grid positions follow the fixed retiree-fund rule.
-        const _bufC=isBuffett(ticker);
-        const _refLabel=_bufC?"20Cap":"sticker";
+        const _bufC=isCashcow(ticker);
+        const _refLabel=_bufC?"CC Cap":"sticker";
         const stkP=_bufC?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null);
         if(stkP&&stkP>0){
           const gapPctStk=cp?((stkP-cp)/cp*100):0;
@@ -6208,10 +6223,10 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
             <span style="color:#fbbf24;font-weight:600">⭐ T1 forever-hold</span>
             <span style="font-family:var(--mono);color:var(--muted);font-size:9px">tripwires only (§7)</span></div>`;
         }else{
-        // Pool 1 Personal non-Tier-1 (PT/HIGHGR or Buffett): anchor = fair value (framework §5).
+        // Pool 1 Personal non-Tier-1 (PT/HIGHGR or Cashcow): anchor = fair value (framework §5).
         // At/above anchor → recover invested capital, hold residual forever. No trailing stop.
-        const _bufP1=isBuffett(ticker);
-        const _refLab=_bufP1?"20Cap":"fair value";
+        const _bufP1=isCashcow(ticker);
+        const _refLab=_bufP1?"CC Cap":"fair value";
         const _ref=_bufP1?activationPrice(s,ticker):(s.cons?.mos?s.cons.mos*2:null);
         const _aboveFV=_ref&&cp&&cp>=_ref;
         const szlP=_ref?capitalRecoverySizing(pos,_ref):null;
@@ -6519,7 +6534,7 @@ function renderAllocator(c){
     h+=renderMonthlyBanner();
     const salaryLanded=settings.monthlyStepMonth===getMonthKey()&&settings.monthlyStep>=1&&settings.monthlyStep<MONTHLY_STEPS().length;
     // v3.65 Stage B: Tranche = income ÷ (weighted slots across firing stocks + expansion slots).
-    // Weighted slots = 3.6 for Tier 1 PT (1+1+1+0.6 for P-MOS), 3 for non-Tier-1 PT, 2 for Buffett.
+    // Weighted slots = 3.6 for Tier 1 PT (1+1+1+0.6 for P-MOS), 3 for non-Tier-1 PT, 2 for Cashcow.
     // Discrete slot counts (validSlots, litTotal, unlitTotal) preserved for "X/Y" display strings;
     // weighted values (weightedSlotsTotal, litWeighted, etc.) drive the dollar math.
     const firingStocks=GRID.filter(t=>sigCount(t)>0);
@@ -6699,7 +6714,7 @@ function renderAllocator(c){
       const floored=!capped&&!litCapped&&deployBase===0&&flooredAmt>0;
       const localDeploy=fromEUR(toEUR(deployBase,_bc),s.currency);const sh=(!capped&&!litCapped&&s.currentPrice)?Math.floor(localDeploy/s.currentPrice):0;
       const pbCount=dc-sigCount(t);const pbNote=pbCount>0?` · ${pbCount} piggyback`:"";
-      const isSpec=isRisk(t,currentPf);const isBuf=isBuffett(t);
+      const isSpec=isRisk(t,currentPf);const isBuf=isCashcow(t);
       const litDest=capped?`<span style="color:#d97706">DP (at cap ${(mvPct*100).toFixed(1)}%≥${(capPct*100).toFixed(0)}%)</span>`:litCapped?`<span style="color:#d97706">DP (at lit cap ${(mvPct*100).toFixed(1)}%≥${litCapPctDisp.toFixed(0)}%)</span>`:floored?`<span style="color:var(--amber)">DP (&lt;$500 floor)</span>`:`deploy`;
       const amtCol=(capped||litCapped)?"#d97706":floored?"var(--amber)":"var(--green)";
       const amtVal=(capped||litCapped||floored)?fmt(0,s.currency):fmt(Math.round(localDeploy),s.currency);
@@ -6790,7 +6805,7 @@ function renderAllocator(c){
       const ready=[];
       wl.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
         const owned=isOnGrid(t,"personal");
-        const buf=s.category==="buffett";
+        const buf=s.category==="cashcow";
         const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
         const _t3=trigT3Label(t),_t2=trigT2Label(t);
         // P-MOS (Tier-1 only, Sticker×0.75) is the shallowest/highest trigger — fires first on a decline.
@@ -6897,14 +6912,14 @@ function renderAllocator(c){
     const nlDpAvail=pf.dryPowder;
     const dpCovers=targetTr>0?Math.floor(nlDpAvail/targetTr):0;
 
-    // Tier 2 candidates: 0/N signals AND price > sell reference (sticker for PT, activation for Buffett)
+    // Tier 2 candidates: 0/N signals AND price > sell reference (sticker for PT, Cash-Cow Cap for cashcow)
     // v3.66 Stage C: Tier 1 stocks not eligible as Layer 2 sources (framework §5.2) — activationPrice
     // returns null for Tier 1, so they're naturally excluded by the sellRef truthiness check below.
     const tier2=[];
     nlTickers.forEach(t=>{const s=stocks[t];if(!s)return;const sh=posShares(nlPos[t]);if(sh<=0)return;
       const isTrophy=nlPos[t].tranches.every(tr=>tr.signal==="trophy");if(isTrophy)return;
       if(isOperationalTier1(t))return; // T1 forever-hold, not a Layer 2 source
-      const sig=sigCount(t);const buf=isBuffett(t);
+      const sig=sigCount(t);const buf=isCashcow(t);
       const sellRef=buf?activationPrice(s,t):(s.cons?.mos?s.cons.mos*2:s.cons?.sticker||null);
       if(sig===0&&sellRef&&s.currentPrice>sellRef){
         const gap=((s.currentPrice-sellRef)/sellRef*100).toFixed(0);
@@ -7011,7 +7026,7 @@ function renderAllocator(c){
     const readyNL=[];
     wlNL.forEach(t=>{const s=stocks[t];if(!s.currentPrice||!s.cons)return;
       const owned=isOnGrid(t,"nl");
-      const buf=s.category==="buffett";
+      const buf=s.category==="cashcow";
       const sticker=buf?null:(s.cons.mos?s.cons.mos*2:null);
       const _t3=trigT3Label(t),_t2=trigT2Label(t);
       const _pm=isOperationalTier1(t)?pmosPrice(s):null;
@@ -7127,13 +7142,13 @@ function renderWatchlist(c){
     const gStr=sc>0?sc+"/"+validTriggerSlots(t,currentPf)+(_blk?" FIRING — BLOCKED (4M)":" signals"):g!=null?g+"%":"—";
     const gCol=sc>0?(_blk?"#fbbf24":"var(--green)"):g!=null&&g<15?"var(--amber)":"var(--muted)";
     const snoozed=isSnoozed(t);
-    const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;
+    const ctr=getClosestTriggerReturn(t);const stk=s.cons?.mos?s.cons.mos*2:null;const _ccap=isCashcow(t)?cashcowCap(s):null;
     h+=`<div class="wl-card" ${snoozed?'style="opacity:0.5"':''}><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
       <div><span style="font-size:14px;font-weight:600">${s.flag} ${t}</span>${tier1Marker(t)}${tripwireShield(t)}${blockBadge(t)}<span style="font-size:9px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:6px" onclick="setPriority('${t}')">M${s.priority||"—"}</span><span style="font-size:9px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${t}')">C${s.compounderPriority||"—"}</span>${snoozed?`<span style="font-size:9px;color:var(--amber);margin-left:6px;background:#92400e20;padding:1px 6px;border-radius:4px">😴 ${snoozeLabel(t)}</span>`:""}
       <span style="font-size:11px;color:var(--muted);margin-left:6px">${s.name}</span>${ctr?`<div style="font-size:10px;margin-top:2px;font-family:var(--mono);color:var(--accent)">${ctr.liveReturn!=null?`${(ctr.liveReturn*100).toFixed(1)}% R @ live`:""}${ctr.liveReturn!=null?` · `:""}${(ctr.impliedReturn*100).toFixed(1)}% @ ${ctr.triggerName}${s.cons?.gr!=null?` · fair=${(+s.cons.gr).toFixed(1)}%`:""}</div>`:""}</div>
-      <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${isBuffett(t)&&s.cons.tenCap?` · <span style="color:#38bdf8;font-weight:400">TC ${fmt(s.cons.tenCap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
+      <div style="font-size:13px;font-family:var(--mono);font-weight:600;text-align:right">${fmt(s.currentPrice,s.currency)}<div style="font-size:9px;color:var(--muted);font-weight:400">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div><div style="font-size:10px;font-weight:600;font-family:var(--mono)"><span style="color:${gCol}">${sc>0?"":"↓ "}${gStr}</span>${_ccap?` · <span style="color:#38bdf8;font-weight:400">Cap ${fmt(_ccap,s.currency)}</span>`:stk?` · <span style="color:var(--muted);font-weight:400">Stk ${fmt(stk,s.currency)}</span>`:""}</div></div></div>
     <div style="display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap">`;
-    const _baseTrigs=isBuffett(t)?[{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"}]:
+    const _baseTrigs=isCashcow(t)?[{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"}]:
       isHighgr(t)?[{l:"DMOS",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"20Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}]:
       [{l:"PBT",v:s.cons.pbt,p:s.phil?.pbt,k:"pbt"},{l:"10Cap",v:s.cons.tenCap,p:s.phil?.tenCap,k:"tenCap"},{l:"MOS",v:s.cons.mos,p:s.phil?.mos,k:"mos"}];
     // P-MOS is a Tier-1-only premium-MOS trigger (0.75 × Sticker); surface it first on Tier 1 rows.
@@ -8167,7 +8182,7 @@ function openEditStock(t){
     "— 4M Gate —",
     {id:"es-gate",label:"4M Gate",val:s.gate===false?"FAIL":"PASS",select:["PASS","FAIL"]},
     "— Category —",
-    {id:"es-cat",label:"Framework",val:isRisk(t,currentPf)?"Risk":(s.category==="buffett"?"Buffett":s.category==="highgr"?"High-Growth":"Phil Town"),select:["Phil Town","Buffett","High-Growth","Risk"]},
+    {id:"es-cat",label:"Framework",val:isRisk(t,currentPf)?"Risk":(s.category==="cashcow"?"Cash-Cow":s.category==="highgr"?"High-Growth":"Phil Town"),select:["Phil Town","Cash-Cow","High-Growth","Risk"]},
   ],()=>{
     s.name=gv("es-name")||s.name;const fhv=(gv("es-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,"");if(fhv)s.finnhubSymbol=fhv;else delete s.finnhubSymbol;const mv=gv("es-moat");s.moat=mv==="Excellent"?"Wide":mv==="Strong"?"Narrow":mv||s.moat;
     s.currentPrice=nv("es-price")??s.currentPrice;
@@ -8195,7 +8210,7 @@ function openEditStock(t){
     }
     const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed)){s.earningsDate=ed.getTime();if(s.pendingEarningsReview){s.earningsReviewed=s.pendingEarningsReview;delete s.pendingEarningsReview;}}}else{s.earningsDate=null;delete s.pendingEarningsReview;}
     s.gate=(gateVal==="FAIL")?false:true;
-    // Category — Phil Town / Buffett / Risk (Risk is per-portfolio: applies to currentPf only)
+    // Category — Phil Town / Cash-Cow / High-Growth / Risk (Risk is per-portfolio: applies to currentPf only)
     const catVal=gv("es-cat");
     const wasSpec=isRisk(t,currentPf);
     if(catVal==="Risk"){
@@ -8210,7 +8225,7 @@ function openEditStock(t){
         if(reason)s.specReason=reason;
         s.specDate=s.specDate||Date.now();
       }
-      // category preserved (Risk can sit on top of Phil Town or Buffett underlying framework)
+      // category preserved (Risk can sit on top of Phil Town or Cashcow underlying framework)
     }else{
       if(wasSpec){
         if(!confirm(`Remove ${t} from ${portfolios[currentPf].name}'s risk bucket? (Position keeps tracking if shares held. Other portfolios unaffected.)`)){return false;}
@@ -8219,7 +8234,7 @@ function openEditStock(t){
         // Clear thesis only if no portfolio still treats this as risk
         if(!isRiskAnywhere(t)){delete s.specReason;delete s.specDate;}
       }
-      s.category=catVal==="Buffett"?"buffett":catVal==="High-Growth"?"highgr":undefined;
+      s.category=catVal==="Cash-Cow"?"cashcow":catVal==="High-Growth"?"highgr":undefined;
     }
     // Recompute tenCap + pbt after category change in case formulas switched (e.g. Phil Town → High-Growth)
     recalcConsTriggers(s);
@@ -8426,20 +8441,20 @@ async function syncTriggersToCloud(){
         // 4M block (v4.07): worker does NOT suppress alerts for blocked stocks — it re-labels
         // them "BLOCKED — review only" so price action stays visible without a buy prompt.
         block:!!s.block,
-        sticker:s.category==="buffett"?null:(s.cons.mos?s.cons.mos*2:null),
-        // FIX v3.75: include P-MOS in cloud payload. Client gates pmos to non-Buffett Tier 1 here
+        sticker:s.category==="cashcow"?null:(s.cons.mos?s.cons.mos*2:null),
+        // FIX v3.75: include P-MOS in cloud payload. Client gates pmos to non-cashcow Tier 1 here
         // so worker can stay dumb — if triggers.pmos is null, no P-MOS push detection happens.
         // signals.pmos uses pmosFires() (operational state w/ suppression) so the worker's baseline
         // doesn't false-fire on first cron after sync if P-MOS is already firing.
-        triggers:{mos:s.category==="buffett"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null,
-          pmos:isOperationalTier1(t)&&s.category!=="buffett"&&s.cons.mos?pmosPrice(s):null},
+        triggers:{mos:s.category==="cashcow"?null:s.cons.mos||null,tenCap:s.cons.tenCap||null,pbt:s.cons.pbt||null,
+          pmos:isOperationalTier1(t)&&s.category!=="cashcow"&&s.cons.mos?pmosPrice(s):null},
         signals:{mos:!!s.signals?.mos,tenCap:!!s.signals?.tenCap,pbt:!!s.signals?.pbt,pmos:pmosFires(t)},
         // Per-signal ownership snapshot — worker uses this to suppress mid-month notifications
         // for tranches that have already been bought. Re-synced every time save() runs, so the
         // worker's view stays current as soon as a buy is recorded in the app.
         owned:{mos:hasTrancheForSignal(t,"mos"),tenCap:hasTrancheForSignal(t,"tenCap"),pbt:hasTrancheForSignal(t,"pbt"),pmos:hasTrancheForSignal(t,"pmos")},
         // v3.79 Stage E (server port): capital-recovery-at-fair-value descriptors. The Worker
-        // CANNOT derive the Buffett 20Cap anchor (needs OE/share), the risk 2×-cost anchor, invested
+        // CANNOT derive the Cash-Cow Cap anchor (needs OE/share + g_organic), the risk 2×-cost anchor, invested
         // capital, or open share counts — so we precompute them here per OWNED, NON-Tier-1 position
         // and ship them. One ticker can be held in BOTH portfolios → array (backward-compatible with
         // the ticker-keyed structure). Tier 1 (forever-hold) and non-owned → [] (Worker does nothing).
@@ -8585,7 +8600,7 @@ function sendFairValueNotification(fires){
       const s=stocks[f.ticker];if(!s)return;
       const priceStr=fmt(f.price,s.currency);
       const fvtStr=fmt(f.fvt,s.currency);
-      const fvtLabel=f.risk?"2× cost":(f.buf?"20Cap":"Sticker");
+      const fvtLabel=f.risk?"2× cost":(f.buf?"CC Cap":"Sticker");
       const pos=portfolios[f.pk]?.positions?.[f.ticker];
       const szl=pos?capitalRecoverySizing(pos,f.fvt):null;
       const action=szl?`Sell ${szl.sellShares.toFixed(2)} shares (highest-cost first) to recover ${fmt(szl.invested,s.currency)}; hold residual ${szl.residualShares.toFixed(2)} forever.`:`Sell invested÷anchor shares (highest-cost first) to recover invested capital; hold residual forever.`;
