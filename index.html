@@ -272,7 +272,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.92</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.93</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -651,6 +651,8 @@ function cashcowCap(s){const oe=s?.cons?.oe,gr=s?.cons?.gr;if(oe==null||gr==null
 // Dividends are NOT added on top: they are a distribution of OE, already inside the cash-yield
 // term (unlike PT rows, where the Sticker-convergence return is price-only and the post-tax
 // dividend yield is layered on separately). No Sticker, no 10-yr convergence term for cashcow.
+// v4.93: BUY side evaluates at the live price; SELL side at avg cost (yield-on-cost parity
+// with the v4.37 PT convention) — callers pass whichever price basis applies.
 function cashcowReturn(s,price){const oe=s?.cons?.oe,gr=s?.cons?.gr;if(oe==null||gr==null||!price||price<=0)return null;return oe/price+gr/100;}
 // High-Growth Phil Town: gr>=16% stocks where Ten Cap->20Cap (OE*20) and PBT->DMOS (MOS*0.9).
 // Column reuse: s.cons.tenCap stores 20Cap value, s.cons.pbt stores DMOS value. MOS unchanged.
@@ -1307,7 +1309,10 @@ function calcBuyReturn(s,sticker,livePrice){
   const base=calcImpliedReturn(s?.cons?.gr,sticker,livePrice);
   return base==null?null:base+divYieldOn(s,livePrice);}
 function calcSellReturn(s,sticker,livePrice,avgCost){
-  if(s?.category==="cashcow")return cashcowReturn(s,livePrice); // §9: forward return is OE/P_live + g; cost is sunk
+  // Cashcow SELL side (v4.93): OE yield on AVG COST + g — the rate your invested capital is
+  // actually compounding at (yield-on-cost). Mirrors the v4.37 PT convention where sell-side
+  // income is locked against what you paid. Buy side stays OE/P_live + g (what new money gets).
+  if(s?.category==="cashcow")return cashcowReturn(s,avgCost>0?avgCost:livePrice);
   const base=calcImpliedReturn(s?.cons?.gr,sticker,livePrice);
   if(base==null)return null;
   return base+(avgCost>0?divYieldOn(s,avgCost):0);}
@@ -5648,14 +5653,18 @@ function sigRowHtml(t,pfKey,isSpec){
     const _ccRow=isCashcow(t);
     const _stk=s.cons?.mos?s.cons.mos*2:null;
     const _br=_ccRow?cashcowReturn(s,s.currentPrice):(_stk?calcBuyReturn(s,_stk,s.currentPrice):null);
-    const _sr=_ccRow?null:((_stk&&_rowAvg>0)?calcSellReturn(s,_stk,s.currentPrice,_rowAvg):null);
+    const _sr=_ccRow?(_rowAvg>0?cashcowReturn(s,_rowAvg):null):((_stk&&_rowAvg>0)?calcSellReturn(s,_stk,s.currentPrice,_rowAvg):null); // v4.93: cashcow sell = yield-on-cost + g
     const _col=v=>v>=0.15?"#34d399":v>=0.10?"#10b981":v>0?"#fbbf24":"#f87171";
     const _hasDiv=divPerShare(s)>0;
     if(_ccRow&&_br!=null){
-      // §9 perpetuity return OE/P + g_organic — buy and sell sides are IDENTICAL for cashcow
-      // (forward return on market value; cost is sunk; dividends live inside the OE-yield term),
-      // so one figure is shown regardless of ownership or dividend.
-      retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_col(_br)}" title="Cash-Cow perpetuity return at current price: OE/P + g_organic (§9). Exactly 10% = MARR at the CC Cap; 10% + g at Ten Cap.">${(_br*100).toFixed(1)}% R</div>`;
+      // §9 perpetuity returns (v4.93): BUY = OE/P_live + g (what new money gets today);
+      // SELL = OE/avg_cost + g (yield-on-cost — what your invested capital compounds at).
+      // Both shown when owned; dividends live inside the OE-yield term, never re-added.
+      if(_sr!=null&&Math.abs(_sr-_br)>=0.0005){
+        retStr=`<div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_br)};line-height:1.25" title="BUYING return: OE yield at current price + g_organic (§9)"><span style="color:var(--muted);font-weight:400">buying </span>${(_br*100).toFixed(1)}%</div><div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_sr)};line-height:1.25" title="SELLING return: OE yield on your avg cost + g_organic — yield-on-cost (§9)"><span style="color:var(--muted);font-weight:400">selling </span>${(_sr*100).toFixed(1)}%</div>`;
+      }else{
+        retStr=`<div style="font-size:9px;font-weight:700;font-family:var(--mono);color:${_col(_br)}" title="Cash-Cow perpetuity return at current price: OE/P + g_organic (§9). Exactly 10% = MARR at the CC Cap; 10% + g at Ten Cap.">${(_br*100).toFixed(1)}% R</div>`;
+      }
     }else if(_br!=null){
       if(_sr!=null&&(_hasDiv)){ // owned + pays a dividend → the two figures differ → show both
         retStr=`<div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_br)};line-height:1.25" title="BUYING return: appreciation + live post-tax dividend yield (size a new tranche)"><span style="color:var(--muted);font-weight:400">buying </span>${(_br*100).toFixed(1)}%</div><div style="font-size:8px;font-weight:700;font-family:var(--mono);color:${_col(_sr)};line-height:1.25" title="SELLING return: appreciation + dividend yield on your avg cost (hold vs sell)"><span style="color:var(--muted);font-weight:400">selling </span>${(_sr*100).toFixed(1)}%</div>`;
@@ -6108,8 +6117,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     // v4.37: SELL RoR (Avg Cost) = price appreciation from LIVE price + post-tax dividend
     // yield on AVG COST. Used to decide HOLD vs SELL: income is locked against what you paid,
     // appreciation is forward (cost is sunk). avgIR keeps the price-only base for the % chip.
-    const avgIR=_ccPos?(avg?cashcowReturn(s,s.currentPrice):null):(avg&&_stkPrice?calcImpliedReturn(s.cons?.gr,_stkPrice,s.currentPrice):null);
-    const sellR=_ccPos?(avg?cashcowReturn(s,s.currentPrice):null):(avg&&_stkPrice?calcSellReturn(s,_stkPrice,s.currentPrice,avg):null);
+    const avgIR=_ccPos?(avg?cashcowReturn(s,avg):null):(avg&&_stkPrice?calcImpliedReturn(s.cons?.gr,_stkPrice,s.currentPrice):null);
+    const sellR=_ccPos?(avg?cashcowReturn(s,avg):null):(avg&&_stkPrice?calcSellReturn(s,_stkPrice,s.currentPrice,avg):null); // v4.93: cashcow = yield-on-cost + g
     const _costYld=avg>0?divYieldOn(s,avg):0;
     const avgMOS=avg&&_refPrice?((1-avg/_refPrice)*100):null;
     const avgCol=avgMOS==null?"var(--muted)":avgMOS>=50?"var(--green)":avgMOS>0?"#34d399":"var(--amber)";
