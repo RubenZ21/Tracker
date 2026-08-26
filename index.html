@@ -15,7 +15,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-:root{--bg:#0a0e17;--card:#111827;--border:#1a2035;--text:#e4e8ee;--muted:#5a6a7a;--accent:#60a5fa;--green:#34d399;--red:#f87171;--amber:#fbbf24;--purple:#a78bfa;--blue-bg:#1e3a5f;--font:'DM Sans',sans-serif;--mono:'DM Mono',monospace}
+:root{--bg:#0a0e17;--card:#111827;--border:#1a2035;--text:#e4e8ee;--muted:#5a6a7a;--accent:#60a5fa;--green:#34d399;--red:#f87171;--amber:#fbbf24;--purple:#a78bfa;--blue-bg:#1e3a5f;--sage:#7fae8f;--sand:#c9a86a;--indigo:#8b96c9;--font:'DM Sans',sans-serif;--mono:'DM Mono',monospace}
 body{font-family:var(--font);background:var(--bg);color:var(--text);max-width:960px;margin:0 auto;min-height:100vh;overflow-x:hidden}
 input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .header{padding:14px 16px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:50}
@@ -118,6 +118,62 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .navbar-inner{display:flex;max-width:960px;width:100%}
 .nav-btn{flex:1;padding:8px 0 10px;background:transparent;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--font);position:relative}
 .nav-btn .nav-icon{font-size:18px}.nav-btn .nav-label{font-size:10px}
+/* ============ THESIS TAB (v4.94) — calm palette, locked mockup v4 ============ */
+.thesis-chip-row{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.thesis-chip{font-size:11px;font-family:var(--mono);padding:5px 10px;border-radius:14px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer}
+.thesis-chip.on{background:#1e3a5f;border-color:var(--accent);color:var(--accent);font-weight:700}
+.thesis-sort-note{font-size:10px;color:var(--muted);margin:0 0 10px 2px;font-family:var(--mono)}
+.tpill{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--sage);border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer}
+.tpill.watching{border-left-color:var(--sand)}
+.tpill.review{border-left-color:var(--indigo)}
+.tpill-head{padding:11px 12px 10px}
+.tpill-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tpill-tkr{font-size:15px;font-weight:700;letter-spacing:-0.2px}
+.tbadge{font-size:9px;font-family:var(--mono);font-weight:700;padding:2px 7px;border-radius:8px}
+.tb-p1{background:#12233d;color:var(--accent)}
+.tb-cc{background:#28251a;color:var(--sand)}
+.tb-t1{background:#241a3d;color:var(--purple)}
+.tb-p3{background:#1d2333;color:#9fb2c8}
+.tstate{font-size:9.5px;font-family:var(--mono);padding:2px 8px;border-radius:8px;margin-left:auto}
+.tstate.intact{color:var(--sage);background:#16211b}
+.tstate.watching{color:var(--sand);background:#242015}
+.tstate.review{color:var(--indigo);background:#191d2e}
+.tstate.fired{color:var(--red);background:#2a1518}
+.trsrch-badge{font-size:11px;opacity:.8}
+.tpill-chk{font-size:10px;font-family:var(--mono);color:var(--muted);width:100%;margin-top:4px}
+.tpill-chk b{color:#9fb2c8;font-weight:500}
+.twhy{font-family:var(--mono);font-size:11.5px;font-style:italic;color:#a9bcd2;margin-top:6px;line-height:1.45}
+.twhy::before{content:"» ";color:var(--accent);font-style:normal}
+.tpill-body{display:none;padding:0 12px 12px;border-top:1px solid var(--border)}
+.tpill.open .tpill-body{display:block}
+.tpill.open{cursor:default}
+.tcase-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+@media(max-width:520px){.tcase-grid{grid-template-columns:1fr}}
+.tcase{border-radius:8px;padding:9px 10px;font-size:11.5px;line-height:1.5;background:#0d1322;border:1px solid var(--border)}
+.tcase h4{font-size:10px;font-family:var(--mono);font-weight:700;letter-spacing:.5px;margin-bottom:5px}
+.tcase.works h4{color:var(--sage)}
+.tcase.breaks h4{color:#b48ead}
+.ttrip{margin-top:9px;background:#0d1322;border:1px solid var(--border);border-radius:8px;padding:9px 10px}
+.ttrip h4{font-size:10px;font-family:var(--mono);font-weight:700;color:var(--sand);letter-spacing:.5px;margin-bottom:5px}
+.ttrip ul{list-style:none;margin:0;padding:0}
+.ttrip li{font-size:11.5px;line-height:1.6;padding-left:16px;position:relative}
+.ttrip li::before{content:"◆";position:absolute;left:0;color:var(--sand);font-size:8px;top:4px}
+.ttrip .quiet{font-size:10px;font-family:var(--mono);color:var(--sage);margin-top:4px}
+.tmeta-row{display:flex;gap:14px;margin-top:9px;font-size:10px;font-family:var(--mono);color:var(--muted);flex-wrap:wrap}
+.tmeta-row b{color:#9fb2c8;font-weight:500}
+.tcollapse-hint{text-align:center;font-size:9px;color:var(--muted);margin-top:8px;font-family:var(--mono)}
+.tedit-row{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tseg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.tseg button{background:transparent;border:none;padding:6px 11px;font-size:10.5px;font-family:var(--mono);color:var(--muted);cursor:pointer}
+.tseg button.on-i{background:#16211b;color:var(--sage);font-weight:700}
+.tseg button.on-w{background:#242015;color:var(--sand);font-weight:700}
+.tseg button.on-r{background:#191d2e;color:var(--indigo);font-weight:700}
+.trsrch-btn{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;font-family:var(--mono);color:var(--muted);cursor:pointer}
+.trsrch-btn.on{border-color:var(--accent);color:var(--accent);background:#12233d;font-weight:700}
+.tlog{margin-top:9px;background:#0d1322;border:1px solid var(--border);border-radius:8px;padding:9px 10px}
+.tlog h4{font-size:10px;font-family:var(--mono);font-weight:700;color:var(--accent);letter-spacing:.5px;margin-bottom:5px}
+.tcomment-box{font-size:11.5px;line-height:1.5;color:#c3d0de;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 9px;min-height:34px;outline:none}
+.tcomment-box:focus{border-color:var(--accent)}
 .settings-section{padding:16px}
 .settings-card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid var(--border)}
 .settings-title{font-size:13px;font-weight:600;margin-bottom:8px}
@@ -272,7 +328,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.93</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.94</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -289,6 +345,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <nav class="navbar"><div class="navbar-inner">
   <button class="nav-btn" onclick="switchTab('portfolio')"><span class="nav-icon">📊</span><span class="nav-label" id="nav-portfolio">Portfolio</span></button>
   <button class="nav-btn" onclick="switchTab('watchlist')"><span class="nav-icon">👁</span><span class="nav-label" id="nav-watchlist">Watch</span><span id="watch-badge" class="nav-badge" style="display:none"></span></button>
+  <button class="nav-btn" onclick="switchTab('thesis')"><span class="nav-icon">📖</span><span class="nav-label" id="nav-thesis">Thesis</span></button>
   <button class="nav-btn" onclick="switchTab('allocator')"><span class="nav-icon">💰</span><span class="nav-label" id="nav-allocator">Allocator</span></button>
   <button class="nav-btn" onclick="switchTab('settings')"><span class="nav-icon">⚙️</span><span class="nav-label" id="nav-settings">Settings</span></button>
 </div></nav>
@@ -374,6 +431,9 @@ const PF_DEFAULTS={
 
 let stocks={},portfolios={},settings={fxRate:1.185,fxGBP:0.835,fxCAD:1.58,fxJPY:164,fxKRW:1640,monthlyIncomeUSD:11700,monthlyIncome:9900,monthlyStep:0,monthlyStepMonth:"",lastFetch:null,fetchInterval:1800000,dpDivisor:6,dpFloor:2000,dpFloorPct:30,dpTargetMode:"pct",dpTieredCapPct:50,pushWorkerUrl:"",pushSubscribed:false,lastPushSync:null,nlCapAtPersonal:true,nlTranches:40,nlTranchePct:3,marr:10,indexAllocation:0,indexTickerUS:"XZMU.L",indexTickerEU:"XZEU.DE",indexTickerFFE:"XFFE.L",nlIndexTickerUS:"XZMU.L",nlIndexTickerEU:"XZEU.DE",nlIndexTickerFFE:"XFFE.L",nlIndexCap:10,nlIndexTranche:1000,nlIndexMaxTranches:4,dpSlider:40,dpSliderCaca:50,indexAllocationPct:50,riskAnchorMode:{}};
 let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorage.getItem("r1-pf")||"personal",sellPf="personal",wlView=localStorage.getItem("r1-wlView")||"gap";
+// Thesis tab UI state (v4.94). Filter persists; expanded set is session-only.
+let thesisFilter=localStorage.getItem("r1-thesisFilter")||"all";
+let _thesisOpen=new Set();
 // watchMode: which sub-view to show inside the Watch tab — "watchlist" (default) or "risklist"
 let watchMode=localStorage.getItem("r1-watchMode")||"watchlist";
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
@@ -3508,7 +3568,7 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,divPerShare,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate\n";
+  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,divPerShare,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate,health,researchFlag,whyIOwn,bullCase,bearCase,thesisTripwires,checkpointDate,checkpointLabel,holdUntil,thesisReviewed,thesisComment\n";
   // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
   const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
   Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
@@ -3517,7 +3577,7 @@ function exportCSV(){
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="cashcow"?"cashcow":s.category==="highgr"?"highgr":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""},${s.health||""},${s.researchFlag?"Y":""},${q(s.whyIOwn||"")},${q(s.bullCase||"")},${q(s.bearCase||"")},${q(s.thesisTripwires||"")},${s.checkpointDate||""},${q(s.checkpointLabel||"")},${q(s.holdUntil||"")},${s.thesisReviewed||""},${q(s.thesisComment||"")}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -3549,12 +3609,26 @@ const DIFF_FIELDS=[
   {key:"block",label:"4M Block",path:["block"],boolDisplay:["BLOCKED",null]},
   {key:"blockReason",label:"Block Reason",path:["blockReason"],maxLen:90},
   {key:"notes",label:"Notes",path:["notes"],maxLen:90},
-  {key:"specReason",label:"Risk Thesis",path:["specReason"],maxLen:90}
+  {key:"specReason",label:"Risk Thesis",path:["specReason"],maxLen:90},
+  // Thesis layer (v4.94) — all 11 columns diffed; no silent overwrites of in-app toggles
+  {key:"health",label:"Thesis Health",path:["health"]},
+  {key:"researchFlag",label:"🔍 Research",path:["researchFlag"],boolDisplay:["FLAGGED",null]},
+  {key:"whyIOwn",label:"Why I Own",path:["whyIOwn"],maxLen:90},
+  {key:"bullCase",label:"Bull Case",path:["bullCase"],maxLen:90},
+  {key:"bearCase",label:"Bear Case",path:["bearCase"],maxLen:90},
+  {key:"thesisTripwires",label:"Tripwires",path:["thesisTripwires"],maxLen:90},
+  {key:"checkpointDate",label:"Checkpoint",path:["checkpointDate"]},
+  {key:"checkpointLabel",label:"Checkpoint Label",path:["checkpointLabel"],maxLen:90},
+  {key:"holdUntil",label:"Hold Until",path:["holdUntil"]},
+  {key:"thesisReviewed",label:"Thesis Reviewed",path:["thesisReviewed"]},
+  {key:"thesisComment",label:"My Comment",path:["thesisComment"],maxLen:90}
 ];
 function snapshotStocks(){
   const snap={};
   Object.entries(stocks).forEach(([t,s])=>{
-    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null,block:s.block?true:null,blockReason:s.blockReason||null,blockDate:s.blockDate||null,blockReviewDate:s.blockReviewDate||null,notes:s.notes||null,specReason:s.specReason||null};
+    const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null,block:s.block?true:null,blockReason:s.blockReason||null,blockDate:s.blockDate||null,blockReviewDate:s.blockReviewDate||null,notes:s.notes||null,specReason:s.specReason||null,
+      // Thesis layer (v4.94) — snapshotted so CSV imports diff cleanly, incl. in-app toggles
+      health:s.health||null,researchFlag:s.researchFlag?true:null,whyIOwn:s.whyIOwn||null,bullCase:s.bullCase||null,bearCase:s.bearCase||null,thesisTripwires:s.thesisTripwires||null,checkpointDate:s.checkpointDate||null,checkpointLabel:s.checkpointLabel||null,holdUntil:s.holdUntil||null,thesisReviewed:s.thesisReviewed||null,thesisComment:s.thesisComment||null};
     if(s.cons){Object.keys(s.cons).forEach(k=>o["cons."+k]=s.cons[k]);}
     snap[t]=o;
   });
@@ -3811,6 +3885,24 @@ function handleCSVImport(e){
           delete s.block;delete s.blockReason;delete s.blockDate;delete s.blockReviewDate;
         }
       }
+      // ============ THESIS LAYER (v4.94) — narrative fields only ============
+      // Layer separation is deliberate: nothing in this block reads or writes lastCalcDate,
+      // cons.*, signals, or any valuation field. Absent columns = no change (old CSVs load
+      // cleanly); present-but-empty = clear (perfect round-trip with export, and every
+      // set/clear surfaces in the Apply Import diff via DIFF_FIELDS).
+      const _thTxt=(col,key)=>{if(!hdr.includes(col))return;const tv=(row[col]||"").trim();if(tv)s[key]=tv;else delete s[key];};
+      if(hdr.includes("health")){const hv=(row.health||"").trim().toUpperCase();if(hv==="I"||hv==="W"||hv==="R")s.health=hv;else delete s.health;}
+      if(hdr.includes("researchflag")){const rf=(row.researchflag||"").toString().trim().toUpperCase();if(rf==="Y"||rf==="YES"||rf==="TRUE"||rf==="1")s.researchFlag=true;else delete s.researchFlag;}
+      _thTxt("whyiown","whyIOwn");
+      _thTxt("bullcase","bullCase");
+      _thTxt("bearcase","bearCase");
+      _thTxt("thesistripwires","thesisTripwires");
+      _thTxt("checkpointdate","checkpointDate");
+      _thTxt("checkpointlabel","checkpointLabel");
+      _thTxt("holduntil","holdUntil");
+      _thTxt("thesisreviewed","thesisReviewed");
+      _thTxt("thesiscomment","thesisComment");
+      // ============ END THESIS LAYER ============
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calc tenCap + pbt (category-aware: highgr uses 20Cap/DMOS formulas)
@@ -5367,10 +5459,10 @@ function render(){
     const fxErrTxt=settings.lastFxError?` · ⚠ FX: ${settings.lastFxError}`:(fxStale&&settings.lastFxUpdate?` · ⚠ FX stale ${fxAge}`:"");
     const fxColor=settings.lastFxError?"color:var(--red)":(fxStale?"color:var(--amber)":"");
     fxEl.innerHTML=`<span style="${fxColor}" title="${settings.lastFxError||''}">1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD} · 1€=¥${settings.fxJPY} · 1€=₩${settings.fxKRW}${fxErrTxt}</span>`;}
-  ["portfolio","watchlist","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
+  ["portfolio","watchlist","thesis","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   const _earBanner=renderEarningsBanner();
   const _contentEl=document.getElementById("content");
-  ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,settings:renderSettings})[currentTab](_contentEl);
+  ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,thesis:renderThesis,settings:renderSettings})[currentTab](_contentEl);
   if(_earBanner&&(currentTab==="portfolio"||currentTab==="watchlist")){_contentEl.innerHTML=_earBanner+_contentEl.innerHTML;}
   // v4.26: fit weight-bar labels after layout settles (portfolio tab only).
   if(currentTab==="portfolio"){requestAnimationFrame(fitWeightBarLabels);}
@@ -7881,6 +7973,114 @@ function exportDeployLog(){
 }
 
 // ============ SETTINGS ============
+// ============ THESIS TAB (v4.94) — narrative layer, locked mockup v4 ============
+// Presence rule: a stock appears here iff s.whyIOwn is non-empty. Reads holdings for
+// cost-basis sort only; never reads or writes lastCalcDate, cons.*, or signals.
+function thesisCostBasisUSD(t){
+  const s=stocks[t];if(!s)return 0;let native=0;
+  ["personal","nl"].forEach(pk=>{const p=portfolios[pk]?.positions?.[t];
+    if(!p?.tranches)return;p.tranches.forEach(tr=>{const sh=tr.bought-tr.sold;if(sh>0)native+=sh*tr.buyPrice;});});
+  // buyPrice is native currency (GBp in pence, EUR, CAD, JPY…) — normalize via the app's
+  // existing FX chain: native → EUR (toEUR handles the pence/100) → USD at settings.fxRate.
+  return toEUR(native,s.currency||"USD")*settings.fxRate;
+}
+function _thesisHealthCls(s){return s.health==="R"?"review":s.health==="W"?"watching":"intact";}
+function _thesisFmtCb(v){if(hideValues)return"···";if(v>=1000)return"$"+(v/1000).toFixed(1)+"K";return"$"+Math.round(v);}
+function _thesisRevAgo(s){if(!s.thesisReviewed)return"";const d=new Date(s.thesisReviewed);if(isNaN(d))return"";const days=Math.max(0,Math.floor((Date.now()-d.getTime())/86400000));return days===0?"reviewed today":"reviewed "+days+"d ago";}
+function setThesisHealth(t,h){const s=stocks[t];if(!s)return;s.health=h;s.thesisReviewed=new Date().toISOString().slice(0,10);save();render();}
+function toggleThesisResearch(t){const s=stocks[t];if(!s)return;if(s.researchFlag)delete s.researchFlag;else s.researchFlag=true;s.thesisReviewed=new Date().toISOString().slice(0,10);save();render();}
+function saveThesisComment(t,el){const s=stocks[t];if(!s)return;const txt=(el.innerText||"").trim();
+  const old=s.thesisComment||"";if(txt===old)return; // no-op blur — don't stamp reviewed
+  if(txt)s.thesisComment=txt;else delete s.thesisComment;
+  s.thesisReviewed=new Date().toISOString().slice(0,10);save();render();}
+function toggleThesisPill(ev,t){
+  // Mirror mockup tg(): clicks inside the expanded body are inert except the collapse hint.
+  const pill=ev.currentTarget;
+  if(pill.classList.contains("open")&&ev.target.closest(".tpill-body")&&!ev.target.closest(".tcollapse-hint"))return;
+  if(_thesisOpen.has(t))_thesisOpen.delete(t);else _thesisOpen.add(t);
+  render();
+}
+function setThesisFilter(f){thesisFilter=f;localStorage.setItem("r1-thesisFilter",f);render();}
+function renderThesis(c){
+  const all=Object.keys(stocks).filter(t=>stocks[t].whyIOwn&&String(stocks[t].whyIOwn).trim());
+  // Pre-compute cost basis once per render
+  const cb={};all.forEach(t=>cb[t]=thesisCostBasisUSD(t));
+  const isP3=t=>isRiskAnywhere(t);
+  const counts={all:all.length,p1:all.filter(t=>!isP3(t)).length,p3:all.filter(t=>isP3(t)).length,
+    review:all.filter(t=>stocks[t].health==="R").length,rsrch:all.filter(t=>stocks[t].researchFlag).length};
+  let list=all.filter(t=>{
+    if(thesisFilter==="p1")return!isP3(t);
+    if(thesisFilter==="p3")return isP3(t);
+    if(thesisFilter==="review")return stocks[t].health==="R";
+    if(thesisFilter==="rsrch")return!!stocks[t].researchFlag;
+    return true;});
+  // Sort: 🔍-flagged pinned on top; cost basis descending within each group
+  list.sort((a,b)=>{const fa=stocks[a].researchFlag?0:1,fb=stocks[b].researchFlag?0:1;
+    return fa!==fb?fa-fb:(cb[b]||0)-(cb[a]||0);});
+  const chip=(key,label,n)=>`<span class="thesis-chip ${thesisFilter===key?"on":""}" onclick="setThesisFilter('${key}')">${label} · ${n}</span>`;
+  let h=`<div class="section-pad">
+    <div style="font-size:16px;font-weight:700;margin-bottom:2px">Thesis</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">why I own what I own</div>
+    <div class="thesis-chip-row">
+      <span class="thesis-chip ${thesisFilter==="all"?"on":""}" onclick="setThesisFilter('all')">All ${counts.all}</span>
+      ${chip("p1","Pool 1",counts.p1)}${chip("p3","Pool 3",counts.p3)}${chip("review","Under review",counts.review)}${chip("rsrch","🔍 Research",counts.rsrch)}
+    </div>
+    <div class="thesis-sort-note">sorted by cost basis ↓ · 🔍 research-flagged pinned on top</div>`;
+  if(!list.length){
+    h+=`<div style="color:var(--muted);padding:20px;text-align:center;font-size:12px">${all.length?"Nothing matches this filter.":"No theses yet — import a triggers CSV with the thesis columns filled to populate this tab."}</div></div>`;
+    c.innerHTML=h;return;}
+  list.forEach(t=>{const s=stocks[t];
+    const cls=_thesisHealthCls(s);
+    const stateLabel=s.health==="R"?"UNDER REVIEW":s.health==="W"?"WATCHING":"INTACT";
+    const open=_thesisOpen.has(t);
+    const badges=[];
+    badges.push(isP3(t)?`<span class="tbadge tb-p3">POOL 3</span>`:`<span class="tbadge tb-p1">POOL 1</span>`);
+    if(isOperationalTier1(t))badges.push(`<span class="tbadge tb-t1">TIER 1</span>`);
+    if(isCashcow(t))badges.push(`<span class="tbadge tb-cc">CASH-COW</span>`);
+    const chk=[];
+    chk.push(`<span style="color:var(--muted)">cb ≈ ${_thesisFmtCb(cb[t]||0)}</span>`);
+    if(s.checkpointLabel)chk.push(`<b>${esc(s.checkpointLabel)}</b>`);
+    else if(s.checkpointDate)chk.push(`gate <b>${esc(s.checkpointDate)}</b>`);
+    if(s.holdUntil)chk.push(`hold: <b>${esc(s.holdUntil)}</b>`);
+    const trips=(s.thesisTripwires||"").split("|").map(x=>x.trim()).filter(Boolean);
+    const revAgo=_thesisRevAgo(s);
+    h+=`<div class="tpill ${cls}${open?" open":""}" onclick="toggleThesisPill(event,'${t}')">
+      <div class="tpill-head">
+        <div class="tpill-top">
+          <span class="tpill-tkr">${s.flag||""} ${esc(t)}</span>
+          ${badges.join("")}
+          ${s.researchFlag?`<span class="trsrch-badge">🔍</span>`:""}
+          <span class="tstate ${cls}">${stateLabel}</span>
+        </div>
+        <div class="tpill-chk">${chk.join(" · ")}</div>
+        <div class="twhy">${esc(s.whyIOwn)}</div>
+      </div>
+      <div class="tpill-body">
+        <div class="tcase-grid">
+          <div class="tcase works"><h4>WHY IT WORKS</h4>${esc(s.bullCase||"—")}</div>
+          <div class="tcase breaks"><h4>WHAT WOULD BREAK IT</h4>${esc(s.bearCase||"—")}</div>
+        </div>
+        ${trips.length?`<div class="ttrip"><h4>ARMED TRIPWIRES / WATCH ITEMS</h4><ul>${trips.map(x=>`<li>${esc(x)}</li>`).join("")}</ul><div class="quiet">✓ nothing fired — no action required until the gate</div></div>`:""}
+        <div class="tedit-row">
+          <div class="tseg">
+            <button class="${s.health!=="W"&&s.health!=="R"?"on-i":""}" onclick="setThesisHealth('${t}','I')">Intact</button>
+            <button class="${s.health==="W"?"on-w":""}" onclick="setThesisHealth('${t}','W')">Watching</button>
+            <button class="${s.health==="R"?"on-r":""}" onclick="setThesisHealth('${t}','R')">Review</button>
+          </div>
+          <button class="trsrch-btn ${s.researchFlag?"on":""}" onclick="toggleThesisResearch('${t}')">🔍 needs research</button>
+          ${revAgo?`<span style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-left:auto">${revAgo}</span>`:""}
+        </div>
+        <div class="tlog"><h4>MY COMMENT <span style="font-weight:400;color:var(--muted)">— tap to edit · exported in CSV</span></h4>
+          <div class="tcomment-box" contenteditable="true" onblur="saveThesisComment('${t}',this)">${esc(s.thesisComment||"")}</div>
+        </div>
+        ${s.holdUntil?`<div class="tmeta-row"><span>hold: <b>${esc(s.holdUntil)}</b></span></div>`:""}
+        <div class="tcollapse-hint">tap to collapse ▲</div>
+      </div>
+    </div>`;});
+  h+=`</div>`;
+  c.innerHTML=h;
+}
+// ============ END THESIS TAB ============
 function renderSettings(c){
   const GRID_P=getGrid("personal"),GRID_N=getGrid("nl"),wl=getWatchlist();
   const RISK_P=getSpeculative("personal"),RISK_N=getSpeculative("nl");
