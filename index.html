@@ -328,7 +328,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.94</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.97</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2556,7 +2556,26 @@ function stockDeployRoomBase(ticker,pfKey,base,extraBase){
 }
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
-function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;if(pf.dpKRW==null)pf.dpKRW=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD)+(pf.dpKRW/settings.fxKRW);pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
+// v4.95: DP-XFFE — part of Pool 1+3 dry powder is parked in XFFE (short-term USD bond ETF).
+// pf.dpFfeShares / pf.dpFfeAvgCost track the DP portion; the Pool 2 pen portion lives SEPARATELY
+// in the ffe index leg (pf.indexPositions.ffe). Both come from the Holdings CSV (source of truth):
+// trancheType "dpffe" = DP portion, trancheType "index" = Pool 2 pen portion. Price is shared —
+// dpFfeInfo reads the ffe index leg's currentPrice (falls back to avgCost pre-first-fetch).
+function dpFfeInfo(pfKey){
+  const pf=portfolios[pfKey];if(!pf)return{shares:0,avgCost:0,price:0,ccy:"USD",mvBase:0,mvEUR:0};
+  const shares=pf.dpFfeShares||0,avgCost=pf.dpFfeAvgCost||0;
+  const ip=getIndexPos(pfKey,"ffe");
+  const ccy=ip?.currency||"USD";
+  const price=(ip?.currentPrice||0)||avgCost;
+  const raw=shares*price;
+  let mvEUR=0;
+  if(ccy==="EUR")mvEUR=raw;else if(ccy==="USD")mvEUR=raw/settings.fxRate;else if(ccy==="GBP")mvEUR=raw/settings.fxGBP;else mvEUR=raw/settings.fxRate;
+  const base=pfBaseCcy(pfKey);
+  return{shares,avgCost,price,ccy,mvEUR,mvBase:base==="USD"?mvEUR*settings.fxRate:mvEUR};
+}
+// recalcDP: dryPowder (base ccy) = per-currency account cash + DP-XFFE market value (v4.95).
+// The Pool 2 pen XFFE is NOT included — it belongs to the index sleeve, not dry powder.
+function recalcDP(pfKey){const pf=portfolios[pfKey];if(!pf)return;const base=pfBaseCcy(pfKey);if(pf.dpUSD==null&&pf.dpEUR==null&&pf.dryPowder>0){if(base==="USD"){pf.dpUSD=pf.dryPowder;pf.dpEUR=0;}else{pf.dpEUR=pf.dryPowder;pf.dpUSD=0;}}if(pf.dpUSD==null)pf.dpUSD=0;if(pf.dpEUR==null)pf.dpEUR=0;if(pf.dpGBP==null)pf.dpGBP=0;if(pf.dpJPY==null)pf.dpJPY=0;if(pf.dpCAD==null)pf.dpCAD=0;if(pf.dpKRW==null)pf.dpKRW=0;if(pf.dpFfeShares==null)pf.dpFfeShares=0;if(pf.dpFfeAvgCost==null)pf.dpFfeAvgCost=0;const eurTotal=pf.dpEUR+(pf.dpUSD/settings.fxRate)+(pf.dpGBP/settings.fxGBP)+(pf.dpJPY/settings.fxJPY)+(pf.dpCAD/settings.fxCAD)+(pf.dpKRW/settings.fxKRW)+dpFfeInfo(pfKey).mvEUR;pf.dryPowder=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);}
 
 // v4.74: PER-STOCK, PER-PORTFOLIO LO tranche %. stocks[t].loPct = {personal:2|4, caca:2|4},
 // set via the LO manager modal (tap the Personal/Caca LO boxes). Default when unset: RISK
@@ -3254,6 +3273,7 @@ async function syncIBKR(pfKey){
     // Parse positions
     const positions=doc.querySelectorAll("OpenPosition");
     const posData={};
+    let ffeData=null; // v4.96: XFFE routed out of posData — combined pen+DP position, price-only update
     positions.forEach(p=>{
       const sym=p.getAttribute("symbol");
       const qty=parseFloat(p.getAttribute("position")||p.getAttribute("quantity")||0);
@@ -3261,6 +3281,14 @@ async function syncIBKR(pfKey){
       const ccy=p.getAttribute("currency")||"USD";
       const mktVal=parseFloat(p.getAttribute("markPrice")||p.getAttribute("marketPrice")||0);
       if(qty===0)return;
+      // v4.96: XFFE — one combined IBKR position covering BOTH the Pool 2 pen leg and the
+      // Pool 1+3 DP holding. The split lives in the Holdings CSV, so never write shares from
+      // sync; capture qty/price for a price-only update + reconciliation line in the preview.
+      if(sym&&sym.replace(/\.(L|DE|AS)$/,"")==="XFFE"){
+        if(!ffeData)ffeData={qty:0,px:0};
+        ffeData.qty+=qty;if(mktVal)ffeData.px=mktVal;
+        return;
+      }
       const t=resolveT(sym);
       // IBKR reports GBP prices in pounds; app uses pence for GBp stocks
       const isGBp=t&&stocks[t]?.currency==="GBp";
@@ -3342,13 +3370,20 @@ async function syncIBKR(pfKey){
       }
     });
     if(totalCash>0){let cashParts=[];if(cashUSD)cashParts.push("$"+Math.round(cashUSD).toLocaleString());if(cashEUR)cashParts.push("€"+Math.round(cashEUR).toLocaleString());if(cashGBP)cashParts.push("£"+Math.round(cashGBP).toLocaleString());if(cashJPY)cashParts.push("¥"+Math.round(cashJPY).toLocaleString());if(cashCAD)cashParts.push("C$"+Math.round(cashCAD).toLocaleString());if(cashKRW)cashParts.push("₩"+Math.round(cashKRW).toLocaleString());preview+=`<div style="margin-top:4px">Cash: ${cashParts.join(" + ")} (${pfBaseCcy(pfKey)==="USD"?"$":"€"}${Math.round(totalCash).toLocaleString()} total)</div>`;}
+    // v4.96: XFFE reconciliation — combined IBKR qty vs app pen + DP split (Holdings CSV governs)
+    if(ffeData){
+      const _ip=getIndexPos(pfKey,"ffe");
+      const _appTotal=(_ip.shares||0)+(portfolios[pfKey].dpFfeShares||0);
+      const _match=Math.abs(_appTotal-ffeData.qty)<=0.01;
+      preview+=`<div style="margin-top:4px;color:${_match?"var(--muted)":"var(--amber)"}">🏦 XFFE: ${ffeData.qty} sh @ ${ffeData.px.toFixed(2)} — price-only update. App split: pen ${(_ip.shares||0).toFixed(2)} + DP ${(portfolios[pfKey].dpFfeShares||0).toFixed(2)} = ${_appTotal.toFixed(2)}${_match?" ✓":" ⚠ mismatch — update Holdings CSV split"}</div>`;
+    }
     if(tradeData.length)preview+=`<div>${tradeData.length} recent trades found</div>`;
     if(unmatched.length)preview+=`<div style="color:var(--red);margin-top:4px">Unmatched: ${unmatched.join(", ")} — add these to your stock list first</div>`;
     preview+=`<div style="margin-top:8px">
       <button class="settings-save" onclick="applyIBKR('${pfKey}')">✓ Apply to ${pfName}</button></div></div>`;
 
     document.getElementById("ibkr-preview-"+pfKey).innerHTML=preview;
-    window["_ibkrData_"+pfKey]={posData,cashEUR,cashUSD,cashGBP,cashJPY,cashCAD,cashKRW,tradeData};
+    window["_ibkrData_"+pfKey]={posData,cashEUR,cashUSD,cashGBP,cashJPY,cashCAD,cashKRW,tradeData,ffeData};
     ibkrStatus(`✓ ${matched} matched, ${unmatched.length} unmatched`,false,pfKey);
 
   }catch(err){
@@ -3398,6 +3433,11 @@ function applyIBKR(pfKey){
 
   // Update cash as dry powder (base currency depends on portfolio setting)
   const{cashEUR,cashUSD,cashGBP,cashJPY,cashCAD,cashKRW}=data;
+  // v4.96: XFFE price-only update (shares governed by the Holdings CSV pen/DP split)
+  if(data.ffeData&&data.ffeData.px){
+    const _ip=getIndexPos(pfKey,"ffe");
+    _ip.currentPrice=data.ffeData.px;_ip.lastUpdate=Date.now();_ip.priceSource="ibkr";
+  }
   const totalCashEUR=cashEUR+(cashUSD/settings.fxRate)+(cashGBP/settings.fxGBP)+(cashJPY/settings.fxJPY)+(cashCAD/settings.fxCAD)+((cashKRW||0)/settings.fxKRW);
   const totalCash=pfBaseCcy(pfKey)==="USD"?totalCashEUR*settings.fxRate:totalCashEUR;
   if(totalCash>0){pf.dpUSD=Math.round(cashUSD);pf.dpEUR=Math.round(cashEUR);pf.dpGBP=Math.round(cashGBP);pf.dpJPY=Math.round(cashJPY);pf.dpCAD=Math.round(cashCAD);pf.dpKRW=Math.round(cashKRW||0);pf.dryPowder=Math.round(totalCash);pf.dpManual=false;}
@@ -3492,6 +3532,17 @@ async function autoSyncIBKR(pfKey){
       if(ixRegion){
         const ip=getIndexPos(pfKey,ixRegion);
         ip.shares=qty;ip.avgCost=rawCost;ip.currentPrice=rawMkt||ip.currentPrice;ip.lastUpdate=Date.now();ip.priceSource="ibkr";
+        return;
+      }
+      // v4.95: XFFE — IBKR reports ONE combined position, but the app splits it into the Pool 2
+      // pen leg (indexPositions.ffe) and the Pool 1+3 DP holding (pf.dpFfeShares). The split comes
+      // from the Holdings CSV, so NEVER overwrite shares here — update the shared price only,
+      // and warn when IBKR's total drifts from pen + DP (a CSV update is then due).
+      if(ixSymClean==="XFFE"){
+        const ip=getIndexPos(pfKey,"ffe");
+        if(rawMkt){ip.currentPrice=rawMkt;ip.lastUpdate=Date.now();ip.priceSource="ibkr";}
+        const appTotal=(ip.shares||0)+(pf.dpFfeShares||0);
+        if(Math.abs(appTotal-qty)>0.01)console.warn(`autoSyncIBKR [${pfKey}]: XFFE qty mismatch — IBKR ${qty} vs app pen ${ip.shares||0} + DP ${pf.dpFfeShares||0} = ${appTotal}. Update the Holdings CSV split.`);
         return;
       }
       const t=resolveT(sym);
@@ -3944,7 +3995,9 @@ function handleCSVImport(e){
 //   tenCap/cashcowTenCap ↔ "10Cap"   pbt/cashcowPbt ↔ "PBT"   (legacy buffettTenCap/buffettPbt accepted on import)
 //   trophy ↔ "trophy"          risk ↔ "risk" (also adds ticker to pf.riskStocks)
 //   index → writes to pf.indexPositions[us|eu] aggregate (shares/avgCost) — not as a tranche
-const HOLDINGS_TRANCHE_TYPES=["initial","mos","pmos","tenCap","pbt","cashcowTenCap","cashcowPbt","buffettTenCap","buffettPbt","risk","trophy","index","cash"];
+// v4.95: "dpffe" = XFFE shares held as Pool 1+3 DRY POWDER (distinct from trancheType "index"
+// on the same ticker, which is the Pool 2 holding-pen portion). shares = XFFE shares, buyPrice = avg cost.
+const HOLDINGS_TRANCHE_TYPES=["initial","mos","pmos","tenCap","pbt","cashcowTenCap","cashcowPbt","buffettTenCap","buffettPbt","risk","trophy","index","cash","dpffe"];
 // v3.96: stockType column — the framework classification of the stock in that portfolio.
 // "risk" is per-portfolio (pf.riskStocks); phil_town/cashcow/highgr come from s.category ("buffett" accepted on import as legacy alias → cashcow).
 const HOLDINGS_STOCK_TYPES=["phil_town","cashcow","highgr","risk","index","cash","buffett"];
@@ -4076,6 +4129,14 @@ function exportHoldingsCSV(){
       rows.push({portfolio:csvPf,ticker,stockType:"index",trancheType:"index",shares:ip.shares,buyPrice:ip.avgCost||0,buyDate:"",notes:""});
     });
   });
+  // 2.5 (v4.95) DP-XFFE: XFFE shares held as Pool 1+3 dry powder — separate from the
+  // Pool 2 pen portion exported above as trancheType "index".
+  Object.entries(portfolios).forEach(([pk,pf])=>{
+    const csvPf=_PF_KEY_TO_CSV[pk];if(!csvPf||!pf)return;
+    if((pf.dpFfeShares||0)>0){
+      rows.push({portfolio:csvPf,ticker:indexTickerForPf(pk,"ffe"),stockType:"cash",trancheType:"dpffe",shares:pf.dpFfeShares,buyPrice:pf.dpFfeAvgCost||0,buyDate:"",notes:"DP Pool 1+3"});
+    }
+  });
   // 3. Cash (dry powder) per currency per portfolio (one row per non-zero leg)
   Object.entries(portfolios).forEach(([pk,pf])=>{
     const csvPf=_PF_KEY_TO_CSV[pk];if(!csvPf||!pf)return;
@@ -4138,9 +4199,10 @@ function _fmtCash(v,ccy){
 // Compute holdings diff: compares current state vs proposed (parsed) state.
 // Returns {diff:{stocks,index,cash}, totals:{stocks,index,cash,total}}.
 function _computeHoldingsDiff(parsed){
-  const after={personal:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}}};
+  const after={personal:{stocks:{},index:{us:null,eu:null,ffe:null},dpffe:null,cash:{}},nl:{stocks:{},index:{us:null,eu:null,ffe:null},dpffe:null,cash:{}}};
   Object.keys(after).forEach(pk=>HOLDINGS_CASH_CCYS.forEach(c=>after[pk].cash[c]=0));
   const indexAgg={};
+  const dpffeAgg={}; // v4.95: pfKey → {shares,costSum}
   parsed.forEach(row=>{
     const {pfKey,ticker,tt,shares,buyPrice,buyDate,notes}=row;
     if(!after[pfKey])return;
@@ -4154,6 +4216,12 @@ function _computeHoldingsDiff(parsed){
       indexAgg[k].costSum+=shares*buyPrice;
       return;
     }
+    if(tt==="dpffe"){
+      if(!dpffeAgg[pfKey])dpffeAgg[pfKey]={shares:0,costSum:0};
+      dpffeAgg[pfKey].shares+=shares;
+      dpffeAgg[pfKey].costSum+=shares*buyPrice;
+      return;
+    }
     if(tt==="cash"){a.cash[ticker]=(a.cash[ticker]||0)+shares;return;}
     const sig=_trancheTypeToSignal(tt,ticker);
     if(!a.stocks[ticker])a.stocks[ticker]=[];
@@ -4163,11 +4231,15 @@ function _computeHoldingsDiff(parsed){
     const [pk,r]=k.split(":");
     after[pk].index[r]={shares:agg.shares,avgCost:agg.shares>0?+(agg.costSum/agg.shares).toFixed(4):0};
   });
+  Object.entries(dpffeAgg).forEach(([pk,agg])=>{
+    after[pk].dpffe={shares:agg.shares,avgCost:agg.shares>0?+(agg.costSum/agg.shares).toFixed(4):0};
+  });
   // Build "before" snapshot from current portfolios
-  const before={personal:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}},nl:{stocks:{},index:{us:null,eu:null,ffe:null},cash:{}}};
+  const before={personal:{stocks:{},index:{us:null,eu:null,ffe:null},dpffe:null,cash:{}},nl:{stocks:{},index:{us:null,eu:null,ffe:null},dpffe:null,cash:{}}};
   ["personal","nl"].forEach(pk=>{
     const pf=portfolios[pk];if(!pf)return;
     HOLDINGS_CASH_CCYS.forEach(c=>before[pk].cash[c]=pf["dp"+c]||0);
+    if((pf.dpFfeShares||0)>0)before[pk].dpffe={shares:pf.dpFfeShares,avgCost:pf.dpFfeAvgCost||0};
     Object.entries(pf.positions||{}).forEach(([t,pos])=>{
       const trs=(pos.tranches||[]).filter(tr=>((tr.bought||0)-(tr.sold||0))>0);
       if(trs.length)before[pk].stocks[t]=trs.map(tr=>({signal:tr.signal,shares:(tr.bought||0)-(tr.sold||0),buyPrice:tr.buyPrice,buyDate:tr.buyDate||null,notes:tr.notes||""}));
@@ -4175,7 +4247,7 @@ function _computeHoldingsDiff(parsed){
     INDEX_REGIONS.forEach(r=>{const ip=getIndexPos(pk,r);if(ip&&ip.shares>0)before[pk].index[r]={shares:ip.shares,avgCost:ip.avgCost};});
   });
   // Compute diff per portfolio
-  const out={stocks:{personal:[],nl:[]},index:{personal:[],nl:[]},cash:{personal:[],nl:[]}};
+  const out={stocks:{personal:[],nl:[]},index:{personal:[],nl:[]},dpffe:{personal:[],nl:[]},cash:{personal:[],nl:[]}};
   ["personal","nl"].forEach(pk=>{
     const tickers=new Set([...Object.keys(before[pk].stocks),...Object.keys(after[pk].stocks)]);
     [...tickers].sort().forEach(t=>{
@@ -4198,14 +4270,24 @@ function _computeHoldingsDiff(parsed){
         if(ds>0.0001||dc>0.005)out.index[pk].push({region:r,kind:"changed",before:b,after:a});
       }
     });
+    // v4.95: DP-XFFE diff (single leg per portfolio)
+    {
+      const b=before[pk].dpffe,a=after[pk].dpffe;
+      if(!b&&a)out.dpffe[pk].push({kind:"new",before:null,after:a});
+      else if(b&&!a)out.dpffe[pk].push({kind:"removed",before:b,after:null});
+      else if(b&&a){
+        const ds=Math.abs(b.shares-a.shares),dc=Math.abs((b.avgCost||0)-(a.avgCost||0));
+        if(ds>0.0001||dc>0.005)out.dpffe[pk].push({kind:"changed",before:b,after:a});
+      }
+    }
     HOLDINGS_CASH_CCYS.forEach(c=>{
       const bv=before[pk].cash[c]||0,av=after[pk].cash[c]||0;
       if(Math.abs(bv-av)>0.005)out.cash[pk].push({ccy:c,before:bv,after:av,kind:bv===0?"new":(av===0?"removed":"changed")});
     });
   });
-  let s=0,ix=0,csh=0;
-  ["personal","nl"].forEach(pk=>{s+=out.stocks[pk].length;ix+=out.index[pk].length;csh+=out.cash[pk].length;});
-  return{diff:out,totals:{stocks:s,index:ix,cash:csh,total:s+ix+csh}};
+  let s=0,ix=0,dpf=0,csh=0;
+  ["personal","nl"].forEach(pk=>{s+=out.stocks[pk].length;ix+=out.index[pk].length;dpf+=out.dpffe[pk].length;csh+=out.cash[pk].length;});
+  return{diff:out,totals:{stocks:s,index:ix,dpffe:dpf,cash:csh,total:s+ix+dpf+csh}};
 }
 
 // Diff preview modal (replaces simple confirm modal). User reviews changes, then Apply or Cancel.
@@ -4220,14 +4302,15 @@ function showHoldingsDiffModal(parsed,warnings,applyFn){
   const sumParts=[];
   if(totals.stocks)sumParts.push(`${totals.stocks} stock${totals.stocks!==1?"s":""}`);
   if(totals.index)sumParts.push(`${totals.index} index`);
+  if(totals.dpffe)sumParts.push(`${totals.dpffe} DP-XFFE`);
   if(totals.cash)sumParts.push(`${totals.cash} cash`);
   const summary=totals.total>0?sumParts.join(" · ")+" change"+(totals.total!==1?"s":""):"No changes";
   // Body: per-portfolio sections
   let body="";
   ["personal","nl"].forEach(pk=>{
     const pfLabel=pk==="personal"?"🧑 Personal":"🧓 Caca";
-    const stockChanges=diff.stocks[pk],indexChanges=diff.index[pk],cashChanges=diff.cash[pk];
-    if(!stockChanges.length&&!indexChanges.length&&!cashChanges.length)return;
+    const stockChanges=diff.stocks[pk],indexChanges=diff.index[pk],dpffeChanges=diff.dpffe[pk],cashChanges=diff.cash[pk];
+    if(!stockChanges.length&&!indexChanges.length&&!dpffeChanges.length&&!cashChanges.length)return;
     body+=`<div class="diff-section-hdr">${pfLabel}</div>`;
     // Stock-level changes
     stockChanges.forEach(c=>{
@@ -4267,6 +4350,14 @@ function showHoldingsDiffModal(parsed,warnings,applyFn){
       const afterStr=c.after?`${fmtSh(c.after.shares)} sh @ ${fmt(c.after.avgCost,ccy)}`:"—";
       const badge=c.kind==="new"?`<span class="diff-stock-badge new">NEW</span>`:c.kind==="removed"?`<span class="diff-stock-badge removed">REMOVED</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
       body+=`<div class="diff-stock"><div class="diff-stock-hdr"><span class="diff-stock-ticker">🌍 ${ticker}</span><span class="diff-stock-name">Index ${region}</span>${badge}</div><div class="diff-changes"><span class="diff-chip"><span class="diff-old">${beforeStr}</span><span class="diff-arrow">→</span><span class="diff-new-val">${afterStr}</span></span></div></div>`;
+    });
+    // DP-XFFE changes (v4.95) — XFFE held as Pool 1+3 dry powder, separate from the Pool 2 pen leg above
+    dpffeChanges.forEach(c=>{
+      const ticker=indexTickerForPf(pk,"ffe");
+      const beforeStr=c.before?`${fmtSh(c.before.shares)} sh @ ${fmt(c.before.avgCost,"USD")}`:"—";
+      const afterStr=c.after?`${fmtSh(c.after.shares)} sh @ ${fmt(c.after.avgCost,"USD")}`:"—";
+      const badge=c.kind==="new"?`<span class="diff-stock-badge new">NEW</span>`:c.kind==="removed"?`<span class="diff-stock-badge removed">REMOVED</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
+      body+=`<div class="diff-stock"><div class="diff-stock-hdr"><span class="diff-stock-ticker">🏦 ${ticker}</span><span class="diff-stock-name">DP (Pool 1+3)</span>${badge}</div><div class="diff-changes"><span class="diff-chip"><span class="diff-old">${beforeStr}</span><span class="diff-arrow">→</span><span class="diff-new-val">${afterStr}</span></span></div></div>`;
     });
     // Cash-leg changes (grouped into single card per portfolio)
     if(cashChanges.length){
@@ -4386,6 +4477,10 @@ function handleHoldingsCSVImport(e){
       if(tt==="cash"&&!HOLDINGS_CASH_CCYS.includes(ticker)){
         errors.push({line:lineNo,msg:`Invalid cash currency "${ticker}" — must be one of: ${HOLDINGS_CASH_CCYS.join(", ")}`});continue;
       }
+      // dpffe rows (v4.95): ticker must resolve to the XFFE pen-vehicle leg for that portfolio
+      if(tt==="dpffe"&&_indexRegionForTicker(ticker,_PF_CSV_TO_KEY[pfRaw])!=="ffe"){
+        errors.push({line:lineNo,msg:`Invalid dpffe ticker "${ticker}" — must be the XFFE leg (e.g. ${indexTickerForPf(_PF_CSV_TO_KEY[pfRaw],"ffe")})`});continue;
+      }
       // Validate buyDate (optional)
       let buyDate=null;
       if(bdStr){
@@ -4395,7 +4490,7 @@ function handleHoldingsCSVImport(e){
       }
       const pfKey=_PF_CSV_TO_KEY[pfRaw];
       // Orphan ticker check (warn only; skip for index + cash rows since their tickers aren't in stocks{})
-      if(tt!=="index"&&tt!=="cash"&&!stocks[ticker]){
+      if(tt!=="index"&&tt!=="cash"&&tt!=="dpffe"&&!stocks[ticker]){
         warnings.push({line:lineNo,msg:`Ticker "${ticker}" not found in triggers data (orphan — kept anyway)`});
       }
       parsed.push({lineNo,pfKey,pfRaw,ticker,st:stRaw,tt,shares,buyPrice,buyDate,notes});
@@ -4424,6 +4519,7 @@ function _applyHoldingsImport(parsed,warnings){
       ip.shares=0;ip.avgCost=0;
     });
     HOLDINGS_CASH_CCYS.forEach(ccy=>{pf["dp"+ccy]=0;});
+    pf.dpFfeShares=0;pf.dpFfeAvgCost=0; // v4.95: DP-XFFE rebuilt from dpffe rows
   });
   // 1.5 (v3.96) PRE-PASS: set framework classification from the stockType column BEFORE building
   // tranches, so _trancheTypeToSignal sees the correct category (20Cap vs 10Cap etc.) regardless of
@@ -4436,7 +4532,7 @@ function _applyHoldingsImport(parsed,warnings){
   }
   parsed.forEach(row=>{
     const {pfKey,ticker,st,tt}=row;
-    if(tt==="index"||tt==="cash"||!ticker)return;
+    if(tt==="index"||tt==="cash"||tt==="dpffe"||!ticker)return;
     if(!stocks[ticker])_ensureStockEntry(ticker);
     if(!stocks[ticker])return;
     if(st==="cashcow"||st==="buffett")stocks[ticker].category="cashcow";
@@ -4478,6 +4574,14 @@ function _applyHoldingsImport(parsed,warnings){
     if(tt==="cash"){
       // ticker is the currency code (validated earlier). Multiple cash rows for same ccy accumulate.
       pf["dp"+ticker]=(pf["dp"+ticker]||0)+shares;
+      if(csvPf==="personal")stats.personalCash++;else stats.cacaCash++;
+      return;
+    }
+    if(tt==="dpffe"){
+      // v4.95: XFFE held as Pool 1+3 dry powder. Multiple rows accumulate with weighted-avg cost.
+      const prevSh=pf.dpFfeShares||0,prevCostSum=prevSh*(pf.dpFfeAvgCost||0);
+      pf.dpFfeShares=prevSh+shares;
+      pf.dpFfeAvgCost=pf.dpFfeShares>0?+((prevCostSum+shares*buyPrice)/pf.dpFfeShares).toFixed(4):0;
       if(csvPf==="personal")stats.personalCash++;else stats.cacaCash++;
       return;
     }
@@ -4573,6 +4677,8 @@ function exportExcel(){
     {key:"dryPowder_nl",value:portfolios.nl?.dryPowder||0},
     {key:"dpUSD_personal",value:portfolios.personal?.dpUSD||0},{key:"dpEUR_personal",value:portfolios.personal?.dpEUR||0},{key:"dpGBP_personal",value:portfolios.personal?.dpGBP||0},{key:"dpJPY_personal",value:portfolios.personal?.dpJPY||0},{key:"dpCAD_personal",value:portfolios.personal?.dpCAD||0},{key:"dpKRW_personal",value:portfolios.personal?.dpKRW||0},
     {key:"dpUSD_nl",value:portfolios.nl?.dpUSD||0},{key:"dpEUR_nl",value:portfolios.nl?.dpEUR||0},{key:"dpGBP_nl",value:portfolios.nl?.dpGBP||0},{key:"dpJPY_nl",value:portfolios.nl?.dpJPY||0},{key:"dpCAD_nl",value:portfolios.nl?.dpCAD||0},{key:"dpKRW_nl",value:portfolios.nl?.dpKRW||0},
+    {key:"dpFfeShares_personal",value:portfolios.personal?.dpFfeShares||0},{key:"dpFfeAvgCost_personal",value:portfolios.personal?.dpFfeAvgCost||0},
+    {key:"dpFfeShares_nl",value:portfolios.nl?.dpFfeShares||0},{key:"dpFfeAvgCost_nl",value:portfolios.nl?.dpFfeAvgCost||0},
     {key:"nlCapAtPersonal",value:settings.nlCapAtPersonal?1:0},
     {key:"nlTranches",value:settings.nlTranches||40},
     {key:"nlTranchePct",value:settings.nlTranchePct||3},
@@ -4805,6 +4911,10 @@ function handleExcelImport(e){
           if(k==="dpJPY_nl"&&!empty(val))portfolios.nl.dpJPY=Number(val);
           if(k==="dpCAD_nl"&&!empty(val))portfolios.nl.dpCAD=Number(val);
           if(k==="dpKRW_nl"&&!empty(val))portfolios.nl.dpKRW=Number(val);
+          if(k==="dpFfeShares_personal"&&!empty(val))portfolios.personal.dpFfeShares=Number(val);
+          if(k==="dpFfeAvgCost_personal"&&!empty(val))portfolios.personal.dpFfeAvgCost=Number(val);
+          if(k==="dpFfeShares_nl"&&!empty(val))portfolios.nl.dpFfeShares=Number(val);
+          if(k==="dpFfeAvgCost_nl"&&!empty(val))portfolios.nl.dpFfeAvgCost=Number(val);
           if(k==="nlCapAtPersonal"&&!empty(val))settings.nlCapAtPersonal=Number(val)===1;
           if(k==="nlTranches"&&!empty(val))settings.nlTranches=Math.max(1,Number(val));
           if(k==="nlTranchePct"&&!empty(val))settings.nlTranchePct=Math.max(0.1,Math.min(20,Number(val)));
@@ -5927,6 +6037,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       ${!hideValues?`<span style="font-size:9px;color:${pf.dpManual?"#f59e0b":"#22c55e"};cursor:pointer" onclick="editDP('${currentPf}')">${pf.dpManual?"✏":"✓"}</span>`:""}
     </div>
   </div>`;
+  // v4.95: DP composition sub-line — total DP = account cash + DP-XFFE market value.
+  // Only shown when part of the Pool 1+3 dry powder is parked in XFFE.
+  if(!hideValues&&(pf.dpFfeShares||0)>0){
+    const _ffe=dpFfeInfo(currentPf);
+    const _cashPart=Math.max(0,(pf.dryPowder||0)-_ffe.mvBase);
+    h+=`<div style="display:flex;justify-content:flex-end;margin:-4px 0 6px 0"><span style="font-size:9px;color:var(--muted);font-family:var(--mono)">💵 cash ${dpCcy}${Math.round(_cashPart).toLocaleString()} + 🏦 XFFE ${dpCcy}${Math.round(_ffe.mvBase).toLocaleString()} <span style="opacity:.6">(${_ffe.shares.toFixed(2)} sh)</span></span></div>`;
+  }
   // v4.47: weight bars relocated to render directly under the Personal/Caca tabs.
   // Placeholder token; the bar block builds into _wbarHTML below and is spliced in here.
   h+=`<!--WBAR-->`;
@@ -6012,7 +6129,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         const _full=_lab+"\u2009"+Math.round(pct)+"%";const _pctOnly=Math.round(pct)+"%";
         _wbarHTML+=`<div class="wbar-seg" data-key="${esc(sg.t)}" data-full="${esc(_full)}" data-pct="${esc(_pctOnly)}" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-txt">${_full}</span></div>`;
       });
-      if(dpBase>0){const dpLO=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree=Math.max(0,dpBase-dpLO);
+      if(dpBase>0){const dpLO=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);
+        // v4.97: DP-XFFE gets its own segment (dark gold) — dpBase = cash + XFFE MV since v4.95
+        const _ffeB=Math.min(dpBase,dpFfeInfo(currentPf).mvBase||0);
+        const _dpCashB=Math.max(0,dpBase-_ffeB);
+        const dpFree=Math.max(0,_dpCashB-dpLO);
+        if(_ffeB>0){const pct=_ffeB/_wTotal*100;
+          _wbarHTML+=`<div class="wbar-seg" data-key="__FFE__" data-full="FFE\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#3f331e;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#c9a227;white-space:nowrap;overflow:hidden" title="DP parked in XFFE (Pool 1+3)"><span class="wbar-txt">FFE\u2009${Math.round(pct)}%</span></div>`;}
         if(dpFree>0){const pct=dpFree/_wTotal*100;
           _wbarHTML+=`<div class="wbar-seg" data-key="__DP__" data-full="DP\u2009${Math.round(pct)}%" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-txt">DP\u2009${Math.round(pct)}%</span></div>`;}
         if(dpLO>0){const pct=dpLO/_wTotal*100;
@@ -6034,7 +6157,12 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
         _cbSegs.forEach(sg=>{const pct=sg.val/_cbTotal*100;
           _wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:${sg.col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#d0d8e0;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;
         });
-        if(dpBase>0){const dpLO2=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);const dpFree2=Math.max(0,dpBase-dpLO2);
+        if(dpBase>0){const dpLO2=fromEUR(toEUR(dpReservedForLimitOrders(currentPf),pfBaseCcy(currentPf)),_wBase);
+          // v4.97: mirror the FFE / cash-DP / LO split from the market-value bar
+          const _ffeB2=Math.min(dpBase,dpFfeInfo(currentPf).mvBase||0);
+          const _dpCashB2=Math.max(0,dpBase-_ffeB2);
+          const dpFree2=Math.max(0,_dpCashB2-dpLO2);
+          if(_ffeB2>0){const pct=_ffeB2/_cbTotal*100;_wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#3f331e;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#c9a227;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
           if(dpFree2>0){const pct=dpFree2/_cbTotal*100;_wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:#1e2a3f;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#4a5568;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
           if(dpLO2>0){const pct=dpLO2/_cbTotal*100;_wbarHTML+=`<div class="wbar-cb-seg" data-pct="${Math.round(pct)}%" style="width:${pct}%;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 3px,#0e7490 3px,#0e7490 6px);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;font-family:var(--mono);color:#a5f3fc;white-space:nowrap;overflow:hidden"><span class="wbar-cb-txt">${Math.round(pct)}%</span></div>`;}
         }
@@ -6044,6 +6172,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       // cost-basis bar. Labels removed from segments (percentages only); legend shows %, no $.
       if(!hideValues){
         const _cmpDp=portfolios[currentPf]?.dryPowder||0;
+        const _cmpFfe=Math.min(_cmpDp,dpFfeInfo(currentPf).mvBase||0); // v4.97: XFFE portion of DP
+        const _cmpDpCash=Math.max(0,_cmpDp-_cmpFfe);
         const _cmpP1=Math.max(0,pool1CostBasis(currentPf)-_cmpDp);
         const _cmpP3=pool3CostBasis(currentPf);
         const _cmpTotal=_cmpP1+_cmpP3+_cmpDp;
@@ -6051,7 +6181,8 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           const _cmpRows=[
             {label:"Pool 1",val:_cmpP1,col:"#1d4e6e"},
             {label:"Risk",val:_cmpP3,col:"#6e1d2e"},
-            {label:"DP",val:_cmpDp,col:"#1e2a3f"}
+            {label:"DP",val:_cmpDpCash,col:"#1e2a3f"},
+            {label:"XFFE (DP)",val:_cmpFfe,col:"#3f331e"}
           ].filter(r=>r.val>0);
           const _pctOf=(v)=>v/_cmpTotal*100;
           _wbarHTML+=`<div class="wbar-flat" style="margin:2px 0 1px;background:#161b22">`;
@@ -6070,7 +6201,13 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           const _lab=(sg.risk?"\uD83C\uDFB2":"")+sg.t;
           _legEntries.push({key:sg.t,col:sg.col,html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:${sg.col};margin-right:2px;vertical-align:middle"></span>${esc(_lab)}\u2009${pct}%`,color:"var(--muted)"});
         });
-        if(dpBase>0){const dpFreeV=Math.max(0,dpBase-_dpLOcalc());const pct=Math.round(dpFreeV/_wTotal*100);
+        if(dpBase>0){
+          // v4.97: legend mirrors the bar's FFE / cash-DP split
+          const _ffeL=Math.min(dpBase,dpFfeInfo(currentPf).mvBase||0);
+          const _dpCashL=Math.max(0,dpBase-_ffeL);
+          if(_ffeL>0){const pct=Math.round(_ffeL/_wTotal*100);
+            _legEntries.push({key:"__FFE__",html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#3f331e;margin-right:2px;vertical-align:middle"></span>🏦FFE\u2009${pct}%`,color:"#c9a227"});}
+          const dpFreeV=Math.max(0,_dpCashL-_dpLOcalc());const pct=Math.round(dpFreeV/_wTotal*100);
           if(dpFreeV>0)_legEntries.push({key:"__DP__",html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:#1e2a3f;margin-right:2px;vertical-align:middle"></span>DP\u2009${pct}%`,color:"var(--muted)"});}
         {const _lo=_dpLOcalc();if(_lo>0){const pct=Math.round(_lo/_wTotal*100);
           _legEntries.push({key:"__LO__",html:`<span style="display:inline-block;width:5px;height:5px;border-radius:2px;background:repeating-linear-gradient(45deg,#1e2a3f,#1e2a3f 1.5px,#0e7490 1.5px,#0e7490 3px);margin-right:2px;vertical-align:middle"></span>LO\u2009${pct}%`,color:"#67e8f9"});}}
@@ -6461,7 +6598,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
           <div style="font-size:9px;font-weight:700;color:#67e8f9;letter-spacing:.3px;margin-bottom:3px">HOLDING-PEN VEHICLE</div>
           <div style="font-size:9px;font-family:var(--mono);color:var(--muted);line-height:1.5">Parks the high-CAPE overflow from XZEU + XZMU. Park money buys XFFE; ladder-fires sell XFFE to fund the equity buy.</div>
           <div style="font-size:9px;font-family:var(--mono);color:#67e8f9;margin-top:4px">Pen owed: $${Math.round(penTot).toLocaleString()} <span style="opacity:.6">(EU $${Math.round(penEU).toLocaleString()} · US $${Math.round(penUS).toLocaleString()})</span></div>
-          <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:1px">XFFE held: $${Math.round(ffeMV).toLocaleString()}</div>
+          <div style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-top:1px">XFFE held (pen): $${Math.round(ffeMV).toLocaleString()}${(portfolios[currentPf]?.dpFfeShares||0)>0?` · <span style="opacity:.8">DP-XFFE (P1+3): $${Math.round((()=>{const _f=dpFfeInfo(currentPf);return _f.ccy==="USD"?_f.shares*_f.price:_f.mvEUR*settings.fxRate;})()).toLocaleString()} — separate</span>`:""}</div>
         </div>`;
       } else if(currentPf==="personal"){
         const cline=capeMonthlyLine(region);
@@ -6795,7 +6932,7 @@ function renderAllocator(c){
         <div style="font-size:9px;color:var(--muted);margin-top:4px;font-family:var(--mono)">un-mute ≤ ${Math.round((settings.muteDistDemote??0.40)*100)} · mute &gt; ${Math.round((settings.muteDistPromote??0.50)*100)}</div></div>
       <div class="input-box"><div class="input-label">Dry Powder</div>
         <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent);cursor:pointer" onclick="editDP('personal')">${_bs}${Math.round(pf.dryPowder).toLocaleString()} <span style="font-size:10px;opacity:.5">✏</span></div>
-        <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());if(pf.dpKRW)parts.push("₩"+Math.round(pf.dpKRW).toLocaleString());return parts.join(" + ")||"$0"})()}</div></div></div>`;
+        <div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--mono)">${(()=>{const parts=[];if(pf.dpUSD)parts.push("$"+Math.round(pf.dpUSD).toLocaleString());if(pf.dpEUR)parts.push("€"+Math.round(pf.dpEUR).toLocaleString());if(pf.dpGBP)parts.push("£"+Math.round(pf.dpGBP).toLocaleString());if(pf.dpJPY)parts.push("¥"+Math.round(pf.dpJPY).toLocaleString());if(pf.dpCAD)parts.push("C$"+Math.round(pf.dpCAD).toLocaleString());if(pf.dpKRW)parts.push("₩"+Math.round(pf.dpKRW).toLocaleString());if((pf.dpFfeShares||0)>0){const _f=dpFfeInfo('personal');parts.push("🏦XFFE $"+Math.round(_f.ccy==="USD"?_f.shares*_f.price:_f.mvEUR*settings.fxRate).toLocaleString()+" ("+_f.shares.toFixed(2)+"sh)");}return parts.join(" + ")||"$0"})()}</div></div></div>`;
 
     // === INDEX / STOCK-PICKING SPLIT ===
     if(idxAlloc>0){
@@ -7894,8 +8031,13 @@ function editDP(pfKey){
       ${ccyRow("cad","C$","CAD",pf.dpCAD)}
       ${ccyRow("krw","₩","KRW",pf.dpKRW)}
     </div>
+    ${(pf.dpFfeShares||0)>0?(()=>{const _f=dpFfeInfo(pfKey);return `<div style="background:var(--bg);border-radius:8px;padding:8px 10px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:10px;color:var(--muted)">🏦 DP in XFFE <span style="opacity:.5">(Pool 1+3 · from Holdings CSV)</span></div>
+      <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:2px">${_f.shares.toFixed(2)} sh @ ${_f.ccy==="EUR"?"€":"$"}${_f.price.toFixed(2)}</div></div>
+      <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${totalLabel}${Math.round(_f.mvBase).toLocaleString()}</div>
+    </div>`;})():""}
     <div style="background:var(--bg);border-radius:8px;padding:10px;margin-bottom:16px">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Total in ${baseCcy} <span style="opacity:.5">@ 1€=$${settings.fxRate} · £${settings.fxGBP} · ¥${settings.fxJPY} · C$${settings.fxCAD} · ₩${settings.fxKRW}</span></div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Total in ${baseCcy} <span style="opacity:.5">@ 1€=$${settings.fxRate} · £${settings.fxGBP} · ¥${settings.fxJPY} · C$${settings.fxCAD} · ₩${settings.fxKRW}${(pf.dpFfeShares||0)>0?" · incl. XFFE MV":""}</span></div>
       <div id="dp-total" style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--accent)">${totalLabel}${Math.round(total).toLocaleString()}</div>
     </div>
     <div style="display:flex;gap:8px">
@@ -7912,7 +8054,7 @@ function dpPreviewTotal(pfKey){
   const g=+(document.getElementById("dp-gbp").value)||0;const j=+(document.getElementById("dp-jpy").value)||0;const c=+(document.getElementById("dp-cad").value)||0;
   const k=+(document.getElementById("dp-krw").value)||0;
   const base=pfBaseCcy(pfKey);
-  const eurTotal=e+(u/settings.fxRate)+(g/settings.fxGBP)+(j/settings.fxJPY)+(c/settings.fxCAD)+(k/settings.fxKRW);
+  const eurTotal=e+(u/settings.fxRate)+(g/settings.fxGBP)+(j/settings.fxJPY)+(c/settings.fxCAD)+(k/settings.fxKRW)+dpFfeInfo(pfKey).mvEUR; // v4.95: DP-XFFE included so preview matches recalcDP
   const total=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);
   const sym=base==="USD"?"$":"€";
   document.getElementById("dp-total").textContent=sym+total.toLocaleString();
