@@ -328,7 +328,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.97</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v4.98</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -8031,13 +8031,20 @@ function editDP(pfKey){
       ${ccyRow("cad","C$","CAD",pf.dpCAD)}
       ${ccyRow("krw","₩","KRW",pf.dpKRW)}
     </div>
-    ${(pf.dpFfeShares||0)>0?(()=>{const _f=dpFfeInfo(pfKey);return `<div style="background:var(--bg);border-radius:8px;padding:8px 10px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-      <div><div style="font-size:10px;color:var(--muted)">🏦 DP in XFFE <span style="opacity:.5">(Pool 1+3 · from Holdings CSV)</span></div>
-      <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:2px">${_f.shares.toFixed(2)} sh @ ${_f.ccy==="EUR"?"€":"$"}${_f.price.toFixed(2)}</div></div>
-      <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent)">${totalLabel}${Math.round(_f.mvBase).toLocaleString()}</div>
-    </div>`;})():""}
+    ${(()=>{const _ip=getIndexPos(pfKey,"ffe");const _px=_ip.currentPrice||0;const _psym=(_ip.currency||"USD")==="EUR"?"€":"$";return `<div style="background:var(--bg);border-radius:8px;padding:8px 10px;margin-bottom:12px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">🏦 DP in XFFE <span style="opacity:.5">(Pool 1+3 — separate from Pool 2 pen)</span></div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div style="flex:1"><div style="font-size:9px;color:var(--muted);margin-bottom:3px">Shares</div>
+          <input id="dp-ffesh" type="number" step="0.01" value="${pf.dpFfeShares||0}" style="width:100%;box-sizing:border-box;font-size:14px;font-weight:700;font-family:var(--mono);background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 8px;text-align:right" oninput="dpPreviewTotal('${pfKey}')"></div>
+        <div style="flex:1"><div style="font-size:9px;color:var(--muted);margin-bottom:3px">Avg cost ${_psym}</div>
+          <input id="dp-ffeac" type="number" step="0.01" value="${pf.dpFfeAvgCost||0}" style="width:100%;box-sizing:border-box;font-size:14px;font-weight:700;font-family:var(--mono);background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 8px;text-align:right" oninput="dpPreviewTotal('${pfKey}')"></div>
+        <div style="flex:1;text-align:right"><div style="font-size:9px;color:var(--muted);margin-bottom:3px">${_px?"Live "+_psym+_px.toFixed(2):"No price yet"}</div>
+          <div id="dp-ffemv" style="font-size:14px;font-weight:700;font-family:var(--mono);color:var(--accent);padding:6px 0">${totalLabel}${Math.round(dpFfeInfo(pfKey).mvBase).toLocaleString()}</div></div>
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:5px">Valued at live price (avg cost fallback). Not overwritten by IBKR sync — keep in step with the Holdings CSV dpffe row.</div>
+    </div>`;})()}
     <div style="background:var(--bg);border-radius:8px;padding:10px;margin-bottom:16px">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Total in ${baseCcy} <span style="opacity:.5">@ 1€=$${settings.fxRate} · £${settings.fxGBP} · ¥${settings.fxJPY} · C$${settings.fxCAD} · ₩${settings.fxKRW}${(pf.dpFfeShares||0)>0?" · incl. XFFE MV":""}</span></div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Total in ${baseCcy} <span style="opacity:.5">@ 1€=$${settings.fxRate} · £${settings.fxGBP} · ¥${settings.fxJPY} · C$${settings.fxCAD} · ₩${settings.fxKRW} · incl. XFFE MV</span></div>
       <div id="dp-total" style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--accent)">${totalLabel}${Math.round(total).toLocaleString()}</div>
     </div>
     <div style="display:flex;gap:8px">
@@ -8046,17 +8053,25 @@ function editDP(pfKey){
     </div></div>`;
   document.body.appendChild(ov);
   document.getElementById("dp-usd").focus();
-  document.getElementById("dp-save").onclick=()=>{pf.dpUSD=+(document.getElementById("dp-usd").value)||0;pf.dpEUR=+(document.getElementById("dp-eur").value)||0;pf.dpGBP=+(document.getElementById("dp-gbp").value)||0;pf.dpJPY=+(document.getElementById("dp-jpy").value)||0;pf.dpCAD=+(document.getElementById("dp-cad").value)||0;pf.dpKRW=+(document.getElementById("dp-krw").value)||0;pf.dpManual=true;save();ov.remove();render();};
+  document.getElementById("dp-save").onclick=()=>{pf.dpUSD=+(document.getElementById("dp-usd").value)||0;pf.dpEUR=+(document.getElementById("dp-eur").value)||0;pf.dpGBP=+(document.getElementById("dp-gbp").value)||0;pf.dpJPY=+(document.getElementById("dp-jpy").value)||0;pf.dpCAD=+(document.getElementById("dp-cad").value)||0;pf.dpKRW=+(document.getElementById("dp-krw").value)||0;pf.dpFfeShares=Math.max(0,+(document.getElementById("dp-ffesh").value)||0);pf.dpFfeAvgCost=Math.max(0,+(document.getElementById("dp-ffeac").value)||0);pf.dpManual=true;save();ov.remove();render();};
   document.getElementById("dp-cancel").onclick=()=>ov.remove();
 }
 function dpPreviewTotal(pfKey){
   const u=+(document.getElementById("dp-usd").value)||0;const e=+(document.getElementById("dp-eur").value)||0;
   const g=+(document.getElementById("dp-gbp").value)||0;const j=+(document.getElementById("dp-jpy").value)||0;const c=+(document.getElementById("dp-cad").value)||0;
   const k=+(document.getElementById("dp-krw").value)||0;
+  // v4.98: XFFE from the live inputs (not stored state) — shares × (live price, avg-cost fallback)
+  const fs=Math.max(0,+(document.getElementById("dp-ffesh")?.value)||0);
+  const fa=Math.max(0,+(document.getElementById("dp-ffeac")?.value)||0);
+  const _ip=getIndexPos(pfKey,"ffe");const _px=(_ip.currentPrice||0)||fa;const _fccy=_ip.currency||"USD";
+  const _raw=fs*_px;
+  const ffeEUR=_fccy==="EUR"?_raw:_fccy==="GBP"?_raw/settings.fxGBP:_raw/settings.fxRate;
   const base=pfBaseCcy(pfKey);
-  const eurTotal=e+(u/settings.fxRate)+(g/settings.fxGBP)+(j/settings.fxJPY)+(c/settings.fxCAD)+(k/settings.fxKRW)+dpFfeInfo(pfKey).mvEUR; // v4.95: DP-XFFE included so preview matches recalcDP
+  const eurTotal=e+(u/settings.fxRate)+(g/settings.fxGBP)+(j/settings.fxJPY)+(c/settings.fxCAD)+(k/settings.fxKRW)+ffeEUR;
   const total=base==="USD"?Math.round(eurTotal*settings.fxRate):Math.round(eurTotal);
   const sym=base==="USD"?"$":"€";
+  const mvEl=document.getElementById("dp-ffemv");
+  if(mvEl)mvEl.textContent=sym+Math.round(base==="USD"?ffeEUR*settings.fxRate:ffeEUR).toLocaleString();
   document.getElementById("dp-total").textContent=sym+total.toLocaleString();
 }
 
