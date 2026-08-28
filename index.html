@@ -328,7 +328,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.00</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.01</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2154,11 +2154,11 @@ function capacityViewHTML(pfKey){
       const ddTop=(top!=null&&s.currentPrice)?((s.currentPrice-top)/s.currentPrice*100):null;
       const tw=isOperationalTier1(t)?tripwireShield(t):`<span style="font-size:8px;color:var(--muted)">no tripwires</span>`;
       return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-top:1px solid #2a2a3e">`
-        +`<span style="font-size:11px;font-weight:700;font-family:var(--mono)">🏆 ${esc(t)}</span>`
+        +`<span style="font-size:11px;font-weight:700;font-family:var(--mono)">🎓 ${esc(t)}</span>`
         +(ddTop!=null?`<span style="font-size:9px;color:var(--muted);font-family:var(--mono)">+${Math.round(ddTop)}% above top trig</span>`:"")
         +`<span style="margin-left:auto">${tw}</span></div>`;
     }).join("");
-    trophyHTML=`<details style="margin:4px 0 2px"><summary style="font-size:10px;color:#c084fc;cursor:pointer;font-family:var(--mono)">🏆 Trophy shelf (${trophy.length}) — off-grid, tripwire-governed</summary>${rows}</details>`;
+    trophyHTML=`<details style="margin:4px 0 2px"><summary style="font-size:10px;color:#c084fc;cursor:pointer;font-family:var(--mono)">🎓 Grad shelf (${trophy.length}) — off-grid, tripwire-governed</summary>${rows}</details>`;
   }
   return `<div style="background:var(--card);border:1px solid #2a2a3e;border-radius:8px;padding:8px;margin:4px 0">`
     +`<div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-bottom:2px">CAPACITY GRID §2.8</div>`
@@ -5779,7 +5779,7 @@ function sigRowHtml(t,pfKey,isSpec){
   const s=stocks[t];const sig=sigCount(t);const gateFail=s.gate===false;const notFiring=sig===0&&!gateFail;
   const _isTrophy=!!portfolios[pfKey]?.positions?.[t]?.graduated;
   const catBadge=_isTrophy
-    ?`<span style="font-size:9px;color:#fbbf24;background:#fbbf2420;padding:1px 4px;border-radius:3px;margin-right:4px">🏆 TROPHY</span>`
+    ?`<span style="font-size:9px;color:#fbbf24;background:#fbbf2420;padding:1px 4px;border-radius:3px;margin-right:4px">🎓 GRAD</span>`
     :isSpec
     ?`<span style="font-size:9px;color:#d97706;background:#d9770620;padding:1px 4px;border-radius:3px;margin-right:4px">RISK</span>`
     :isHighgr(t)?`<span style="font-size:9px;color:#a855f7;background:#a855f720;padding:1px 4px;border-radius:3px;margin-right:4px">HG</span>`
