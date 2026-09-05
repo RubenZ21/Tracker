@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ttt-v5.01';
+const CACHE_NAME = 'ttt-v5.02';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', e => {
@@ -40,7 +40,7 @@ self.addEventListener('push', e => {
     tag: data.tag || 'ttt-push',
     renotify: true,
     requireInteraction: true, // keep notification visible until tapped
-    // FIX v3.70: attach the deeplink so notificationclick can route to #risklist:TICKER.
+    // FIX v3.70: attach the deeplink so notificationclick can route on data.url (e.g. #capepen:us).
     // Without this, e.notification.data was undefined and targetUrl always fell back to './'.
     data: { url: data.url || '' },
   };
@@ -48,7 +48,7 @@ self.addEventListener('push', e => {
 });
 
 // Open the app when tapping a notification.
-// Risklist notifications attach data.url with a deeplink hash (#risklist:TICKER) so the
+// Notifications may attach data.url with a deeplink hash (e.g. #capepen:us) so the
 // app can route directly to the relevant card. Pool 1 notifications carry no url and
 // just focus the existing window.
 self.addEventListener('notificationclick', e => {
