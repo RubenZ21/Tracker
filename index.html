@@ -267,7 +267,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.02</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.03</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -2826,7 +2826,7 @@ function load(){
       });
     });
   });
-  // v5.02: Risklist feature removed. Purge legacy localStorage keys and any price-only
+  // v5.03: Risklist feature removed. Purge legacy localStorage keys and any price-only
   // stubs (status "risklist") so they stop being fetched/notified.
   ["r1-risklist","r1-rlNotifShown","r1-watchMode"].forEach(k=>localStorage.removeItem(k));
   Object.keys(stocks).forEach(t=>{if(stocks[t]?.status==="risklist")delete stocks[t];});
@@ -7221,7 +7221,7 @@ function renderAllocator(c){
 }
 
 // ============ WATCHLIST ============
-// renderWatchlist is the entry point for the Watch tab (v5.02: Risklist sub-view removed;
+// renderWatchlist is the entry point for the Watch tab (v5.03: Risklist sub-view removed;
 // the Watch tab now shows only the Watchlist).
 function renderWatchlist(c){
   let wl=getWatchlist();
@@ -7231,13 +7231,16 @@ function renderWatchlist(c){
     wl.sort((a,b)=>{const pa=stocks[a].compounderPriority??999,pb=stocks[b].compounderPriority??999;return pa!==pb?pa-pb:(gapPct(a)??999)-(gapPct(b)??999);});
   }else if(wlView==="ir"){
     wl.sort((a,b)=>{const ra=getClosestTriggerReturn(a)?.impliedReturn??-1,rb=getClosestTriggerReturn(b)?.impliedReturn??-1;return rb-ra;});
+  }else if(wlView==="abc"){
+    // v5.03: alphabetical by company name (falls back to ticker if no name).
+    wl.sort((a,b)=>(stocks[a].name||a).localeCompare(stocks[b].name||b,undefined,{sensitivity:"base"}));
   }else{
     wl.sort((a,b)=>(gapPct(a)??999)-(gapPct(b)??999));
   }
   let h=`<div class="section-pad"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700">Watchlist</div>
     <button class="btn-sm btn-accent" style="padding:6px 14px" onclick="openAddStock()">+ Add Stock</button></div>
-  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Moat</button><button class="${wlView==="compounder"?"active":"inactive"}" onclick="wlView='compounder';localStorage.setItem('r1-wlView','compounder');render()">Compounder</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button></div>`;
+  <div class="pf-toggle" style="margin:0 0 12px"><button class="${wlView==="gap"?"active":"inactive"}" onclick="wlView='gap';localStorage.setItem('r1-wlView','gap');render()">Gap</button><button class="${wlView==="priority"?"active":"inactive"}" onclick="wlView='priority';localStorage.setItem('r1-wlView','priority');render()">Moat</button><button class="${wlView==="compounder"?"active":"inactive"}" onclick="wlView='compounder';localStorage.setItem('r1-wlView','compounder');render()">Compounder</button><button class="${wlView==="ir"?"active":"inactive"}" onclick="wlView='ir';localStorage.setItem('r1-wlView','ir');render()">Return</button><button class="${wlView==="abc"?"active":"inactive"}" onclick="wlView='abc';localStorage.setItem('r1-wlView','abc');render()">A–Z</button></div>`;
 
   if(!wl.length)h+=`<div style="color:var(--muted);padding:20px;text-align:center">Empty. Tap + Add Stock.</div>`;
   h+=`<div class="wl-grid">`;
@@ -8367,7 +8370,7 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
 fetchPrices();
 startRefreshTimer();
 
-// Deeplink handler (v5.02: Risklist branch removed). A push notification may carry a
+// Deeplink handler (v5.03: Risklist branch removed). A push notification may carry a
 // url hash; the SW posts it to the focused client and the app routes on it.
 // Unknown/legacy hashes are cleared without action.
 function handleDeeplink(hash){
@@ -8380,7 +8383,7 @@ function handleDeeplink(hash){
     history.replaceState(null,"",location.pathname+location.search);
     return;
   }
-  // v5.02: legacy #risklist:TICKER hashes (old notifications) are ignored; clear so refresh doesn't re-trigger.
+  // v5.03: legacy #risklist:TICKER hashes (old notifications) are ignored; clear so refresh doesn't re-trigger.
   history.replaceState(null,"",location.pathname+location.search);
 }
 if(location.hash)handleDeeplink(location.hash);
