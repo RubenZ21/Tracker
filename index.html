@@ -58,6 +58,14 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .wbar-flat>div{box-sizing:border-box;border-right:1px solid var(--bg)}
 .wbar-flat>div:last-child{border-right:none}
 .sig-right{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:44px;text-align:right}
+/* v5.04: tap-to-open position cards */
+.sig-row.tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.sig-row.tap:active{background:#ffffff0d}
+.pos-grid.pg-hidden{display:none}
+.pos-card-overlay .modal-sheet{padding:0}
+.pos-card-overlay .pos-card-holder{padding:10px 10px 0}
+.card-ctl{display:flex;gap:6px;margin-top:10px}
+.card-ctl button{flex:1;padding:8px;font-size:11px}
 .chip{min-width:44px;border-radius:7px;padding:3px 6px;text-align:center;border:1px solid transparent;line-height:1.18;cursor:pointer}
 .chip .chip-lbl{font-size:8px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--muted)}
 .chip .chip-val{font-size:11px;font-weight:700;font-family:var(--mono);color:var(--text)}
@@ -267,7 +275,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.03</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.04</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5417,6 +5425,7 @@ function render(){
   ["portfolio","watchlist","thesis","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
   const _earBanner=renderEarningsBanner();
   const _contentEl=document.getElementById("content");
+  if(currentTab!=="portfolio"&&window._openCard)closePosCard(); // v5.04
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,thesis:renderThesis,settings:renderSettings})[currentTab](_contentEl);
   if(_earBanner&&(currentTab==="portfolio"||currentTab==="watchlist")){_contentEl.innerHTML=_earBanner+_contentEl.innerHTML;}
   // v4.26: fit weight-bar labels after layout settles (portfolio tab only).
@@ -5724,7 +5733,7 @@ function sigRowHtml(t,pfKey,isSpec){
       }
     }
   }
-  return `<div class="sig-row" style="${rowStyle}">
+  return `<div class="sig-row tap" style="${rowStyle}" onclick="openPosCard('${t}')" title="Tap for position details">
     <div class="sig-ident">${ident}</div>
     <div class="chip-strip">${chipStripHtml(t,pfKey)}</div>
     <div class="sig-right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted)">${priceStr}</div>${costStr}${retStr}<div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${countCol}">${countTxt}</div>${sellStr}</div>
@@ -6098,7 +6107,9 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
   // v4.50: DP% indicator + limit-order banner relocated directly below the weight-bar
   // legend (see _wbarHTML build above). Old standalone blocks removed from the content stream.
-  h+=`<div class="pos-grid">`;
+  // v5.04: card mode — "tap" (default) hides the long card list; signal rows open the card in a sheet.
+  const _cardMode=localStorage.getItem("r1-cardMode")||"tap";
+  h+=`<div class="pos-grid${_cardMode==="tap"?" pg-hidden":""}">`;
 
   // Build unified ticker list: owned + grid ghosts + speculative ghosts (deduped)
   const _ownedSet=new Set(Object.keys(pf.positions));
@@ -6121,7 +6132,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(isGhost&&!isSpec&&(GRID.includes(ticker))){
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
       const badge=sig===0?`<span class="pos-badge" style="background:#1a1a2e;color:var(--muted)">HOLD 0/${validTriggerSlots(ticker,currentPf)}</span>`:`<span class="pos-badge" style="background:#0d3320;color:var(--green)">GRID ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
-      h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed var(--border)">
+      h+=`<div class="pos-card" data-card="${ticker}" style="opacity:0.75;border:1px dashed var(--border)">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'g'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name}</div>
@@ -6136,7 +6147,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     if(isGhost&&isSpec){
       const sig=sigCount(ticker);const dc=deployCount(ticker,currentPf);
       const badge=`<span class="pos-badge" style="background:#332d0d;color:#d97706">RISK ${dc}/${validTriggerSlots(ticker,currentPf)}</span>`;
-      h+=`<div class="pos-card" style="opacity:0.75;border:1px dashed #d97706">
+      h+=`<div class="pos-card" data-card="${ticker}" style="opacity:0.75;border:1px dashed #d97706">
         <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'sp'+ticker);})()}<div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${badge}</div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
           <div style="text-align:right"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}</div></div></div>
         <div style="padding:10px;text-align:center;color:var(--muted);font-size:12px">No shares in ${pf.name} — deploy from DP (max ${Math.round(riskBucketCapPct(currentPf)*100)}%)</div>
@@ -6182,7 +6193,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     const _liveYld=divYieldOn(s,s.currentPrice);
     const liveRCol=buyR==null?"var(--muted)":buyR>=0.15?"var(--green)":buyR>=0.10?"#34d399":buyR>0?"var(--amber)":"var(--red)";
 
-    h+=`<div class="pos-card">
+    h+=`<div class="pos-card" data-card="${ticker}">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${blockBadge(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
         <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isCashcow(ticker);const ref=buf?cashcowCap(s):(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"cc cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
 
@@ -6410,7 +6421,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     let ixSubtext="";
     if(currentPf==="personal"){ixSubtext=`XZEU 50% · XZMU 25% · XFFE 25% (pen) · Never sold · DCA on salary day`;}
     else{const cii=cacaIndexInfo();ixSubtext=`${cii.deployed}/${cii.maxT} tranches · ${cii.pctOfPortfolio.toFixed(1)}% of portfolio · cap ${cii.cap}%${cii.atCap?" ✓ filled":""}`;}
-    h+=`<div class="pos-card" style="border-color:#0e7490">
+    h+=`<div class="pos-card" data-card="__IDX__" style="border-color:#0e7490">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">
         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0e7490,#164e63);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#67e8f9;flex-shrink:0">IDX</div>
         <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 XZEU + XZMU + XFFE</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
@@ -6506,11 +6517,46 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
     h+=`<div style="font-size:10px;color:var(--muted);padding:6px 0 2px;text-align:center">${ixSubtext}</div></div>`;
   }
 
-  h+=`</div><button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button></div>`;
+  // v5.04: control strip — open the index card / switch between tap mode and the full card list.
+  const _cardCtl=`<div class="card-ctl">${_cardMode==="tap"&&_showIdx?`<button class="btn-sm" style="background:#164e63;color:#67e8f9" onclick="openPosCard('__IDX__')">🌍 Index card</button>`:""}<button class="btn-sm" style="background:var(--bg);color:var(--muted)" onclick="toggleCardMode()">${_cardMode==="tap"?"☰ Show all cards":"▲ Compact (tap rows)"}</button></div>`;
+  h+=`</div>${_cardCtl}<button class="btn-sm btn-accent" style="width:100%;padding:10px;margin-top:12px;font-size:13px;font-weight:600" onclick="openAddPosition('${currentPf}')">+ Add Stock to ${pf.name}</button></div>`;
   // v4.47: splice the relocated weight bars into the placeholder under the portfolio tabs.
   h=h.replace("<!--WBAR-->",_wbarHTML);
   c.innerHTML=h;
+  refreshPosCard(); // v5.04: keep an open card sheet in sync after any re-render
 }
+
+// ============ v5.04: TAP-TO-OPEN POSITION CARDS ============
+// Cards are still rendered into .pos-grid (hidden in tap mode) so every existing card builder,
+// button handler and render() cycle is untouched. openPosCard clones the hidden card into a
+// bottom sheet; refreshPosCard re-clones after each render so buys/sells/edits show live.
+function _clonePosCard(src){
+  const wrap=document.createElement("div");
+  // Suffix SVG ids (ringMark gradients/filters) so the clone does not reference defs inside a display:none subtree.
+  wrap.innerHTML=src.outerHTML.replace(/(id="|url\(#)([^"\)]+)/g,"$1$2-m");
+  const el=wrap.firstElementChild;el.style.opacity="1";return el;
+}
+function openPosCard(ticker){
+  const src=document.querySelector(`#content .pos-grid .pos-card[data-card="${CSS.escape(ticker)}"]`);
+  if(!src)return;
+  document.querySelectorAll(".pos-card-overlay").forEach(e=>e.remove());
+  window._openCard=ticker;
+  const ov=document.createElement("div");ov.className="modal-overlay pos-card-overlay";
+  ov.addEventListener("click",e=>{if(e.target===ov)closePosCard();});
+  ov.innerHTML=`<div class="modal-sheet"><div class="pos-card-holder"></div><div style="padding:6px 10px 10px"><button class="modal-done" onclick="closePosCard()">Close</button></div></div>`;
+  ov.querySelector(".pos-card-holder").appendChild(_clonePosCard(src));
+  document.body.appendChild(ov);
+}
+function closePosCard(){window._openCard=null;document.querySelectorAll(".pos-card-overlay").forEach(e=>e.remove());}
+function refreshPosCard(){
+  const t=window._openCard;if(!t)return;
+  const ov=document.querySelector(".pos-card-overlay");if(!ov){window._openCard=null;return;}
+  const src=document.querySelector(`#content .pos-grid .pos-card[data-card="${CSS.escape(t)}"]`);
+  if(!src){closePosCard();return;} // sold out / demoted / other tab → card gone
+  const holder=ov.querySelector(".pos-card-holder");const y=ov.querySelector(".modal-sheet").scrollTop;
+  holder.innerHTML="";holder.appendChild(_clonePosCard(src));ov.querySelector(".modal-sheet").scrollTop=y;
+}
+function toggleCardMode(){const m=(localStorage.getItem("r1-cardMode")||"tap")==="tap"?"list":"tap";localStorage.setItem("r1-cardMode",m);closePosCard();render();}
 
 // ============ ALLOCATOR ============
 function MONTHLY_STEPS(){const s=["Salary","Transfer"];if(indexAllocationUSD()>0)s.push("Buy XZEU+XZMU+XFFE");s.push("Execute");return s;}
