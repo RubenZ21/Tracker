@@ -285,7 +285,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.05</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.06</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -391,8 +391,13 @@ let currentTab=localStorage.getItem("r1-tab")||"portfolio",currentPf=localStorag
 let thesisFilter=localStorage.getItem("r1-thesisFilter")||"all";
 let _thesisOpen=new Set();
 let deployLog=JSON.parse(localStorage.getItem("r1-deployLog")||"[]");
-// v5.05: dismiss list (anti-watchlist) — stocks researched and rejected, with reasons.
+// v5.05/5.06: dismiss list (anti-watchlist) — stocks researched and rejected, with reasons.
+// Each entry keeps the FULL stock record (triggers, notes, category) in `stock`, so it is
+// exported in the Triggers CSV and comes back intact on Reconsider:
+//   {ticker,name,date,tags[],note,revisit,stock:{...stock object as it was in `stocks`}}
+// Entries live outside `stocks`, so watchlist, price fetch, alerts and signals never see them.
 let dismissed=JSON.parse(localStorage.getItem("r1-dismissList")||"[]");
+dismissed.forEach(d=>{if(!d.stock)d.stock=_blankStock(d.ticker,d.name,"USD");}); // migrate v5.05 lightweight entries
 let hideValues=localStorage.getItem("r1-hideValues")===null?true:localStorage.getItem("r1-hideValues")==="true";
 function toggleValues(){hideValues=!hideValues;localStorage.setItem("r1-hideValues",hideValues);render();}
 const DATA_VERSION=11;
@@ -3484,16 +3489,18 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,divPerShare,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate,health,researchFlag,whyIOwn,bullCase,bearCase,thesisTripwires,checkpointDate,checkpointLabel,holdUntil,thesisReviewed,thesisComment\n";
+  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,divPerShare,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate,health,researchFlag,whyIOwn,bullCase,bearCase,thesisTripwires,checkpointDate,checkpointLabel,holdUntil,thesisReviewed,thesisComment,dismissed,dismissDate,dismissTags,dismissNote,dismissRevisit\n";
   // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
   const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
-  Object.keys(stocks).forEach(t=>{const s=stocks[t];if(!s.cons)return;
+  // v5.06: live stocks first, then dismissed ones (full trigger record kept) flagged dismissed=Y.
+  const _rowsAll=Object.keys(stocks).map(t=>({t,s:stocks[t],d:null})).concat(dismissed.map(d=>({t:d.ticker,s:d.stock||_blankStock(d.ticker,d.name,"USD"),d})));
+  _rowsAll.forEach(({t,s,d})=>{if(!s.cons)return;
     const v=x=>x!=null?x:"";
     const tw=x=>x?"Y":"";
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="cashcow"?"cashcow":s.category==="highgr"?"highgr":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""},${s.health||""},${s.researchFlag?"Y":""},${q(s.whyIOwn||"")},${q(s.bullCase||"")},${q(s.bearCase||"")},${q(s.thesisTripwires||"")},${s.checkpointDate||""},${q(s.checkpointLabel||"")},${q(s.holdUntil||"")},${s.thesisReviewed||""},${q(s.thesisComment||"")}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""},${s.health||""},${s.researchFlag?"Y":""},${q(s.whyIOwn||"")},${q(s.bullCase||"")},${q(s.bearCase||"")},${q(s.thesisTripwires||"")},${s.checkpointDate||""},${q(s.checkpointLabel||"")},${q(s.holdUntil||"")},${s.thesisReviewed||""},${q(s.thesisComment||"")},${d?"Y":""},${d?String(d.date||"").slice(0,10):""},${q(d?(d.tags||[]).join("; "):"")},${q(d?d.note||"":"")},${q(d?d.revisit||"":"")}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -3704,6 +3711,27 @@ function parseCSVText(src){
   return rows;
 }
 
+// v5.06: apply a dismissed=Y Triggers-CSV row to the dismiss list (create/update, keep triggers).
+function _csvImportDismissed(row,t){
+  if(stocks[t])dismissStock(t,{tags:[],note:"",revisit:""}); // was live → park it
+  let i=findDismissed(t);
+  if(i<0){dismissed.push({ticker:t,name:(row.name||"").trim()||t,date:new Date().toISOString(),tags:[],note:"",revisit:"",stock:_blankStock(t,(row.name||"").trim(),(row.currency||"").trim()||"USD")});i=dismissed.length-1;}
+  const d=dismissed[i];const s=d.stock||(d.stock=_blankStock(t,d.name,"USD"));
+  const has=k=>Object.prototype.hasOwnProperty.call(row,k);
+  const num=v=>{if(v==null||String(v).trim()==="")return null;const n=+v;return isNaN(n)?null:n;};
+  if(has("name")&&String(row.name).trim()){s.name=String(row.name).trim();d.name=s.name;}
+  if(has("currency")&&String(row.currency).trim())s.currency=String(row.currency).trim();
+  [["mos","mos"],["tencap","tenCap"],["pbt","pbt"],["pbtyrs","pbtYrs"],["gr","gr"],["oe","oe"],["fcf","fcf"],["eps","eps"],["pe","pe"],["divpershare","divPerShare"]].forEach(([c,k])=>{if(has(c))s.cons[k]=num(row[c]);});
+  if(has("category")){const cv=String(row.category||"").trim().toLowerCase();if(cv==="cashcow"||cv==="highgr")s.category=cv;else delete s.category;}
+  if(has("notes")){const n=String(row.notes||"").trim();if(n)s.notes=n;else delete s.notes;}
+  if(has("dismissdate")&&String(row.dismissdate).trim()){const dt=new Date(String(row.dismissdate).trim());if(!isNaN(dt))d.date=dt.toISOString();}
+  if(has("dismisstags"))d.tags=String(row.dismisstags||"").split(";").map(x=>x.trim()).filter(Boolean);
+  if(has("dismissnote"))d.note=String(row.dismissnote||"").trim();
+  if(has("dismissrevisit"))d.revisit=String(row.dismissrevisit||"").trim();
+  applyRecalcSticker(s);recalcConsTriggers(s);
+  if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
+  s.lastCalcDate=Date.now();
+}
 function handleCSVImport(e){
   const f=e.target.files[0];if(!f)return;const r=new FileReader();
   r.onload=function(ev){
@@ -3715,9 +3743,17 @@ function handleCSVImport(e){
     // nothing is saved/synced until the user hits "Apply Import" in the preview modal.
     const _stocksBackup=JSON.stringify(stocks);
     const _pfBackup=JSON.stringify(portfolios);
+    const _disBackup=JSON.stringify(dismissed); // v5.06
     window._suppressBuyModal=true; // buy modals for newly-lit signals fire only on Apply
     for(let i=1;i<rows.length;i++){const v=rows[i];const row={};hdr.forEach((h,j)=>row[h]=v[j]??"");
       const t=(row.ticker||"").toUpperCase();if(!t)continue;
+      // v5.06: dismissed=Y rows are parked in the dismiss list (triggers kept, never fire).
+      // A previously dismissed ticker whose row now has dismissed blank is reconsidered.
+      if(hdr.includes("dismissed")){
+        const _dv=String(row.dismissed||"").trim().toUpperCase();
+        if(_dv==="Y"||_dv==="YES"||_dv==="TRUE"||_dv==="1"){_csvImportDismissed(row,t);continue;}
+        if(findDismissed(t)>=0)reconsiderStock(t,true);
+      }
       // Auto-create stock if ticker doesn't exist yet
       if(!stocks[t]){
         // FIX v3.70: use the shared module-level _EXCHANGES table (defined below near the
@@ -3846,6 +3882,7 @@ function handleCSVImport(e){
         // Decline: restore in-memory state; localStorage was never touched, no sync sent.
         stocks=JSON.parse(_stocksBackup);
         portfolios=JSON.parse(_pfBackup);
+        dismissed=JSON.parse(_disBackup); // v5.06
         render();
       }
     });
@@ -4611,8 +4648,9 @@ function exportExcel(){
 
   // Sheet 6: Dismissed (v5.05) — anti-watchlist with reasons
   if(dismissed.length){
-    const dRows=dismissed.map(d=>({ticker:d.ticker,name:d.name||"",date:d.date,tags:(d.tags||[]).join("; "),note:d.note||"",revisit:d.revisit||""}));
-    const ws6=XLSX.utils.json_to_sheet(dRows);ws6["!cols"]=[{wch:8},{wch:22},{wch:24},{wch:30},{wch:50},{wch:30}];
+    const dRows=dismissed.map(d=>{const c=d.stock?.cons||{};return{ticker:d.ticker,name:d.name||"",date:d.date,tags:(d.tags||[]).join("; "),note:d.note||"",revisit:d.revisit||"",
+      currency:d.stock?.currency||"USD",category:d.stock?.category||"",mos:c.mos??null,tenCap:c.tenCap??null,pbt:c.pbt??null,pbtYrs:c.pbtYrs??null,gr:c.gr??null,oe:c.oe??null,fcf:c.fcf??null,eps:c.eps??null,pe:c.pe??null,divPerShare:c.divPerShare??null,notes:d.stock?.notes||""};});
+    const ws6=XLSX.utils.json_to_sheet(dRows);ws6["!cols"]=[{wch:8},{wch:22},{wch:24},{wch:30},{wch:50},{wch:30},{wch:6},{wch:8}];
     XLSX.utils.book_append_sheet(wb,ws6,"Dismissed");
   }
 
@@ -4869,9 +4907,15 @@ function handleExcelImport(e){
       if(wb.SheetNames.includes("Dismissed")){
         XLSX.utils.sheet_to_json(wb.Sheets["Dismissed"]).forEach(row=>{
           const t=String(row.ticker||"").toUpperCase().trim();if(!t)return;
-          const e={ticker:t,name:String(row.name||""),date:row.date?new Date(row.date).toISOString():new Date().toISOString(),
-            tags:String(row.tags||"").split(";").map(x=>x.trim()).filter(Boolean),note:String(row.note||""),revisit:String(row.revisit||"")};
-          const i=findDismissed(t);if(i>=0)dismissed[i]=e;else dismissed.push(e);
+          const i=findDismissed(t);const prev=i>=0?dismissed[i]:null;
+          const st=prev?.stock||_blankStock(t,String(row.name||""),String(row.currency||"USD"));
+          if(row.name)st.name=String(row.name);if(row.currency)st.currency=String(row.currency);
+          const cv=String(row.category||"").toLowerCase();if(cv==="cashcow"||cv==="highgr")st.category=cv;
+          ["mos","tenCap","pbt","pbtYrs","gr","oe","fcf","eps","pe","divPerShare"].forEach(k=>{if(row[k]!==undefined&&row[k]!=="")st.cons[k]=Number(row[k]);});
+          if(row.notes)st.notes=String(row.notes);
+          const e={ticker:t,name:String(row.name||st.name||t),date:row.date?new Date(row.date).toISOString():new Date().toISOString(),
+            tags:String(row.tags||"").split(";").map(x=>x.trim()).filter(Boolean),note:String(row.note||""),revisit:String(row.revisit||""),stock:st};
+          if(i>=0)dismissed[i]=e;else dismissed.push(e);
         });
       }
 
@@ -7385,11 +7429,12 @@ function dismissedSectionHtml(){
   const list=[...dismissed].sort((a,b)=>new Date(b.date)-new Date(a.date));
   let h=`<div class="dis-strip" onclick="localStorage.setItem('r1-disOpen','${open?"0":"1"}');render()"><span>🚫 Dismissed <span style="font-family:var(--mono)">(${dismissed.length})</span></span><span>${open?"▾":"▸"}</span></div>`;
   h+=`<div id="dis-list" style="${open?"":"display:none"}">`;
-  if(!list.length)h+=`<div style="color:var(--muted);font-size:11px;padding:12px;text-align:center">Nothing dismissed yet. Use “🚫 Dismiss instead” in + Add Stock, or ✕ on a watchlist card.</div>`;
+  if(!list.length)h+=`<div style="color:var(--muted);font-size:11px;padding:12px;text-align:center">Nothing dismissed yet. Use “🚫 Dismiss instead” in + Add Stock, or ✕ on a watchlist card. Triggers are kept and exported in the Triggers CSV.</div>`;
   list.forEach(d=>{const i=dismissed.indexOf(d);
     h+=`<div class="dis-row" data-search="${esc((d.ticker+" "+(d.name||"")+" "+(d.tags||[]).join(" ")+" "+(d.note||"")).toLowerCase())}" onclick="openDismissModal(${i})">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div style="min-width:0"><span style="font-size:13px;font-weight:700">${esc(d.ticker)}</span> <span style="font-size:11px;color:var(--muted)">${esc(d.name||"")}</span></div><span style="font-size:9px;color:var(--muted);font-family:var(--mono);flex-shrink:0">${_disDate(d.date)}</span></div>
       <div>${(d.tags||[]).map(x=>`<span class="dis-tag">${esc(x)}</span>`).join("")}</div>
+      ${(()=>{const c=d.stock?.cons;if(!c||!(c.mos||c.tenCap||c.pbt))return"";const cy=d.stock.currency||"USD";return`<div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-top:3px">MOS ${c.mos!=null?fmt(c.mos,cy):"—"} · 10Cap ${c.tenCap!=null?fmt(c.tenCap,cy):"—"} · PBT ${c.pbt!=null?fmt(c.pbt,cy):"—"}</div>`;})()}
       ${d.note?`<div style="font-size:11px;color:var(--text);margin-top:4px;line-height:1.35">${esc(d.note)}</div>`:""}
       ${d.revisit?`<div style="font-size:10px;color:#67e8f9;margin-top:3px">↻ revisit if: ${esc(d.revisit)}</div>`:""}
     </div>`;});
@@ -7408,47 +7453,75 @@ function wlSearchApply(q,fromRender){
   const strip=document.querySelector("#content .dis-strip");
   if(strip&&ql){strip.querySelector("span:first-child").innerHTML=`🚫 Dismissed <span style="font-family:var(--mono)">(${nDis} of ${dismissed.length})</span>`;}
 }
-// Modal: create (idx=null) or edit (idx) a dismiss entry. opts.onSaved runs after save (e.g. delete the stock).
+// Blank stock record (used when a dismissed ticker has no trigger data yet).
+function _blankStock(t,name,ccy){const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};ccy=ccy||"USD";
+  return{name:name||t,currency:ccy,moat:"Wide",sector:"",flag:flags[ccy]||"🌍",status:"watchlist",priceMult:1,currentPrice:0,gate:true,
+    finnhubSymbol:ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":ccy==="KRW"?t+".KS":t,
+    cons:{sticker:null,mos:null,tenCap:null,pbt:null,pbtYrs:null,gr:null,oe:null,fcf:null,eps:null,pe:null,prevSticker:null},
+    phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};}
+// Move a live stock (watchlist) into the dismiss list, keeping its full record. meta={tags,note,revisit}.
+function dismissStock(t,meta){
+  const rec=stocks[t]?JSON.parse(JSON.stringify(stocks[t])):_blankStock(t,meta.name,"USD");
+  if(meta.name)rec.name=meta.name;rec.status="watchlist";delete rec.signals; // never fire while parked
+  if(stocks[t]){delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]?.positions)delete portfolios[p].positions[t];
+    if(portfolios[p]?.gridStocks)portfolios[p].gridStocks=portfolios[p].gridStocks.filter(x=>x!==t);if(portfolios[p]?.riskStocks)portfolios[p].riskStocks=portfolios[p].riskStocks.filter(x=>x!==t);});
+    const deleted=JSON.parse(localStorage.getItem("r1-deleted")||"[]");if(!deleted.includes(t))deleted.push(t);localStorage.setItem("r1-deleted",JSON.stringify(deleted));}
+  const i=findDismissed(t);
+  const entry={ticker:t,name:rec.name||t,date:(i>=0&&dismissed[i].date)||new Date().toISOString(),tags:meta.tags||[],note:meta.note||"",revisit:meta.revisit||"",stock:rec};
+  if(i>=0)dismissed[i]=entry;else dismissed.push(entry);
+}
+// Bring a dismissed stock back to the watchlist with its trigger record intact.
+function reconsiderStock(t,silent){
+  const i=findDismissed(t);if(i<0)return;
+  const d=dismissed[i];const rec=d.stock||_blankStock(t,d.name,"USD");rec.status="watchlist";rec.signals={mos:false,tenCap:false,pbt:false};
+  stocks[t]=rec;dismissed.splice(i,1);
+  const deleted=JSON.parse(localStorage.getItem("r1-deleted")||"[]");localStorage.setItem("r1-deleted",JSON.stringify(deleted.filter(x=>x!==t)));
+  if(!silent){updateSignals(t);save();render();}
+}
+// Modal: create (idx=null, pre={ticker,name,stock?}) or edit (idx) a dismiss entry.
 function openDismissModal(idx,pre,opts){
   const d=idx!=null?dismissed[idx]:{ticker:pre?.ticker||"",name:pre?.name||"",tags:[],note:"",revisit:""};
   if(!d)return;
   const sel=new Set(d.tags||[]);
   const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  const c=d.stock?.cons;const trig=c&&(c.mos||c.tenCap||c.pbt)?`<div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin:-4px 0 10px">Triggers kept: MOS ${c.mos??"—"} · 10Cap ${c.tenCap??"—"} · PBT ${c.pbt??"—"}</div>`:"";
   ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()">
     <div class="modal-title">🚫 ${idx!=null?"Dismissed: "+esc(d.ticker):"Dismiss stock"}</div>
-    <div class="modal-field"><label>Ticker</label><input id="dm-t" value="${esc(d.ticker)}" placeholder="COST" ${idx!=null?"readonly":""}></div>
+    <div class="modal-field"><label>Ticker</label><input id="dm-t" value="${esc(d.ticker)}" placeholder="COST" ${idx!=null||pre?.ticker?"readonly":""}></div>
     <div class="modal-field"><label>Name</label><input id="dm-n" value="${esc(d.name||"")}" placeholder="Costco"></div>
+    ${trig}
     <div class="modal-field"><label>Why dismissed (pick any)</label><div id="dm-tags">${DISMISS_TAGS.map(x=>`<span class="tag-chip${sel.has(x)?" on":""}" data-tag="${esc(x)}" onclick="this.classList.toggle('on')">${esc(x)}</span>`).join("")}</div></div>
     <div class="modal-field"><label>Note — what you found</label><textarea id="dm-note" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:14px;font-family:var(--font);outline:none;resize:vertical">${esc(d.note||"")}</textarea></div>
     <div class="modal-field"><label>Revisit if… (optional)</label><input id="dm-rev" value="${esc(d.revisit||"")}" placeholder="price < 40 · new CEO · FY27 results"></div>
     ${idx!=null?`<div style="font-size:9px;color:var(--muted);margin-bottom:6px">Dismissed ${_disDate(d.date)}</div>`:""}
     <button class="modal-done" id="dm-save">${opts?.saveLabel||"Save"}</button>
-    ${idx!=null?`<button class="modal-done" style="background:#0d3320;color:var(--green);margin-top:4px" id="dm-recon">↩ Reconsider — add to watchlist</button><button class="modal-done" style="background:#3b1111;color:var(--red);margin-top:4px" id="dm-del">Delete entry</button>`:""}
+    ${idx!=null?`<button class="modal-done" style="background:#0d3320;color:var(--green);margin-top:4px" id="dm-recon">↩ Reconsider — back to watchlist</button><button class="modal-done" style="background:#3b1111;color:var(--red);margin-top:4px" id="dm-del">Delete entry (and its triggers)</button>`:""}
   </div>`;
   document.body.appendChild(ov);
   ov.querySelector("#dm-save").onclick=()=>{
     const t=(gv("dm-t")||"").toUpperCase().trim();if(!t){alert("Enter ticker");return;}
     const tags=[...ov.querySelectorAll("#dm-tags .tag-chip.on")].map(e=>e.dataset.tag);
-    const entry={ticker:t,name:gv("dm-n").trim(),date:d.date||new Date().toISOString(),tags,note:(document.getElementById("dm-note").value||"").trim(),revisit:gv("dm-rev").trim()};
-    if(idx!=null)dismissed[idx]=entry;else{const ex=findDismissed(t);if(ex>=0)dismissed[ex]=entry;else dismissed.push(entry);}
-    ov.remove();if(opts?.onSaved)opts.onSaved(t);save();render();
+    const meta={name:gv("dm-n").trim(),tags,note:(document.getElementById("dm-note").value||"").trim(),revisit:gv("dm-rev").trim()};
+    if(idx!=null){Object.assign(dismissed[idx],meta);if(dismissed[idx].stock)dismissed[idx].stock.name=meta.name||t;}
+    else{ if(pre?.stock&&!stocks[t]){stocks[t]=pre.stock;} dismissStock(t,meta); }
+    ov.remove();save();render();
   };
   if(idx!=null){
-    ov.querySelector("#dm-del").onclick=()=>{if(!confirm(`Delete dismiss entry for ${d.ticker}?`))return;dismissed.splice(idx,1);ov.remove();save();render();};
-    ov.querySelector("#dm-recon").onclick=()=>{dismissed.splice(idx,1);ov.remove();save();render();openAddStock({ticker:d.ticker,name:d.name});};
+    ov.querySelector("#dm-del").onclick=()=>{if(!confirm(`Delete ${d.ticker} from the dismiss list? Its trigger values go too.`))return;dismissed.splice(idx,1);ov.remove();save();render();};
+    ov.querySelector("#dm-recon").onclick=()=>{ov.remove();reconsiderStock(d.ticker);};
   }
 }
-// Delete flow from a watchlist card: dismiss with reason, plain delete, or cancel.
+// Delete flow from a watchlist card: dismiss with reason (keeps triggers), plain delete, or cancel.
 function removeStockPrompt(t){
   const s=stocks[t];if(!s)return;
   const ov=document.createElement("div");ov.className="modal-overlay";ov.onclick=e=>{if(e.target===ov)ov.remove();};
   ov.innerHTML=`<div class="modal-sheet" onclick="event.stopPropagation()"><div class="modal-title">Remove ${esc(t)}?</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Keep a note of why, so you don’t research ${esc(s.name||t)} twice.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Dismissing keeps the triggers and a note of why, so you don’t research ${esc(s.name||t)} twice.</div>
     <button class="modal-done" style="background:#332d0d;color:var(--amber)" id="rs-dis">🚫 Dismiss with reason</button>
-    <button class="modal-done" style="background:#3b1111;color:var(--red);margin-top:6px" id="rs-del">Just delete</button>
+    <button class="modal-done" style="background:#3b1111;color:var(--red);margin-top:6px" id="rs-del">Delete everywhere</button>
     <button class="modal-done" style="background:var(--bg);color:var(--muted);margin-top:6px" onclick="this.closest('.modal-overlay').remove()">Cancel</button></div>`;
   document.body.appendChild(ov);
-  ov.querySelector("#rs-dis").onclick=()=>{ov.remove();openDismissModal(null,{ticker:t,name:s.name},{saveLabel:"Dismiss & remove",onSaved:()=>_deleteStockSilent(t)});};
+  ov.querySelector("#rs-dis").onclick=()=>{ov.remove();openDismissModal(null,{ticker:t,name:s.name},{saveLabel:"Dismiss & park"});};
   ov.querySelector("#rs-del").onclick=()=>{ov.remove();_deleteStockSilent(t);save();render();};
 }
 function _deleteStockSilent(t){delete stocks[t];["nl","personal"].forEach(p=>{if(portfolios[p]&&portfolios[p].positions)delete portfolios[p].positions[t];});
@@ -7464,7 +7537,7 @@ function attachDismissCheck(sheet){
     field.after(b);};
   inp.addEventListener("input",check);check();
   const btn=document.createElement("button");btn.className="modal-done";btn.style.cssText="background:#332d0d;color:var(--amber);margin-top:4px";btn.textContent="🚫 Dismiss instead";
-  btn.onclick=()=>{const t=(gv("ns-ticker")||"").toUpperCase().trim(),n=gv("ns-name");sheet.closest(".modal-overlay").remove();openDismissModal(null,{ticker:t,name:n});};
+  btn.onclick=()=>{const b=_stockFromAddForm(true);if(!b)return;sheet.closest(".modal-overlay").remove();openDismissModal(null,{ticker:b.t,name:b.stock.name,stock:b.stock});};
   sheet.appendChild(btn);
 }
 
@@ -7777,7 +7850,7 @@ function renderSettings(c){
       <div id="ibkr-preview-nl" style="margin-top:4px"></div></div>
 
     <div class="settings-card"><div class="settings-title">📥 Triggers CSV</div>
-      <div class="settings-desc">Triggers only — quick update after earnings.</div>
+      <div class="settings-desc">Triggers only — quick update after earnings. Includes dismissed stocks (dismissed=Y column) so every stock you ever looked at is in one file.</div>
       <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportCSV()">↓ Export CSV</button>
         <button class="settings-save" onclick="document.getElementById('csv-import').click()">↑ Import CSV</button></div></div>
 
@@ -8144,7 +8217,26 @@ function openEditStock(t){
   });
 }
 
-function openAddStock(pre){ // v5.05: optional prefill {ticker,name} (used by Reconsider)
+// v5.06: build a stock record from the Add-Stock form. Shared by Save (→ stocks) and
+// "Dismiss instead" (→ dismiss list with triggers kept). Returns {t,stock} or null.
+function _stockFromAddForm(forDismiss){
+  const t=(gv("ns-ticker")||"").toUpperCase().trim();if(!t){alert("Enter ticker");return null;}
+  if(stocks[t]){alert(t+" exists");return null;}
+  if(!forDismiss&&findDismissed(t)>=0){alert(t+" is on the dismiss list — use Reconsider there.");return null;}
+  const ccy=gv("ns-ccy")||"USD";const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
+  const eps=nv("ns-eps");const gr=nv("ns-gr");const pe=nv("ns-pe");
+  let mos=nv("ns-mos");const oe=nv("ns-oe");const fcf=nv("ns-fcf");
+  let tc=nv("ns-tc");let pbt=nv("ns-pbt");let sticker=mos?mos*2:null;
+  const r=recalcSticker(eps,gr,pe);if(r){mos=r.mos;sticker=r.sticker;}
+  const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
+  const stock={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
+    status:"watchlist",finnhubSymbol:((gv("ns-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,""))||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":ccy==="KRW"?t+".KS":t),priceMult:1,currentPrice:nv("ns-price"),
+    cons:{sticker,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,eps,pe,prevSticker:null},
+    phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
+  recalcConsTriggers(stock);
+  return{t,stock};
+}
+function openAddStock(pre){ // v5.05: optional prefill {ticker,name}
   showModal("Add New Stock",[
     {id:"ns-ticker",label:"Ticker",val:pre?.ticker||"",placeholder:"COST"},
     {id:"ns-name",label:"Name",val:pre?.name||"",placeholder:"Costco"},
@@ -8165,24 +8257,9 @@ function openAddStock(pre){ // v5.05: optional prefill {ticker,name} (used by Re
     {id:"ns-pbt",label:"PBT Price",val:"",type:"number"},
     {id:"ns-pbtyrs",label:"PBT Years",val:"",type:"number"},
   ],()=>{
-    const t=(gv("ns-ticker")||"").toUpperCase().trim();if(!t){alert("Enter ticker");return false;}
-    if(stocks[t]){alert(t+" exists");return false;}
-    const ccy=gv("ns-ccy")||"USD";const flags={USD:"🇺🇸",EUR:"🇪🇺",GBp:"🇬🇧",CAD:"🇨🇦",JPY:"🇯🇵",KRW:"🇰🇷"};
-    const eps=nv("ns-eps");const gr=nv("ns-gr");const pe=nv("ns-pe");
-    let mos=nv("ns-mos");const oe=nv("ns-oe");const fcf=nv("ns-fcf");
-    let tc=nv("ns-tc");let pbt=nv("ns-pbt");let sticker=mos?mos*2:null;
-    // Auto-calc sticker+MOS from eps+gr+pe if all present
-    const r=recalcSticker(eps,gr,pe);
-    if(r){mos=r.mos;sticker=r.sticker;}
-    const nmv=gv("ns-moat");const nmoat=nmv==="Excellent"?"Wide":nmv==="Strong"?"Narrow":nmv||"Wide";
-    stocks[t]={name:gv("ns-name")||t,currency:ccy,moat:nmoat,sector:"",flag:flags[ccy]||"🌍",
-      status:"watchlist",finnhubSymbol:((gv("ns-fh")||"").replace(/[\s\u200B-\u200F\uFEFF]/g,""))||(ccy==="GBp"?t+".L":ccy==="CAD"?t+".TO":ccy==="JPY"?t+".T":ccy==="KRW"?t+".KS":t),priceMult:1,currentPrice:nv("ns-price")||0,gate:true,
-      cons:{sticker,mos,tenCap:tc,pbt,pbtYrs:nv("ns-pbtyrs"),gr,oe,fcf,eps,pe,prevSticker:null},
-      phil:null,signals:{mos:false,tenCap:false,pbt:false},lastCalcDate:Date.now()};
-    // Auto-calc tenCap + pbt from oe/fcf (category-aware; new stocks start uncategorized so this
-    // applies standard formulas. If the user later sets category=highgr via Edit, formulas update.)
-    recalcConsTriggers(stocks[t]);
-    updateSignals(t);["personal","nl"].forEach(pk=>recomputeCapacityState(pk));save(); // v4.53: new stock may affect capacity
+    const b=_stockFromAddForm(false);if(!b)return false;
+    stocks[b.t]=b.stock;
+    updateSignals(b.t);["personal","nl"].forEach(pk=>recomputeCapacityState(pk));save(); // v4.53: new stock may affect capacity
   });
   const _sheets=document.querySelectorAll(".modal-overlay .modal-sheet");attachDismissCheck(_sheets[_sheets.length-1]); // v5.05
 }
