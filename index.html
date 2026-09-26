@@ -285,7 +285,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.06</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.07</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -696,7 +696,45 @@ function trigT2LongLabel(t){return isHighgr(t)?"DMOS — Deeper MOS":"PBT — Pa
 function isOperationalTier1(t){const c=(stocks[(t||"").toUpperCase()]||{}).compounderPriority;return c!=null&&c>=1&&c<2;}
 // Visual marker — small gold "⭐T1" badge shown next to ticker on Tier 1 rows.
 // Returns empty string for non-Tier-1 so it's safe to inject everywhere without conditional logic upstream.
-function tier1Marker(t){return isOperationalTier1(t)?`<span style="font-size:9px;color:#fbbf24;background:#fbbf2420;border:1px solid #fbbf2444;padding:1px 4px;border-radius:3px;margin-left:4px;font-family:var(--mono);font-weight:600" title="Operational Tier 1 — see framework §10.2">⭐T1</span>`:"";}
+function tier1Marker(t){return (isOperationalTier1(t)?`<span style="font-size:9px;color:#fbbf24;background:#fbbf2420;border:1px solid #fbbf2444;padding:1px 4px;border-radius:3px;margin-left:4px;font-family:var(--mono);font-weight:600" title="Operational Tier 1 — see framework §10.2">⭐T1</span>`:"")+pairMarker(t);}
+// ============ v5.07 LINKED SEATS (framework §2.7.8) ============
+// Two names whose theses are the same bet share ONE seat: one combined cost-basis cap
+// (= the largest member cap, 16% for a Tier 1 pair), four 4% tranches filled first-come across
+// both names by whichever trigger fires. Membership = identical `pairId` on the stock records
+// (Triggers CSV column `pairId`; e.g. CSU + TOI = "CSUTOI"). Each name keeps its own trigger
+// menu; only the CAP is shared. Enforcement points: atPositionCap / stockDeployRoomBase (hard
+// cap on Σ pair cost), applyPairRoomClamp (first-come within one allocation run — moat tier
+// first, then more lit signals), committedFrac / capacityViewHTML (pair reserves ONE seat).
+function pairMembers(t){const pid=stocks[t]?.pairId;if(!pid)return [t];return Object.keys(stocks).filter(x=>stocks[x]?.pairId===pid&&stocks[x]?.gate!==false);}
+function isPaired(t){return pairMembers(t).length>1;}
+function pairLabel(t){return pairMembers(t).join("+");}
+// Order members for first-come consumption of the shared cap: Moat Tier (priority asc), then
+// more deploying signals (deeper), then ticker.
+function pairOrdered(t,pfKey){return pairMembers(t).slice().sort((a,b)=>((stocks[a]?.priority??99)-(stocks[b]?.priority??99))||(deployCount(b,pfKey)-deployCount(a,pfKey))||a.localeCompare(b));}
+function pairCapPct(t,pfKey){return Math.max(...pairMembers(t).map(x=>positionCapPct(x,pfKey)));}
+function pairCostBase(t,pfKey){return pairMembers(t).reduce((a,x)=>a+posCostBasisBase(x,pfKey),0);}
+function pairCostPctOfBase(t,pfKey,extraBase){const base=pool1CostBasis(pfKey)+pool3CostBasis(pfKey)+(extraBase||0);if(base<=0)return 0;return pairCostBase(t,pfKey)/base;}
+function atPairCap(t,pfKey,extraBase){return isPaired(t)&&pairCostPctOfBase(t,pfKey,extraBase)>=pairCapPct(t,pfKey);}
+// Clamp a {ticker→room} map so a pair's members together never exceed the pair headroom, and
+// the earlier member (pairOrdered) takes room first. Mutates + returns the map.
+function applyPairRoomClamp(roomMap,pfKey,base){
+  const seen=new Set();
+  Object.keys(roomMap).forEach(t=>{
+    const pid=stocks[t]?.pairId;if(!pid||seen.has(pid)||!isPaired(t))return;seen.add(pid);
+    let head=Math.max(0,pairCapPct(t,pfKey)*base-pairCostBase(t,pfKey));
+    pairOrdered(t,pfKey).forEach(m=>{if(roomMap[m]==null)return;const r=Math.min(roomMap[m],head);roomMap[m]=r;head-=r;});
+  });
+  return roomMap;
+}
+function pairMarker(t){if(!isPaired(t))return"";const others=pairMembers(t).filter(x=>x!==t).join("+");return`<span style="font-size:9px;color:#a78bfa;background:#a78bfa18;border:1px solid #a78bfa44;padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:600;cursor:pointer" title="Linked seat with ${esc(others)} — one shared ${Math.round(pairCapPct(t,currentPf||'personal')*100)}% cap, tranches first-come across the pair (framework §2.7.8). Tap to edit pairId." onclick="event.stopPropagation();setPairId('${t}')">🔗${esc(others)}</span>`;}
+function setPairId(t){
+  const cur=stocks[t]?.pairId||"";
+  const v=prompt(`Linked-seat pairId for ${t} (framework §2.7.8).\nSame value on two tickers = one shared cap. Blank = unlink.`,cur);
+  if(v===null)return;
+  const nv=v.trim().toUpperCase();
+  if(nv)stocks[t].pairId=nv;else delete stocks[t].pairId;
+  save();render();
+}
 
 // ---- Stage B: P-MOS (Premium MOS) — Tier 1 only ----
 // P-MOS = Sticker × 0.75 = (MOS × 2) × 0.75 = MOS × 1.5. Never muted (0.75 < 1.0 by construction).
@@ -1934,11 +1972,15 @@ function recomputeCapacityState(pfKey){
 function fullCapFrac(t,pfKey){return positionCapPct(t,pfKey);}
 // Σ full caps of on-grid (non-risk, non-trophy, open) Pool 1 names = "committed".
 function committedFrac(pfKey){
-  const pf=portfolios[pfKey];if(!pf)return 0;let c=0;
+  const pf=portfolios[pfKey];if(!pf)return 0;let c=0;const seenPair=new Set();
   Object.keys(pf.positions||{}).forEach(t=>{
     if(isRisk(t,pfKey)||pf.positions[t].graduated)return;
     const open=pf.positions[t].tranches?.some(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0);
-    if(open)c+=fullCapFrac(t,pfKey);
+    if(!open)return;
+    // v5.07 linked seat (§2.7.8): a pair reserves ONE seat at the shared cap, not one per name.
+    const pid=stocks[t]?.pairId;
+    if(pid&&isPaired(t)){if(seenPair.has(pid))return;seenPair.add(pid);c+=pairCapPct(t,pfKey);return;}
+    c+=fullCapFrac(t,pfKey);
   });
   return c;
 }
@@ -1971,16 +2013,19 @@ function capacityViewHTML(pfKey){
     if(pos.graduated)trophy.push(t);else onGrid.push(t);
   });
   onGrid.sort((a,b)=>(stocks[a]?.priority||99)-(stocks[b]?.priority||99));
+  // v5.07 linked seat: collapse pair members to ONE pip (first by priority), fill = Σ pair cost / pair cap.
+  {const seenPair=new Set();for(let i=onGrid.length-1;i>=0;i--){const pid=stocks[onGrid[i]]?.pairId;if(pid&&isPaired(onGrid[i])){if(seenPair.has(pid))onGrid.splice(i,1);else seenPair.add(pid);}}}
   const emptySeats=Math.floor(Math.max(0,0.84-committed)/seatFrac(pfKey)+1e-9); // whole standard 12% seats staged (FP-guarded)
   // --- Slot strip: one pip per on-grid name (filled by owned-vs-cap), then hollow empty seats. ---
   let pips="";
   onGrid.forEach(t=>{
-    const cap=fullCapFrac(t,pfKey);                            // 0.08 / 0.12 / 0.16
-    const fillFrac=Math.max(0,Math.min(1,positionCostPctOfBase(t,pfKey)/cap)); // owned vs cap
+    const pr=isPaired(t);
+    const cap=pr?pairCapPct(t,pfKey):fullCapFrac(t,pfKey);      // 0.08 / 0.12 / 0.16 (pair: shared cap)
+    const fillFrac=Math.max(0,Math.min(1,(pr?pairCostPctOfBase(t,pfKey):positionCostPctOfBase(t,pfKey))/cap)); // owned vs cap
     const t1=isOperationalTier1(t),buf=isCashcow(t);
     const w=buf?9:14;                                          // Cashcow half-width
     const ring=t1?"box-shadow:0 0 0 1.5px var(--accent);":"";
-    pips+=`<span title="${esc(t)} · cap ${Math.round(cap*100)}% · filled ${Math.round(fillFrac*100)}%" style="position:relative;display:inline-block;width:${w}px;height:14px;border-radius:3px;background:#1a1a2e;border:1px solid #2a2a3e;${ring}overflow:hidden;vertical-align:middle">`
+    pips+=`<span title="${esc(pr?pairLabel(t)+" (linked seat)":t)} · cap ${Math.round(cap*100)}% · filled ${Math.round(fillFrac*100)}%" style="position:relative;display:inline-block;width:${w}px;height:14px;border-radius:3px;background:#1a1a2e;border:1px solid #2a2a3e;${ring}overflow:hidden;vertical-align:middle">`
         +`<span style="position:absolute;left:0;bottom:0;width:100%;height:${Math.round(fillFrac*100)}%;background:var(--accent);opacity:.85"></span></span>`;
   });
   let empties="";
@@ -1988,7 +2033,7 @@ function capacityViewHTML(pfKey){
   const stripHTML=`<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin:6px 0 2px">${pips}${empties?`<span style="width:6px"></span>${empties}`:""}</div>`;
   // --- Three-part bar: Deployed (cost basis) / Reserved-to-defend (committed−deployed) / DP-free. ---
   let deployedFrac=0;
-  onGrid.forEach(t=>{deployedFrac+=positionCostPctOfBase(t,pfKey);});
+  onGrid.forEach(t=>{deployedFrac+=isPaired(t)?pairCostPctOfBase(t,pfKey):positionCostPctOfBase(t,pfKey);}); // v5.07: pair pip carries Σ pair cost
   deployedFrac=Math.max(0,deployedFrac);
   const reservedFrac=Math.max(0,committed-deployedFrac);      // headroom inside committed caps
   const dpFreeFrac=Math.max(0,1-committed);
@@ -2363,6 +2408,7 @@ function positionCostPctOfBase(ticker,pfKey,extraBase){
   return posCostBasisBase(ticker,pfKey)/base;
 }
 function atPositionCap(ticker,pfKey,extraBase){
+  if(atPairCap(ticker,pfKey,extraBase))return true;                 // v5.07: shared pair cap binds first
   return positionCostPctOfBase(ticker,pfKey,extraBase)>=positionCapPct(ticker,pfKey);
 }
 // v4.64→v4.67: OWNED∪LIT SLOT cap — the BINDING per-stock deployment ceiling. Total position
@@ -2422,7 +2468,9 @@ function stockDeployRoomBase(ticker,pfKey,base,extraBase){
   if(atPositionCap(ticker,pfKey,extraBase||0))return{room:0,capped:true,litCapped:false,tops:[]};
   const tops=litTrancheTopups(ticker,pfKey,base);
   const rawRoom=tops.reduce((a,x)=>a+x.roomBase,0);
-  const capHeadroom=Math.max(0,positionCapPct(ticker,pfKey)*base-posCostBasisBase(ticker,pfKey));
+  let capHeadroom=Math.max(0,positionCapPct(ticker,pfKey)*base-posCostBasisBase(ticker,pfKey));
+  // v5.07 linked seat: the pair's COMBINED cost may not exceed the shared cap.
+  if(isPaired(ticker))capHeadroom=Math.min(capHeadroom,Math.max(0,pairCapPct(ticker,pfKey)*base-pairCostBase(ticker,pfKey)));
   const litHeadroom=litCapHeadroomBase(ticker,pfKey,base);
   return{room:Math.min(rawRoom,capHeadroom,litHeadroom),capped:false,litCapped:atLitCap(ticker,pfKey,base),tops};
 }
@@ -3489,7 +3537,7 @@ async function autoSyncAll(){
 }
 
 function exportCSV(){
-  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,divPerShare,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate,health,researchFlag,whyIOwn,bullCase,bearCase,thesisTripwires,checkpointDate,checkpointLabel,holdUntil,thesisReviewed,thesisComment,dismissed,dismissDate,dismissTags,dismissNote,dismissRevisit\n";
+  let csv="ticker,currency,priority,compounderPriority,mos,tenCap,pbt,pbtYrs,gr,oe,fcf,eps,pe,divPerShare,lastCalc,earningsDate,name,category,notes,specReason,t1Firing,t3Firing,t6Firing,block,blockReason,blockDate,reviewDate,health,researchFlag,whyIOwn,bullCase,bearCase,thesisTripwires,checkpointDate,checkpointLabel,holdUntil,thesisReviewed,thesisComment,dismissed,dismissDate,dismissTags,dismissNote,dismissRevisit,pairId\n";
   // CSV-escape: wrap in quotes and double internal quotes if value contains comma, quote, or newline
   const q=x=>{if(x==null||x==="")return"";const str=String(x);return /[",\n\r]/.test(str)?`"${str.replace(/"/g,'""')}"`:str;};
   // v5.06: live stocks first, then dismissed ones (full trigger record kept) flagged dismissed=Y.
@@ -3500,7 +3548,7 @@ function exportCSV(){
     const lc=s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):"";
     const ed=s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):"";
     const cat=s.category==="cashcow"?"cashcow":s.category==="highgr"?"highgr":"";
-    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""},${s.health||""},${s.researchFlag?"Y":""},${q(s.whyIOwn||"")},${q(s.bullCase||"")},${q(s.bearCase||"")},${q(s.thesisTripwires||"")},${s.checkpointDate||""},${q(s.checkpointLabel||"")},${q(s.holdUntil||"")},${s.thesisReviewed||""},${q(s.thesisComment||"")},${d?"Y":""},${d?String(d.date||"").slice(0,10):""},${q(d?(d.tags||[]).join("; "):"")},${q(d?d.note||"":"")},${q(d?d.revisit||"":"")}\n`;});
+    csv+=`${t},${s.currency||"USD"},${v(s.priority)},${v(s.compounderPriority)},${v(s.cons.mos)},${v(s.cons.tenCap)},${v(s.cons.pbt)},${v(s.cons.pbtYrs)},${v(s.cons.gr)},${v(s.cons.oe)},${v(s.cons.fcf)},${v(s.cons.eps)},${v(s.cons.pe)},${v(s.cons.divPerShare)},${lc},${ed},${q(s.name||t)},${cat},${q(s.notes||"")},${q(s.specReason||"")},${tw(s.t1Firing)},${tw(s.t3Firing)},${tw(s.t6Firing)},${s.block?"Y":""},${q(s.blockReason||"")},${s.blockDate?new Date(s.blockDate).toISOString().slice(0,10):""},${s.blockReviewDate?new Date(s.blockReviewDate).toISOString().slice(0,10):""},${s.health||""},${s.researchFlag?"Y":""},${q(s.whyIOwn||"")},${q(s.bullCase||"")},${q(s.bearCase||"")},${q(s.thesisTripwires||"")},${s.checkpointDate||""},${q(s.checkpointLabel||"")},${q(s.holdUntil||"")},${s.thesisReviewed||""},${q(s.thesisComment||"")},${d?"Y":""},${d?String(d.date||"").slice(0,10):""},${q(d?(d.tags||[]).join("; "):"")},${q(d?d.note||"":"")},${q(d?d.revisit||"":"")},${q(s.pairId||"")}\n`;});
   dlFile("triggers_"+dateStr()+".csv",csv,"text/csv");
   settings.lastBackup=Date.now();save();
 }
@@ -3544,14 +3592,15 @@ const DIFF_FIELDS=[
   {key:"checkpointLabel",label:"Checkpoint Label",path:["checkpointLabel"],maxLen:90},
   {key:"holdUntil",label:"Hold Until",path:["holdUntil"]},
   {key:"thesisReviewed",label:"Thesis Reviewed",path:["thesisReviewed"]},
-  {key:"thesisComment",label:"My Comment",path:["thesisComment"],maxLen:90}
+  {key:"thesisComment",label:"My Comment",path:["thesisComment"],maxLen:90},
+  {key:"pairId",label:"Linked Seat",path:["pairId"]}   // v5.07
 ];
 function snapshotStocks(){
   const snap={};
   Object.entries(stocks).forEach(([t,s])=>{
     const o={name:s.name,category:s.category,gate:s.gate,priority:s.priority,compounderPriority:s.compounderPriority,t1Firing:s.t1Firing?true:null,t3Firing:s.t3Firing?true:null,t6Firing:s.t6Firing?true:null,earningsDate:s.earningsDate||null,lastCalcDate:s.lastCalcDate||null,block:s.block?true:null,blockReason:s.blockReason||null,blockDate:s.blockDate||null,blockReviewDate:s.blockReviewDate||null,notes:s.notes||null,specReason:s.specReason||null,
       // Thesis layer (v4.94) — snapshotted so CSV imports diff cleanly, incl. in-app toggles
-      health:s.health||null,researchFlag:s.researchFlag?true:null,whyIOwn:s.whyIOwn||null,bullCase:s.bullCase||null,bearCase:s.bearCase||null,thesisTripwires:s.thesisTripwires||null,checkpointDate:s.checkpointDate||null,checkpointLabel:s.checkpointLabel||null,holdUntil:s.holdUntil||null,thesisReviewed:s.thesisReviewed||null,thesisComment:s.thesisComment||null};
+      health:s.health||null,researchFlag:s.researchFlag?true:null,whyIOwn:s.whyIOwn||null,bullCase:s.bullCase||null,bearCase:s.bearCase||null,thesisTripwires:s.thesisTripwires||null,checkpointDate:s.checkpointDate||null,checkpointLabel:s.checkpointLabel||null,holdUntil:s.holdUntil||null,thesisReviewed:s.thesisReviewed||null,thesisComment:s.thesisComment||null,pairId:s.pairId||null};
     if(s.cons){Object.keys(s.cons).forEach(k=>o["cons."+k]=s.cons[k]);}
     snap[t]=o;
   });
@@ -3855,6 +3904,8 @@ function handleCSVImport(e){
       _thTxt("thesisreviewed","thesisReviewed");
       _thTxt("thesiscomment","thesisComment");
       // ============ END THESIS LAYER ============
+      // v5.07 linked seat (§2.7.8): pairId column. Absent column = no change; present-but-empty = unlink.
+      if(hdr.includes("pairid")){const pv=(row.pairid||"").trim().toUpperCase();if(pv)s.pairId=pv;else delete s.pairId;}
       // Auto-calc chain: eps+gr+pe → sticker+mos (overwrites manual MOS if all inputs present)
       applyRecalcSticker(s);
       // Auto-calc tenCap + pbt (category-aware: highgr uses 20Cap/DMOS formulas)
@@ -4546,7 +4597,7 @@ function exportExcel(){
     philPBT:s.phil?.pbt||null,philGR:s.phil?.gr||null,philScore:s.phil?.score||null,
     category:s.category==="cashcow"?"cashcow":s.category==="highgr"?"highgr":"",
     sector:s.sector||"",
-    specReason:s.specReason||null,specDate:s.specDate||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null,
+    specReason:s.specReason||null,specDate:s.specDate||null,pairId:s.pairId||null,notes:s.notes||null,lastCalcDate:s.lastCalcDate?new Date(s.lastCalcDate).toISOString().slice(0,10):null,earningsDate:s.earningsDate?new Date(s.earningsDate).toISOString().slice(0,10):null,
     t1Firing:s.t1Firing?"Y":"",t3Firing:s.t3Firing?"Y":"",t6Firing:s.t6Firing?"Y":""};});
   const ws1=XLSX.utils.json_to_sheet(sRows);ws1["!cols"]=[{wch:8},{wch:18},{wch:6},{wch:7},{wch:10},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:6},{wch:6},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws1,"Stocks");
@@ -4701,6 +4752,7 @@ function handleExcelImport(e){
             if(row.notes!=null&&row.notes!=="")s.notes=String(row.notes);else if(row.notes==="")delete s.notes;
             if(row.priority!=null)s.priority=vn(row.priority);
             if(row.compounderPriority!=null)s.compounderPriority=vn(row.compounderPriority);
+            if(row.pairId!=null){const pv=String(row.pairId).trim().toUpperCase();if(pv)s.pairId=pv;else delete s.pairId;} // v5.07
             // Stage F (v3.69): tripwire firing flags. Excel restore reads same Y/string sentinel as CSV.
             [["t1Firing","t1Firing"],["t3Firing","t3Firing"],["t6Firing","t6Firing"]].forEach(([col,key])=>{
               if(row[col]!=null){
@@ -4746,7 +4798,8 @@ function handleExcelImport(e){
               lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now(),
               earningsDate:row.earningsDate?(isNaN(new Date(row.earningsDate))?null:new Date(row.earningsDate).getTime()):null,
               priority:vn(row.priority)||null,
-              compounderPriority:vn(row.compounderPriority)||null};
+              compounderPriority:vn(row.compounderPriority)||null,
+              pairId:row.pairId?String(row.pairId).trim().toUpperCase():undefined}; // v5.07
             if(catRaw==="cashcow"||catRaw==="buffett")stocks[t].category="cashcow";
             // Stage F (v3.69): seed tripwire firing flags on new-stock Excel restore.
             [["t1Firing","t1Firing"],["t3Firing","t3Firing"],["t6Firing","t6Firing"]].forEach(([col,key])=>{
@@ -6684,6 +6737,8 @@ function renderTrancheBalanceCard(pfKey){
     rows.push({ticker:t,...st,room:dr.room,tops:dr.tops,litCapped:dr.litCapped,hardCapped:dr.capped,buyable});
   });
   if(!rows.length)return"";
+  // v5.07 linked seat: members share one headroom — clamp first-come so two green rows can't both claim it.
+  {const rm={};rows.forEach(r=>{rm[r.ticker]=r.room;});applyPairRoomClamp(rm,pfKey,tb);rows.forEach(r=>{r.room=rm[r.ticker];r.buyable=r.room>_minDeployBase;});}
   // Actionable first: green BUY rows (largest room first), then OVER rows (largest excess), then rest.
   rows.sort((a,b)=>{
     if(a.buyable!==b.buyable)return a.buyable?-1:1;
@@ -6831,6 +6886,7 @@ function renderAllocator(c){
     // v4.84: room math extracted to stockDeployRoomBase (shared with the Tranche Balance card).
     // Allocator base = P1+P3+DP + this month's salary; Tranche Balance uses the DP-only base.
     firingStocks.forEach(t=>{stockRoom[t]=stockDeployRoomBase(t,'personal',_capBase,_capExtra).room;});
+    applyPairRoomClamp(stockRoom,'personal',_capBase);   // v5.07 §2.7.8: pair members share one headroom, first-come
     // Iterative fill: distribute deployable income across lit, under-cap stocks by weighted-lit
     // share. When a stock fills its room, the unabsorbed remainder is redistributed across the
     // stocks that still have room (next pass), until either the income is exhausted or no stock
@@ -6938,7 +6994,7 @@ function renderAllocator(c){
     <div class="alloc-grid">`;
     // Per-stock breakdown: firing stocks show deploy + per-lit-tranche top-ups
     firingStocks.forEach(t=>{const s=stocks[t];const dc=deployCount(t,'personal');const slots=validTriggerSlots(t,'personal');const unlit=slots-dc;
-      const capped=atPositionCap(t,'personal',_capExtra);const capPct=positionCapPct(t,'personal');const mvPct=positionCostPctOfBase(t,'personal',_capExtra);
+      const _pr=isPaired(t);const capped=atPositionCap(t,'personal',_capExtra);const capPct=_pr?pairCapPct(t,'personal'):positionCapPct(t,'personal');const mvPct=_pr?pairCostPctOfBase(t,'personal',_capExtra):positionCostPctOfBase(t,'personal',_capExtra);
       // v4.67: owned∪lit slot cap state — total cost basis at/above (owned∪lit slots) × 4%.
       const litCapped=!capped&&atLitCap(t,'personal',_capBase);const litCapPctDisp=dc*trancheFrac('personal')*100;
       // v3.96: deploy = room-bounded amount from _stockDeployBase (base ccy) → stock ccy.
@@ -6963,7 +7019,7 @@ function renderAllocator(c){
         const full=x.roomBase<=shareBase+0.5;
         return `${x.label} ${fmt(Math.round(shareLocal),s.currency)}${full?"":" ▸"}`;
       });
-      const subline=capped?`${(capPct*100).toFixed(0)}% of P1+P3+DP reached — routed to DP`:litCapped?`total cost ≥ ${dc} lit × 4% — waits for base growth or new signal`:floored?`${fmt(Math.round(fromEUR(toEUR(flooredAmt,_bc),s.currency)),s.currency)} share &lt; $500 min — fees too high, routed to DP`:`~${sh} sh`;
+      const subline=capped?`${_pr?"pair "+pairLabel(t)+" ":""}${(capPct*100).toFixed(0)}% of P1+P3+DP reached — routed to DP`:litCapped?`total cost ≥ ${dc} lit × 4% — waits for base growth or new signal`:floored?`${fmt(Math.round(fromEUR(toEUR(flooredAmt,_bc),s.currency)),s.currency)} share &lt; $500 min — fees too high, routed to DP`:`~${sh} sh`;
       const trancheNote=trancheLines.length?`<div style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:2px">${trancheLines.join(" · ")}</div>`:"";
       h+=`<div class="alloc-stock"><div><div style="font-size:14px;font-weight:600">${s.flag} ${t}${(capped||litCapped)?' <span style="font-size:10px;color:#d97706">🔒</span>':""}</div><div style="font-size:11px;color:var(--muted)">${dc} lit → ${litDest} · ${unlit} unlit${pbNote}</div>${trancheNote}</div>
         <div style="text-align:right"><div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${amtCol}">${amtVal}</div><div style="font-size:11px;color:var(--muted);font-family:var(--mono)">${subline}</div></div></div>`;
