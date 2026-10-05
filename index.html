@@ -285,7 +285,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.08</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.09</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -7882,6 +7882,7 @@ function renderSettings(c){
         ${settings.pushSubscribed
           ?`<button class="settings-save" style="background:#1a3322;color:var(--green)" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();syncTriggersToCloud()">☁ Sync Triggers</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testPushFromCloud()">🔔 Test Push</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testPushFromCloud(20)">⏱ Test in 20s</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="checkFromCloud()">▶ Check Now</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="diagnosePush()">🩺 Diagnose</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#33170d;color:#f59e0b" onclick="resetWorkerSignals()">🔄 Reset Signals</button>
@@ -7890,7 +7891,8 @@ function renderSettings(c){
           :`<button class="settings-save" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();subscribePush()">🔗 Connect & Subscribe</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testLocalNotification()">🔔 Test Notification</button>`}
       </div>
-      <div id="push-sync-status" style="font-size:10px;color:var(--muted);margin:4px 0">${settings.pushSubscribed?(settings.lastPushSync?"Last sync: "+timeAgo(settings.lastPushSync):"Subscribed — sync triggers to activate"):"Not connected"}</div></div>
+      <div id="push-sync-status" style="font-size:10px;color:var(--muted);margin:4px 0">${settings.pushSubscribed?(settings.lastPushSync?"Last sync: "+timeAgo(settings.lastPushSync):"Subscribed — sync triggers to activate"):"Not connected"}</div>
+      <div id="push-diag" style="font-size:12px;line-height:1.6;margin-top:6px;padding:8px;border:1px solid #ffffff22;border-radius:6px;${_pushDiagHtml?"":"display:none"}">${_pushDiagHtml}</div></div>
 
     <div class="settings-card"><div class="settings-title">🏦 IBKR Sync</div>
       <div class="settings-desc">Auto-sync positions & cash from IBKR. Each portfolio has its own account.</div>
@@ -8509,13 +8511,19 @@ async function syncTriggersToCloud(){
 }
 
 // Test push from Cloudflare Worker
-async function testPushFromCloud(){
+async function testPushFromCloud(delay){
   if(!settings.pushWorkerUrl)return;
   const el=document.getElementById("push-sync-status");
   if(el)el.textContent="Sending test...";
   try{
-    const resp=await fetch(`${settings.pushWorkerUrl}/test`,{method:"POST"});
+    const resp=await fetch(`${settings.pushWorkerUrl}/test${delay?"?delay="+delay:""}`,{method:"POST"});
     const data=await resp.json();
+    // v5.08: delayed test — Worker answers at once and pushes N seconds later.
+    if(delay&&data.ok&&!data.delayed){if(el)el.textContent="✓ Test sent immediately — Worker is the old version, deploy the new worker.js for the delay";return;}
+    if(delay&&data.ok){
+      let n=data.delayed;const tick=()=>{const e=document.getElementById("push-sync-status");if(e)e.textContent=n>0?`⏱ Test push in ${n}s — close the app and lock the phone NOW`:"Test push sent — if nothing arrived, tap Diagnose";if(n-->0)setTimeout(tick,1000);};tick();
+      return;
+    }
     if(el)el.textContent=data.ok?"✓ Test sent — check notification shade":"✕ "+(data.error||"Failed: "+data.status);
   }catch(e){if(el)el.textContent="✕ "+e.message;}
 }
@@ -8608,36 +8616,50 @@ async function healPushSubscription(force){
 }
 
 // v5.08: one-tap health check of the whole closed-app alert chain (phone → Worker → cron → push).
+// Result lives in _pushDiagHtml so a background re-render (price refresh) can't wipe it, and every
+// step has a timeout so a stalled browser/Worker call is reported instead of hanging silently.
+let _pushDiagHtml="";
+function _setPushDiag(lines){
+  _pushDiagHtml=lines.map(esc).join("<br>");
+  const el=document.getElementById("push-diag");
+  if(el){el.innerHTML=_pushDiagHtml;el.style.display="";}
+}
+function _withTimeout(p,ms,label){
+  return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error(label+" — no response after "+(ms/1000)+"s")),ms))]);
+}
 async function diagnosePush(){
-  if(!settings.pushWorkerUrl)return;
-  const el=document.getElementById("push-sync-status");
-  if(el)el.textContent="Diagnosing...";
-  const L=[];const ok=(c,good,bad)=>L.push((c?"✓ ":"✕ ")+(c?good:bad));
-  try{
-    await healPushSubscription(true);
+  const L=["Diagnosing…"];_setPushDiag(L);L.length=0;
+  const ok=(c,good,bad)=>{L.push((c?"✓ ":"✕ ")+(c?good:bad));_setPushDiag(L.concat("…"));};
+  const step=async(label,fn)=>{try{await fn();}catch(e){L.push("✕ "+label+": "+(e&&e.message||e));_setPushDiag(L.concat("…"));}};
+  const inp=document.getElementById("push-worker-url");
+  const url=((inp&&inp.value.trim())||settings.pushWorkerUrl||"").replace(/\/$/,"");
+  if(!url){_setPushDiag(["✕ No Worker URL set"]);return;}
+  let sub=null;
+  await step("Phone",async()=>{
+    if(!("Notification" in window)||!("serviceWorker" in navigator)||!("PushManager" in window))throw new Error("this browser has no push support (on iPhone the app must be installed to the Home Screen)");
     ok(Notification.permission==="granted","Phone: notifications allowed","Phone: notification permission is "+Notification.permission);
-    const reg=await navigator.serviceWorker.ready;
-    const sub=await reg.pushManager.getSubscription();
+    const reg=await _withTimeout(navigator.serviceWorker.ready,6000,"service worker not active");
+    sub=await _withTimeout(reg.pushManager.getSubscription(),6000,"push subscription lookup");
     ok(!!sub,"Phone: push subscription active","Phone: NO push subscription — tap Disconnect, then Connect & Subscribe");
-    const st=await (await fetch(`${settings.pushWorkerUrl}/status`)).json();
+  });
+  await step("Worker",async()=>{
+    const st=await (await _withTimeout(fetch(url+"/status"),10000,"Worker /status")).json();
     ok(st.vapidOk,"Worker: VAPID keys set","Worker: VAPID keys missing");
     ok(st.hasSubscription,"Worker: has a subscription","Worker: no subscription stored");
-    if(sub&&st.subEndpointTail)ok(sub.endpoint.slice(-16)===st.subEndpointTail,"Worker pushes to THIS phone","Worker is pushing to a different/old subscription");
+    if(sub&&st.subEndpointTail)ok(sub.endpoint.slice(-16)===st.subEndpointTail,"Worker pushes to THIS phone","Worker is pushing to a different/old subscription — tap Disconnect, then Connect & Subscribe");
     ok(st.triggerCount>0,`Worker: ${st.triggerCount} stocks synced`,"Worker: no triggers synced — tap Sync Triggers");
-    if(st.diag===undefined){L.push("✕ Worker is still the OLD version — deploy the new worker.js");}
-    else{
-      const d=st.diag||{};
-      const cronTs=d.lastCronTs?Date.parse(d.lastCronTs):0;
-      if(!cronTs)L.push("✕ No scheduled check recorded yet — re-check 20 min into market hours; if still empty, the Worker has no Cron Trigger (add */15 * * * * in Cloudflare)");
-      else ok(Date.now()-cronTs<45*60000||!isAnyMarketOpen(),"Scheduled check last ran "+timeAgo(cronTs),"Scheduled check last ran "+timeAgo(cronTs)+" — cron looks stopped");
-      if(d.symbols)ok(d.priced>=d.symbols*0.9,`Prices fetched: ${d.priced}/${d.symbols}`,`Prices fetched: only ${d.priced}/${d.symbols}`);
-      L.push(d.lastPushOkTs?"✓ Last alert delivered "+timeAgo(Date.parse(d.lastPushOkTs)):"· No alert delivered yet since this version");
-      if(d.lastPushErr)L.push("⚠ Last push error "+timeAgo(Date.parse(d.lastPushErr.ts))+": "+d.lastPushErr.error);
-      if(st.subscriptionDead)L.push("✕ Subscription expired at the push service — tap Disconnect, then Connect & Subscribe");
-    }
-  }catch(e){L.push("✕ "+e.message);}
-  const out=document.getElementById("push-sync-status");
-  if(out)out.innerHTML=L.map(esc).join("<br>");
+    if(st.diag===undefined){L.push("✕ Worker is still the OLD version — deploy the new worker.js");return;}
+    const d=st.diag||{};
+    const cronTs=d.lastCronTs?Date.parse(d.lastCronTs):0;
+    if(!cronTs)L.push("✕ No scheduled check recorded yet — re-check 20 min into market hours; if still empty, the Worker has no Cron Trigger (add */15 * * * * in Cloudflare)");
+    else ok(Date.now()-cronTs<45*60000||!isAnyMarketOpen(),"Scheduled check last ran "+timeAgo(cronTs),"Scheduled check last ran "+timeAgo(cronTs)+" — cron looks stopped");
+    if(d.symbols)ok(d.priced>=d.symbols*0.9,`Prices fetched: ${d.priced}/${d.symbols}`,`Prices fetched: only ${d.priced}/${d.symbols}`);
+    L.push(d.lastPushOkTs?"✓ Last alert delivered "+timeAgo(Date.parse(d.lastPushOkTs)):"· No alert delivered yet since this version");
+    if(d.lastPushErr)L.push("⚠ Last push error "+timeAgo(Date.parse(d.lastPushErr.ts))+": "+d.lastPushErr.error);
+    if(st.subscriptionDead)L.push("✕ Subscription expired at the push service — tap Disconnect, then Connect & Subscribe");
+  });
+  L.push("— done "+new Date().toLocaleTimeString());
+  _setPushDiag(L);
 }
 
 // Test local notification (no Cloudflare Worker needed)
