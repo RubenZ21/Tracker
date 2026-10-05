@@ -7883,6 +7883,7 @@ function renderSettings(c){
           ?`<button class="settings-save" style="background:#1a3322;color:var(--green)" onclick="settings.pushWorkerUrl=document.getElementById('push-worker-url').value.trim().replace(/\\/$/,'');save();syncTriggersToCloud()">☁ Sync Triggers</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testPushFromCloud()">🔔 Test Push</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="checkFromCloud()">▶ Check Now</button>
+             <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="diagnosePush()">🩺 Diagnose</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#33170d;color:#f59e0b" onclick="resetWorkerSignals()">🔄 Reset Signals</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:#3b1111;color:var(--red)" onclick="unsubscribePush()">Disconnect</button>
              <button class="settings-save" style="font-size:11px;padding:4px 10px;background:var(--bg)" onclick="testLocalNotification()">🔔 Test Local</button>`
@@ -8528,7 +8529,12 @@ async function checkFromCloud(){
     const resp=await fetch(`${settings.pushWorkerUrl}/check`,{method:"POST"});
     const data=await resp.json();
     if(data.error){if(el)el.textContent="✕ "+data.error;return;}
-    if(el)el.textContent=data.fires?`🔥 ${data.fires} new signal(s)!`:`✓ Checked ${data.checked} stocks — no new signals`;
+    // v5.08: report prices actually fetched and pushes actually delivered, not just fires detected.
+    const _n=(data.fires||0)+(data.recoveryFires||0);
+    const _pr=data.priced!=null?`${data.priced}/${data.checked} prices`:`${data.checked} stocks`;
+    if(el)el.textContent=_n
+      ?(data.pushFail?`⚠ ${_n} signal(s) — ${data.pushOk||0} pushed, ${data.pushFail} FAILED: ${data.pushError||"?"}`:`🔥 ${_n} new signal(s) pushed (${_pr})`)
+      :`✓ Checked ${_pr} — no new signals`;
   }catch(e){if(el)el.textContent="✕ "+e.message;}
 }
 
@@ -8572,6 +8578,66 @@ async function resetWorkerSignals(){
     // Step 3: re-sync with real signal state so future checks are correct
     await syncTriggersToCloud();
   }catch(e){if(el)el.textContent="✕ "+e.message;}
+}
+
+// v5.08: keep the push subscription alive. Browsers silently rotate/expire subscriptions; before
+// this the app subscribed ONCE and never checked again, so the Worker could keep pushing to a dead
+// endpoint forever while the app still showed "subscribed". Runs on launch and on resume (max 1×/h):
+// re-subscribes if the phone lost its subscription or the Worker flagged it expired, then re-posts
+// the live subscription to the Worker.
+let _lastPushHeal=0;
+async function healPushSubscription(force){
+  if(!settings.pushSubscribed||!settings.pushWorkerUrl||!VAPID_PUBLIC_KEY)return;
+  if(!('serviceWorker' in navigator)||!('PushManager' in window))return;
+  if(!force&&Date.now()-_lastPushHeal<3600000)return;
+  _lastPushHeal=Date.now();
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    let dead=false;
+    try{const st=await (await fetch(`${settings.pushWorkerUrl}/status`)).json();dead=!!st.subscriptionDead;}catch(e){}
+    if(sub&&dead){try{await sub.unsubscribe();}catch(e){} sub=null;}
+    if(!sub){
+      if(Notification.permission!=="granted")return;
+      sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+    }
+    await fetch(`${settings.pushWorkerUrl}/subscribe`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sub.toJSON())});
+    // Hand the service worker what it needs to re-subscribe by itself (pushsubscriptionchange).
+    if(window.caches){const c=await caches.open("ttt-config");await c.put("./__push-config",new Response(JSON.stringify({workerUrl:settings.pushWorkerUrl,vapid:VAPID_PUBLIC_KEY})));}
+  }catch(e){}
+}
+
+// v5.08: one-tap health check of the whole closed-app alert chain (phone → Worker → cron → push).
+async function diagnosePush(){
+  if(!settings.pushWorkerUrl)return;
+  const el=document.getElementById("push-sync-status");
+  if(el)el.textContent="Diagnosing...";
+  const L=[];const ok=(c,good,bad)=>L.push((c?"✓ ":"✕ ")+(c?good:bad));
+  try{
+    await healPushSubscription(true);
+    ok(Notification.permission==="granted","Phone: notifications allowed","Phone: notification permission is "+Notification.permission);
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription();
+    ok(!!sub,"Phone: push subscription active","Phone: NO push subscription — tap Disconnect, then Connect & Subscribe");
+    const st=await (await fetch(`${settings.pushWorkerUrl}/status`)).json();
+    ok(st.vapidOk,"Worker: VAPID keys set","Worker: VAPID keys missing");
+    ok(st.hasSubscription,"Worker: has a subscription","Worker: no subscription stored");
+    if(sub&&st.subEndpointTail)ok(sub.endpoint.slice(-16)===st.subEndpointTail,"Worker pushes to THIS phone","Worker is pushing to a different/old subscription");
+    ok(st.triggerCount>0,`Worker: ${st.triggerCount} stocks synced`,"Worker: no triggers synced — tap Sync Triggers");
+    if(st.diag===undefined){L.push("✕ Worker is still the OLD version — deploy the new worker.js");}
+    else{
+      const d=st.diag||{};
+      const cronTs=d.lastCronTs?Date.parse(d.lastCronTs):0;
+      if(!cronTs)L.push("✕ No scheduled check recorded yet — re-check 20 min into market hours; if still empty, the Worker has no Cron Trigger (add */15 * * * * in Cloudflare)");
+      else ok(Date.now()-cronTs<45*60000||!isAnyMarketOpen(),"Scheduled check last ran "+timeAgo(cronTs),"Scheduled check last ran "+timeAgo(cronTs)+" — cron looks stopped");
+      if(d.symbols)ok(d.priced>=d.symbols*0.9,`Prices fetched: ${d.priced}/${d.symbols}`,`Prices fetched: only ${d.priced}/${d.symbols}`);
+      L.push(d.lastPushOkTs?"✓ Last alert delivered "+timeAgo(Date.parse(d.lastPushOkTs)):"· No alert delivered yet since this version");
+      if(d.lastPushErr)L.push("⚠ Last push error "+timeAgo(Date.parse(d.lastPushErr.ts))+": "+d.lastPushErr.error);
+      if(st.subscriptionDead)L.push("✕ Subscription expired at the push service — tap Disconnect, then Connect & Subscribe");
+    }
+  }catch(e){L.push("✕ "+e.message);}
+  const out=document.getElementById("push-sync-status");
+  if(out)out.innerHTML=L.map(esc).join("<br>");
 }
 
 // Test local notification (no Cloudflare Worker needed)
@@ -8672,6 +8738,7 @@ Object.keys(stocks).forEach(t=>{if(stocks[t].signals)prevSignals[t]={...stocks[t
 // for positions that were already above their fair-value threshold when the app started.
 seedPrevAboveFVT();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js');
+healPushSubscription(); // v5.08
 fetchPrices();
 startRefreshTimer();
 
@@ -8703,6 +8770,7 @@ if('serviceWorker' in navigator){
 // Catch up when app regains focus (Android suspends background timers)
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible'){
+    healPushSubscription(); // v5.08
     const last=settings.lastFetch||0;
     if(Date.now()-last>=REFRESH_MS)autoRefresh();
   }

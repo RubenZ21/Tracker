@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ttt-v5.07';
+const CACHE_NAME = 'ttt-v5.08';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', e => {
@@ -9,7 +9,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k !== CACHE_NAME && k !== 'ttt-config').map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -45,6 +45,30 @@ self.addEventListener('push', e => {
     data: { url: data.url || '' },
   };
   e.waitUntil(self.registration.showNotification(title, options));
+});
+
+// v5.08: the browser rotated/expired the push subscription while the app was closed. Re-subscribe
+// here and hand the new subscription to the Worker, so closed-app alerts keep arriving without the
+// app having to be opened. Worker URL + VAPID key are left in the 'ttt-config' cache by the app.
+function b64ToU8(s) {
+  s = (s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(s); const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+self.addEventListener('pushsubscriptionchange', e => {
+  e.waitUntil((async () => {
+    const c = await caches.open('ttt-config');
+    const r = await c.match('./__push-config');
+    if (!r) return;
+    const cfg = await r.json();
+    const sub = e.newSubscription || await self.registration.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: b64ToU8(cfg.vapid),
+    });
+    await fetch(cfg.workerUrl + '/subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub.toJSON()),
+    });
+  })().catch(() => {}));
 });
 
 // Open the app when tapping a notification.
