@@ -285,7 +285,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.09</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.10</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -500,11 +500,16 @@ function earningsInfo(s){
 // the last report yet" prompt, and without ever clearing a stored date (Yahoo returning
 // nothing for a symbol simply leaves the old date in place — this fn is never called).
 // Returns true if s.earningsDate actually changed.
-function applyEarningsDate(s,newEd){
+function applyEarningsDate(s,newEd,confirmed){
   if(!newEd)return false;
+  // v5.10: remember what Yahoo says (shown on the position card) and whether Yahoo marks it confirmed.
+  s.earningsYahoo=newEd;
+  if(confirmed!==undefined)s.earningsYahooConfirmed=!!confirmed;
   const old=s.earningsDate;
-  if(newEd===old)return false;
   const now=Date.now();
+  // v5.10: a date YOU set wins over Yahoo until it has passed (then Yahoo rolls it forward as usual).
+  if(s.earningsSrc==="manual"&&old&&old>now-86400000)return false;
+  if(newEd===old){s.earningsSrc="yahoo";return false;}
   // Yahoo behind our data (a past date older than the stored one) → keep ours.
   if(old&&newEd<old&&newEd<now)return false;
   // Stored date has passed and Yahoo rolled to the next quarter: preserve the review
@@ -513,8 +518,68 @@ function applyEarningsDate(s,newEd){
     const done=(s.lastCalcDate&&s.lastCalcDate>=old)||(s.earningsReviewed&&s.earningsReviewed>=old);
     if(!done&&!s.pendingEarningsReview)s.pendingEarningsReview=old;
   }
-  s.earningsDate=newEd;
+  s.earningsDate=newEd;s.earningsSrc="yahoo";
   return true;
+}
+
+// v5.10: earnings-date source tracking. s.earningsSrc = "manual" (you typed/imported it) or
+// "yahoo" (auto-fetched). Dates stored before v5.10 have no source until the next Yahoo fetch.
+function _isoDay(ts){return new Date(ts).toISOString().slice(0,10);}
+// Set a date by hand / from an import. Same calendar day as the stored date = no change, so a
+// CSV export→import round trip does not relabel Yahoo dates as manual. Returns true if changed.
+function setManualEarningsDate(s,ts){
+  if(ts==null||isNaN(ts))return false;
+  if(s.earningsDate&&_isoDay(s.earningsDate)===_isoDay(ts))return false;
+  s.earningsDate=ts;s.earningsSrc="manual";
+  return true;
+}
+// Remove a manual date: fall back to Yahoo's date if it has one, else no date.
+function clearManualEarningsDate(s){
+  delete s.pendingEarningsReview;
+  if(s.earningsYahoo&&s.earningsYahoo>Date.now()-86400000){s.earningsDate=s.earningsYahoo;s.earningsSrc="yahoo";}
+  else{s.earningsDate=null;delete s.earningsSrc;}
+}
+// Full-width "next earnings call" line for the position card: date, countdown, and where the date came from.
+function earningsRow(t){
+  const s=stocks[t];if(!s)return"";
+  const ed=s.earningsDate,now=Date.now();
+  const fd=ts=>new Date(ts).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+  const fs=ts=>new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  const day0=new Date();day0.setHours(0,0,0,0);
+  let main,col="var(--text)";
+  if(!ed){main="no date — tap to set";col="var(--muted)";}
+  else{
+    const d=new Date(ed);d.setHours(0,0,0,0);
+    const days=Math.round((d-day0)/86400000);
+    if(days>0){main=`${fd(ed)} · in ${days}d`;if(days<=14)col="var(--accent)";}
+    else if(days===0){main=`${fd(ed)} · TODAY`;col="var(--amber)";}
+    else{main=`last reported ${fd(ed)} · next date not published yet`;col="var(--muted)";}
+  }
+  let badge="";
+  if(ed){
+    if(s.earningsSrc==="manual")badge=`<span style="color:var(--amber);background:#fbbf2418;border:1px solid #fbbf2444;padding:0 5px;border-radius:3px">✎ MANUAL</span>`;
+    else if(s.earningsSrc==="yahoo")badge=`<span style="color:var(--accent);background:#60a5fa18;border:1px solid #60a5fa44;padding:0 5px;border-radius:3px">YAHOO${s.earningsYahooConfirmed===true?" ✓ confirmed":s.earningsYahooConfirmed===false?" · estimate":""}</span>`;
+    else badge=`<span style="color:var(--muted);border:1px solid var(--border);padding:0 5px;border-radius:3px">source not recorded</span>`;
+  }
+  const yDiff=s.earningsSrc==="manual"&&ed&&s.earningsYahoo&&_isoDay(s.earningsYahoo)!==_isoDay(ed)
+    ?`<span style="color:var(--muted)">Yahoo says ${fs(s.earningsYahoo)}</span>`:"";
+  return `<div onclick="editEarningsDate('${t}')" title="Tap to set or clear a manual date" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 0;padding:7px 9px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:11px;font-family:var(--mono);cursor:pointer">
+    <span style="color:var(--muted)">📅 Next earnings</span><span style="color:${col};font-weight:600">${main}</span>${badge}${yDiff}</div>`;
+}
+function editEarningsDate(t){
+  const s=stocks[t];if(!s)return;
+  const cur=s.earningsDate?_isoDay(s.earningsDate):"";
+  const v=prompt(`${t} — next earnings date (YYYY-MM-DD).\n\nA date you enter is marked MANUAL and overrides Yahoo until it has passed.\nLeave empty to go back to Yahoo's date.`,cur);
+  if(v===null)return;
+  const val=v.trim();
+  if(!val){clearManualEarningsDate(s);}
+  else{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(val)){alert("Use the format YYYY-MM-DD, e.g. 2026-10-23");return;}
+    const d=new Date(val+"T12:00:00Z");
+    if(isNaN(d)){alert("Not a valid date");return;}
+    if(setManualEarningsDate(s,d.getTime())&&s.pendingEarningsReview){s.earningsReviewed=s.pendingEarningsReview;delete s.pendingEarningsReview;}
+  }
+  save();render();
 }
 
 // v4.83: ✓ Reviewed on the earnings banner — "I've looked at this report". Clears the
@@ -3042,6 +3107,7 @@ async function fetchPrices(){
   // 3c. v4.83: Earnings dates via push worker /earnings (crumb-authenticated Yahoo v7 quote).
   // Dates change rarely — fetch at most once per 20h. A symbol Yahoo has no date for is
   // absent from the response and its stored date is left untouched (never cleared).
+  if(!settings.earnSrcMigrated){settings.lastEarningsFetch=0;settings.earnSrcMigrated=true;} // v5.10: one forced fetch so existing dates get their Yahoo/manual label
   if(settings.pushWorkerUrl&&(!settings.lastEarningsFetch||Date.now()-settings.lastEarningsFetch>20*3600*1000)){
     try{
       const eStocks=Object.entries(stocks).filter(([t,s])=>s.finnhubSymbol);
@@ -3055,7 +3121,7 @@ async function fetchPrices(){
         if(edata&&edata._error){console.warn("earnings worker:",edata._error);continue;}
         batch.forEach(([t,s])=>{
           const e=edata&&edata[s.finnhubSymbol];
-          if(e&&e.earningsTimestamp>0){if(applyEarningsDate(s,e.earningsTimestamp*1000))eApplied++;}
+          if(e&&e.earningsTimestamp>0){if(applyEarningsDate(s,e.earningsTimestamp*1000,e.confirmed))eApplied++;}
         });
       }
       settings.lastEarningsFetch=Date.now();
@@ -3849,7 +3915,7 @@ function handleCSVImport(e){
       if(hdr.includes("lastcalc")&&row.lastcalc){const d=new Date(row.lastcalc);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
       else{s.lastCalcDate=Date.now();}
       // Import earnings date from CSV
-      if(hdr.includes("earningsdate")&&row.earningsdate){const d=new Date(row.earningsdate);s.earningsDate=isNaN(d)?null:d.getTime();}
+      if(hdr.includes("earningsdate")&&row.earningsdate){const d=new Date(row.earningsdate);if(isNaN(d)){s.earningsDate=null;delete s.earningsSrc;}else setManualEarningsDate(s,d.getTime());}
       // Import category (cashcow, highgr, or philtown/empty; legacy "buffett" → cashcow)
       if(hdr.includes("category")){const cat=(row.category||"").trim().toLowerCase();s.category=(cat==="cashcow"||cat==="buffett")?"cashcow":cat==="highgr"?"highgr":undefined;}
       // Import notes (general stock comments)
@@ -4776,7 +4842,7 @@ function handleExcelImport(e){
             if(row.lastCalcDate){const d=new Date(row.lastCalcDate);s.lastCalcDate=isNaN(d)?Date.now():d.getTime();}
             else{s.lastCalcDate=Date.now();}
             // Earnings date: read from sheet (independent of lastCalcDate)
-            if(row.earningsDate){const d=new Date(row.earningsDate);s.earningsDate=isNaN(d)?null:d.getTime();}
+            if(row.earningsDate){const d=new Date(row.earningsDate);if(isNaN(d)){s.earningsDate=null;delete s.earningsSrc;}else setManualEarningsDate(s,d.getTime());}
             if(row.philSticker!=null||row.philGR!=null){
               s.phil={sticker:vn(row.philSticker),mos:vn(row.philMOS),tenCap:vn(row.philTenCap),
                 pbt:vn(row.philPBT),gr:vn(row.philGR),score:row.philScore?String(row.philScore):null};}
@@ -4797,6 +4863,7 @@ function handleExcelImport(e){
               notes:row.notes?String(row.notes):undefined,
               lastCalcDate:row.lastCalcDate?new Date(row.lastCalcDate).getTime():Date.now(),
               earningsDate:row.earningsDate?(isNaN(new Date(row.earningsDate))?null:new Date(row.earningsDate).getTime()):null,
+              earningsSrc:row.earningsDate&&!isNaN(new Date(row.earningsDate))?"manual":undefined, // v5.10
               priority:vn(row.priority)||null,
               compounderPriority:vn(row.compounderPriority)||null,
               pairId:row.pairId?String(row.pairId).trim().toUpperCase():undefined}; // v5.07
@@ -6321,7 +6388,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
 
     h+=`<div class="pos-card" data-card="${ticker}">
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto">${(()=>{const rs=ringState(ticker,currentPf);return ringMark(44,rs.pbt,rs.tc,rs.mos,'c'+ticker);})()}<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="pos-ticker">${s.flag} ${ticker}</span>${tier1Marker(ticker)}${tripwireShield(ticker)}${blockBadge(ticker)}${badge}${phaseBadge}<span style="font-size:12px;cursor:pointer;opacity:0.5" onclick="openConviction('${ticker}')">🛡️</span></div><div class="pos-sub">${s.name} · ${moatDisp(s.moat)} <span style="font-size:10px;color:var(--purple);cursor:pointer;padding:1px 5px;background:#a78bfa15;border:1px solid #a78bfa33;border-radius:4px;font-family:var(--mono);margin-left:4px" onclick="setPriority('${ticker}')">M${s.priority||"—"}</span><span style="font-size:10px;color:var(--accent);cursor:pointer;padding:1px 5px;background:#60a5fa15;border:1px solid #60a5fa33;border-radius:4px;font-family:var(--mono);margin-left:3px" onclick="setCompounderPriority('${ticker}')">C${s.compounderPriority||"—"}</span></div></div></div>
-        <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isCashcow(ticker);const ref=buf?cashcowCap(s):(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"cc cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>`;
+        <div style="text-align:right;flex-shrink:0;margin-left:8px"><div class="pos-price-val">${fmt(s.currentPrice,s.currency)}</div>${(()=>{const buf=isCashcow(ticker);const ref=buf?cashcowCap(s):(s.cons?.mos?s.cons.mos*2:null);const refLabel=buf?"cc cap":"sticker";if(!ref)return"";const pv=s.currentPrice?((s.currentPrice/ref-1)*100):null;const col=pv==null?"var(--muted)":pv<=-1?"#34d399":pv>=1?"var(--amber)":"var(--muted)";return`<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${refLabel} ${fmt(ref,s.currency)} <span style="color:${col};font-weight:600">${pv!=null?(pv<=-1?"▼"+Math.abs(pv).toFixed(0)+"%":pv>=1?"▲"+pv.toFixed(0)+"%":""):"" }</span></div>`;})()}${pnl<0?`<div class="pos-pnl" style="color:var(--green)">🎯 ${Math.abs(pnl).toFixed(1)}% below avg</div>`:`<div class="pos-pnl" style="color:var(--accent);font-size:10px">+${pnl.toFixed(1)}% above avg</div>`}<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">${s.priceSource==="ibkr"?"⚡":s.priceSource==="yahoo"?"YF ":""}${timeAgo(s.lastUpdate)}${earningsChip(ticker)}</div></div></div>${earningsRow(ticker)}`;
 
     // Stats row — avg-cost return uses Sticker basis (all categories); MOS% display keeps
     // the sell-reference (Sticker for PT, Cash-Cow Cap for cashcow).
@@ -8238,7 +8305,7 @@ function openEditStock(t){
     if(gateVal==="FAIL"&&s.gate!==false){
       if(!confirm(`⚠️ Setting ${t} gate to FAIL triggers a SELL ALL alert.\n\nThis means the business fundamentals have broken down and all tranches should be sold immediately.\n\nAre you sure?`)){return false;}
     }
-    const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed)){s.earningsDate=ed.getTime();if(s.pendingEarningsReview){s.earningsReviewed=s.pendingEarningsReview;delete s.pendingEarningsReview;}}}else{s.earningsDate=null;delete s.pendingEarningsReview;}
+    const earnVal=gv("es-earn");if(earnVal){const ed=new Date(earnVal+"T12:00:00Z");if(!isNaN(ed)){if(setManualEarningsDate(s,ed.getTime())&&s.pendingEarningsReview){s.earningsReviewed=s.pendingEarningsReview;delete s.pendingEarningsReview;}}}else{clearManualEarningsDate(s);}
     s.gate=(gateVal==="FAIL")?false:true;
     // Category — Phil Town / Cash-Cow / High-Growth / Risk (Risk is per-portfolio: applies to currentPf only)
     const catVal=gv("es-cat");
