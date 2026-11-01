@@ -216,6 +216,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .alert-item.buy{background:linear-gradient(135deg,#0d332040,#0d332080);border:1px solid #34d39940}
 .alert-item.sell{background:linear-gradient(135deg,#33170d40,#33170d80);border:1px solid #f8717140}
 .alert-item.watch{background:linear-gradient(135deg,#332d0d40,#332d0d80);border:1px solid #fbbf2440}
+.alert-item.friend{background:linear-gradient(135deg,#260d3340,#260d3380);border:1px solid #c084fc55}
 .alert-item.info{background:linear-gradient(135deg,#0d1a3340,#0d1a3380);border:1px solid #60a5fa40}
 .alert-item.critical{background:linear-gradient(135deg,#33000040,#33000080);border:1px solid #ef444480;animation:alertSlide .3s ease-out,alertPulse 2s ease-in-out infinite}
 .alert-item.watchlist-buy{background:linear-gradient(135deg,#1a330d40,#1a330d80);border:2px solid #34d399;animation:alertSlide .3s ease-out,alertPulse 2s ease-in-out infinite;font-size:14px}
@@ -285,7 +286,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.10</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.11</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -4728,7 +4729,10 @@ function exportExcel(){
     {key:"dpSlider",value:settings.dpSlider??40},
     {key:"dpSliderCaca",value:settings.dpSliderCaca??50},
     {key:"monthlyStep",value:settings.monthlyStep||0},
-    {key:"monthlyStepMonth",value:settings.monthlyStepMonth||""}];
+    {key:"monthlyStepMonth",value:settings.monthlyStepMonth||""},
+    // v5.11: friend call reminders (list itself is on the Friends sheet)
+    {key:"friendGapDays",value:friendGap()},
+    {key:"friendNextDue",value:settings.friendNextDue||""}];
   const ws3=XLSX.utils.json_to_sheet(stRows);ws3["!cols"]=[{wch:22},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws3,"Settings");
 
@@ -4771,10 +4775,27 @@ function exportExcel(){
     XLSX.utils.book_append_sheet(wb,ws6,"Dismissed");
   }
 
+  // Sheet 7: Friends (v5.11) — call-reminder list in order. Always written (even empty) so an
+  // emptied list round-trips as empty instead of keeping the old one on import.
+  const fRows=(settings.friends||[]).map((x,i)=>({order:i+1,name:x.name,lastCalled:x.lastCalled||""}));
+  const ws7=XLSX.utils.json_to_sheet(fRows,{header:["order","name","lastCalled"]});ws7["!cols"]=[{wch:6},{wch:24},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,ws7,"Friends");
+
   XLSX.writeFile(wb,"r1_backup_"+dateStr()+".xlsx");
   settings.lastBackup=Date.now();save();
 }
 
+// v5.11: read a "YYYY-MM-DD" day from an Excel cell. Excel may have turned the text into a date
+// serial number (or a d/m/y string) if the backup was edited — normalise back to YYYY-MM-DD.
+function _importDay(v){
+  if(v==null||v==="")return"";
+  if(typeof v==="number"&&v>0){const d=new Date(Math.round((v-25569)*86400000));return d.toISOString().slice(0,10);}
+  const t=String(v).trim();let m=t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m)return m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0");
+  m=t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if(m)return m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");
+  return"";
+}
 function handleExcelImport(e){
   const f=e.target.files[0];if(!f)return;
   if(typeof XLSX==="undefined"){alert("SheetJS loading... try again.");e.target.value="";return;}
@@ -4986,8 +5007,17 @@ function handleExcelImport(e){
           if(k==="dpSliderCaca"&&!empty(val))settings.dpSliderCaca=Math.max(0,Math.min(100,Number(val)));
           if(k==="monthlyStep"&&!empty(val))settings.monthlyStep=Number(val);
           if(k==="monthlyStepMonth"&&!empty(val))settings.monthlyStepMonth=String(val);
+          if(k==="friendGapDays"&&!empty(val)&&Number(val)>=1)settings.friendGapDays=Math.round(Number(val));
+          if(k==="friendNextDue")settings.friendNextDue=_importDay(val);
           nSet++;
         });
+      }
+
+      // Sheet 7: Friends (v5.11) — replaces the call list when the sheet is present
+      if(wb.SheetNames.includes("Friends")){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets["Friends"],{defval:""});
+        settings.friends=rows.map((r,i)=>({o:Number(r.order)||i+1,i,name:String(r.name||"").trim(),lastCalled:_importDay(r.lastCalled)}))
+          .filter(r=>r.name).sort((a,b)=>a.o-b.o||a.i-b.i).map(r=>({name:r.name,lastCalled:r.lastCalled}));
       }
 
       // Sheet 4: Deploy Log
@@ -5532,6 +5562,77 @@ function renderEarningsBanner(){
   });
   h+='</div>';return h;
 }
+// === v5.11: FRIEND CALL REMINDERS ===
+// One purple banner at a time, for the friend at the top of settings.friends.
+//   settings.friends       = [{name, lastCalled:"YYYY-MM-DD"|""}] in reminder order
+//   settings.friendGapDays = days between one friend being called and the next banner (default 2)
+//   settings.friendNextDue = "YYYY-MM-DD" when the top friend becomes due ("" / missing = due now)
+// ✓ Called  → friend moves to the bottom of the list, next friend due after the gap.
+// × Snooze  → same friend comes back tomorrow (matches the earnings banner buttons).
+// Hidden in private mode (👁 hideValues). If the app isn't opened for days the banner just waits.
+function _localDay(d){d=d||new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function _dayPlus(n){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+n);return _localDay(d);}
+function _fmtDay(iso){const p=String(iso||"").split("-").map(Number);if(p.length!==3||!p[0])return"";return new Date(p[0],p[1]-1,p[2]).toLocaleDateString("en-GB",{day:"numeric",month:"short"});}
+function friendGap(){const g=Math.round(Number(settings.friendGapDays));return g>=1?g:2;}
+function friendDue(){const f=settings.friends||[];if(!f.length)return null;return(!settings.friendNextDue||settings.friendNextDue<=_localDay())?f[0]:null;}
+function saveFriends(){localStorage.setItem("r1-settings",JSON.stringify(settings));render();}
+function friendCalled(){
+  const f=settings.friends||[];if(!f.length)return;
+  const x=f.shift();x.lastCalled=_localDay();f.push(x);
+  settings.friendNextDue=_dayPlus(friendGap());saveFriends();
+}
+function friendSnooze(){settings.friendNextDue=_dayPlus(1);saveFriends();}
+function renderFriendBanner(){
+  if(hideValues)return"";
+  const f=friendDue();if(!f)return"";
+  const last=f.lastCalled?` <span style="opacity:.6">· last called ${_fmtDay(f.lastCalled)}</span>`:"";
+  return `<div style="margin:6px 10px"><div class="alert-item friend" style="padding:8px 12px;margin-bottom:4px;display:flex;align-items:center"><span class="alert-icon">📞</span><span class="alert-text" style="font-size:12px;flex:1">Time to call <strong>${esc(f.name)}</strong>${last}</span> <span class="alert-dismiss" style="color:var(--green)" onclick="event.stopPropagation();friendCalled()" title="Called — next friend after ${friendGap()}d">✓</span> <span class="alert-dismiss" onclick="event.stopPropagation();friendSnooze()" title="Snooze until tomorrow">×</span></div></div>`;
+}
+// Settings actions
+function addFriend(){
+  const el=document.getElementById("friend-add");const n=(el?.value||"").trim();if(!n)return;
+  if(!settings.friends)settings.friends=[];
+  settings.friends.push({name:n,lastCalled:""});saveFriends();
+  setTimeout(()=>document.getElementById("friend-add")?.focus(),0);
+}
+function moveFriend(i,dir){
+  const f=settings.friends||[];const j=i+dir;if(j<0||j>=f.length)return;
+  [f[i],f[j]]=[f[j],f[i]];saveFriends();
+}
+function renameFriend(i){
+  const f=settings.friends||[];if(!f[i])return;
+  const n=prompt("Rename friend",f[i].name);if(n===null||!n.trim())return;
+  f[i].name=n.trim();saveFriends();
+}
+function removeFriend(i){
+  const f=settings.friends||[];if(!f[i])return;
+  if(!confirm(`Remove ${f[i].name} from your call list?`))return;
+  f.splice(i,1);saveFriends();
+}
+// Deferred: onchange fires on blur, and re-rendering while the input is being removed throws.
+function setFriendGap(v){const g=Math.round(Number(v));if(g>=1)settings.friendGapDays=g;setTimeout(saveFriends,0);}
+function renderFriendsSettings(){
+  const f=settings.friends||[];
+  let next="No friends on the list yet";
+  if(f.length){
+    const due=settings.friendNextDue,today=_localDay();
+    next=(!due||due<=today)?`Next: <strong>${esc(f[0].name)}</strong> — due now`:
+      `Next: <strong>${esc(f[0].name)}</strong> — ${_fmtDay(due)}${due===_dayPlus(1)?" (tomorrow)":""}`;
+  }
+  const btn="font-size:13px;cursor:pointer;padding:2px 7px;color:var(--muted)";
+  let rows=f.map((x,i)=>`<div style="display:flex;align-items:center;gap:4px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--muted);width:22px;font-family:var(--mono)">${i+1}.</span>
+      <span style="font-size:13px;flex:1;cursor:pointer" onclick="renameFriend(${i})" title="Rename">${esc(x.name)}${x.lastCalled?` <span style="font-size:10px;color:var(--muted)">· ${_fmtDay(x.lastCalled)}</span>`:""}</span>
+      <span style="${btn};${i===0?"opacity:.25":""}" onclick="moveFriend(${i},-1)" title="Move up">↑</span>
+      <span style="${btn};${i===f.length-1?"opacity:.25":""}" onclick="moveFriend(${i},1)" title="Move down">↓</span>
+      <span style="font-size:10px;color:var(--red);cursor:pointer;padding:2px 8px" onclick="removeFriend(${i})">✕</span></div>`).join("");
+  return `<div class="settings-card"><div class="settings-title" style="color:#c084fc">📞 Friends to call</div>
+      <div class="settings-desc">Reminder banner for the friend at the top of the list. ✓ Called moves them to the bottom and the next friend shows after the gap below; × snoozes until tomorrow. Hidden in private mode 👁. Tap a name to rename.</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:12px;flex:1">Days between friends</span><input class="settings-input" type="number" min="1" step="1" inputmode="numeric" style="width:70px;margin:0" value="${friendGap()}" onchange="setFriendGap(this.value)"></div>
+      <div style="font-size:11px;color:#c084fc;margin-bottom:4px">${next}</div>
+      ${rows}
+      <div style="display:flex;gap:8px;margin-top:8px"><input class="settings-input" id="friend-add" type="text" placeholder="Add a friend…" style="margin:0" onkeydown="if(event.key==='Enter')addFriend()"><button class="settings-save" onclick="addFriend()">Add</button></div></div>`;
+}
 // === Weight-bar label fitting (v4.26) ===
 // Per segment, try to fit "NAME pct%" inside the bar; if it won't fit, fall back to "pct%";
 // if even that won't fit, clear the in-bar text and reveal the segment's legend entry instead.
@@ -5616,7 +5717,7 @@ function render(){
     const fxColor=settings.lastFxError?"color:var(--red)":(fxStale?"color:var(--amber)":"");
     fxEl.innerHTML=`<span style="${fxColor}" title="${settings.lastFxError||''}">1€=$${settings.fxRate} · 1€=£${settings.fxGBP} · 1€=C$${settings.fxCAD} · 1€=¥${settings.fxJPY} · 1€=₩${settings.fxKRW}${fxErrTxt}</span>`;}
   ["portfolio","watchlist","thesis","allocator","settings"].forEach(t=>{const el=document.getElementById("nav-"+t);if(el){el.style.color=currentTab===t?"var(--accent)":"var(--muted)";el.style.fontWeight=currentTab===t?"700":"400";}});
-  const _earBanner=renderEarningsBanner();
+  const _earBanner=renderEarningsBanner()+renderFriendBanner(); // v5.11: friend reminder below earnings
   const _contentEl=document.getElementById("content");
   if(currentTab!=="portfolio"&&window._openCard)closePosCard(); // v5.04
   ({portfolio:renderPortfolio,allocator:renderAllocator,watchlist:renderWatchlist,thesis:renderThesis,settings:renderSettings})[currentTab](_contentEl);
@@ -7989,6 +8090,8 @@ function renderSettings(c){
       <div class="settings-desc">All stocks, positions, tranches, settings. Edit in Excel and re-import.</div>
       <div style="display:flex;gap:8px"><button class="settings-save" onclick="exportExcel()">↓ Export .xlsx</button>
         <button class="settings-save" onclick="document.getElementById('xlsx-import').click()">↑ Import .xlsx</button></div></div>
+
+    ${renderFriendsSettings()}
 
     <div class="settings-card"><div class="settings-title">🎯 Grid — 🧑 Personal (${GRID_P.filter(t=>sigCount(t)>0).length} firing / ${GRID_P.length} stocks)</div>`;
   GRID_P.forEach(t=>{h+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
