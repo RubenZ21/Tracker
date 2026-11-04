@@ -6998,9 +6998,10 @@ function renderTrancheBalanceCard(pfKey,opts){
   if(!rows.length&&!RISK)return"";
   // v5.07 linked seat: members share one headroom — clamp first-come so two green rows can't both claim it.
   {const rm={};rows.forEach(r=>{rm[r.ticker]=r.room;});applyPairRoomClamp(rm,pfKey,tb);rows.forEach(r=>{r.room=rm[r.ticker];r.buyable=r.room>_minDeployBase;});}
-  // v5.14 risk mode: all risk rows share what is left in the risk pool — largest room first.
-  if(RISK){let pool=rbi.available;
-    [...rows].sort((a,b)=>b.room-a.room).forEach(r=>{const x=Math.max(0,Math.min(r.room,pool));r.poolLimited=x<r.room-0.5;r.room=x;pool-=x;r.buyable=r.room>_minDeployBase;});}
+  // v5.14 risk mode: each row is capped by what is left in the risk pool (per row, like the Pool 1
+  // card which doesn't split DP between rows either — buying one stock shrinks the pool for the rest).
+  if(RISK){const pool=Math.max(0,rbi.available);
+    rows.forEach(r=>{const x=Math.min(r.room,pool);r.poolLimited=x<r.room-0.5;r.room=x;r.buyable=r.room>_minDeployBase;});}
   // Actionable first: green BUY rows (largest room first), then OVER rows (largest excess), then rest.
   rows.sort((a,b)=>{
     if(a.buyable!==b.buyable)return a.buyable?-1:1;
@@ -7028,7 +7029,7 @@ function renderTrancheBalanceCard(pfKey,opts){
         <span>deployed ${money(rbi.used)} of ${money(rbi.cap)} (${(rbi.pct||0).toFixed(0)}%)</span>
         <span>≈ ${nLeft} tranche${nLeft!==1?"s":""} left</span></div></div>
     <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:10px;color:var(--muted)">1 risk tranche = ${_tPct}% of P1+P3+DP cost (${money(tb)}) · max ${RISK_STOCK_CAP_PCT}% per stock · lit triggers only</span>
+      <span style="font-size:10px;color:var(--muted)">1 risk tranche = ${_tPct}% of P1+P3+DP cost (${money(tb)}) · max ${RISK_STOCK_CAP_PCT}% per stock · lit triggers only · each row capped by pool left (buying one shrinks it for the rest)</span>
       <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${money(trancheVal)}</span></div>`;
     if(!rows.length)return h+`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions yet.</div></div>`;
   }else{
