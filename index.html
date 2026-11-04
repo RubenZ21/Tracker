@@ -269,6 +269,11 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .diff-chip .diff-cleared{color:var(--red);font-style:italic}
 .diff-dismiss{width:100%;padding:13px;background:var(--bg);color:var(--accent);border:none;border-top:1px solid var(--border);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font)}
 .diff-dismiss:active{opacity:.6}
+.diff-pick{width:18px;height:18px;accent-color:var(--accent);flex-shrink:0;margin:0;cursor:pointer}
+.diff-stock.diff-skip{opacity:.38!important}
+.diff-stock.diff-skip .diff-changes{text-decoration:line-through}
+.diff-pick-all{font-size:11px;color:var(--accent);cursor:pointer;padding:0 14px 6px;display:flex;justify-content:flex-end;gap:14px}
+.diff-dismiss:disabled{opacity:.35;cursor:default}
 .diff-no-changes{text-align:center;padding:24px;color:var(--muted);font-size:13px}
 .diff-stock-badge.removed{background:#f8717120;color:var(--red)}
 .diff-stock.diff-removed{border-color:#f8717140;opacity:.85}
@@ -286,7 +291,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.11</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.12</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -3718,6 +3723,13 @@ function diffStocks(before){
     });
     if(fields.length)changes.push({ticker:t,name:s.name||t,isNew:false,fields});
   });
+  // v5.12: a stock that left the live list (CSV dismissed=Y parks it) used to be invisible in the
+  // preview — show it so it can be reviewed and unticked like any other change.
+  Object.keys(before).forEach(t=>{
+    if(stocks[t])return;
+    changes.push({ticker:t,name:before[t].name||t,isNew:false,isRemoved:true,
+      fields:[{label:"Moved to",oldVal:null,newVal:findDismissed(t)>=0?"dismiss list":"removed",isDate:false}]});
+  });
   return changes;
 }
 function fmtDiffVal(v){
@@ -3738,14 +3750,18 @@ function showImportDiffModal(changes,nUpd,nNew,opts){
   const overlay=document.createElement("div");
   overlay.id="import-diff-overlay";
   overlay.className="diff-overlay";
-  const nChanged=changes.filter(c=>!c.isNew).length;
+  const nChanged=changes.filter(c=>!c.isNew&&!c.isRemoved).length;
   const nNewStocks=changes.filter(c=>c.isNew).length;
+  const nRemoved=changes.filter(c=>c.isRemoved).length;
+  // v5.12: opts.selectable → a checkbox per stock card (all ticked); Apply passes the UNticked
+  // tickers to opts.onApply(skipped) so the caller can put those back exactly as they were.
+  const pick=!!(opts.confirm&&opts.selectable&&changes.length);
   let bodyHTML="";
   if(!changes.length){
     bodyHTML=`<div class="diff-no-changes">No trigger values changed — all values identical.</div>`;
   }else{
     // New stocks first, then changed
-    const sorted=[...changes.filter(c=>c.isNew),...changes.filter(c=>!c.isNew)];
+    const sorted=[...changes.filter(c=>c.isNew),...changes.filter(c=>!c.isNew&&!c.isRemoved),...changes.filter(c=>c.isRemoved)];
     sorted.forEach(c=>{
       // v4.70: new stocks now carry their imported values in fields — render chips for BOTH
       // new and changed cards (new-stock values all hit the "set" branch: oldVal=null).
@@ -3763,21 +3779,24 @@ function showImportDiffModal(changes,nUpd,nNew,opts){
           chipsHTML+=`<span class="diff-chip"><span class="diff-field">${f.label}:</span><span class="diff-old">${oldStr}</span><span class="diff-arrow">→</span><span class="diff-new-val">${newStr}</span></span>`;
         }
       });
-      const badge=c.isNew?`<span class="diff-stock-badge new">NEW</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
-      bodyHTML+=`<div class="diff-stock ${c.isNew?'diff-new':''}">
-        <div class="diff-stock-hdr"><span class="diff-stock-ticker">${esc(c.ticker)}</span><span class="diff-stock-name">${esc(c.name)}</span>${badge}</div>
+      const badge=c.isNew?`<span class="diff-stock-badge new">NEW</span>`:c.isRemoved?`<span class="diff-stock-badge removed">DISMISSED</span>`:`<span class="diff-stock-badge changed">CHANGED</span>`;
+      const box=pick?`<input type="checkbox" class="diff-pick" data-ticker="${esc(c.ticker)}" checked title="Untick to leave this stock as it is">`:"";
+      bodyHTML+=`<div class="diff-stock ${c.isNew?'diff-new':''}${c.isRemoved?' diff-removed':''}"${pick?' style="cursor:pointer"':''}>
+        <div class="diff-stock-hdr">${box}<span class="diff-stock-ticker">${esc(c.ticker)}</span><span class="diff-stock-name">${esc(c.name)}</span>${badge}</div>
         <div class="diff-changes">${chipsHTML}</div></div>`;
     });
   }
   const summaryParts=[];
   if(nNewStocks)summaryParts.push(`${nNewStocks} new`);
   if(nChanged)summaryParts.push(`${nChanged} changed`);
+  if(nRemoved)summaryParts.push(`${nRemoved} dismissed`);
   if(nUpd-nChanged-nNewStocks>0)summaryParts.push(`${nUpd-nChanged-nNewStocks} unchanged`);
   const footerHTML=opts.confirm
     ?`<div style="display:flex;gap:8px"><button class="diff-dismiss" id="diff-cancel-btn" style="flex:1;background:#2a2f3a;color:#e5e7eb">Cancel — keep current</button><button class="diff-dismiss" id="diff-apply-btn" style="flex:1">Apply Import</button></div>`
     :`<button class="diff-dismiss" onclick="document.getElementById('import-diff-overlay').remove()">Done</button>`;
   overlay.innerHTML=`<div class="diff-modal">
     <div class="diff-modal-header"><h2>${opts.confirm?"Import Preview — not applied yet":"Import Results"}</h2><span class="diff-summary">${summaryParts.join(" · ")}</span></div>
+    ${pick&&changes.length>1?`<div class="diff-pick-all"><span id="diff-pick-all">Select all</span><span id="diff-pick-none">Select none</span></div>`:""}
     <div class="diff-modal-body">${bodyHTML}</div>
     ${footerHTML}</div>`;
   // v4.70 FIX (root cause of "no preview modal"): the overlay MUST be appended to the
@@ -3787,7 +3806,26 @@ function showImportDiffModal(changes,nUpd,nNew,opts){
   document.body.appendChild(overlay);
   if(opts.confirm){
     // Force an explicit choice: background click does nothing.
-    document.getElementById("diff-apply-btn").onclick=()=>{overlay.remove();if(opts.onApply)opts.onApply();};
+    const applyBtn=document.getElementById("diff-apply-btn");
+    const boxes=[...overlay.querySelectorAll(".diff-pick")];
+    const refresh=()=>{
+      const n=boxes.filter(b=>b.checked).length;
+      boxes.forEach(b=>b.closest(".diff-stock").classList.toggle("diff-skip",!b.checked));
+      applyBtn.textContent=n===boxes.length?"Apply Import":`Apply ${n} of ${boxes.length}`;
+      applyBtn.disabled=n===0;
+    };
+    if(pick){
+      boxes.forEach(b=>{b.onchange=refresh;b.onclick=e=>e.stopPropagation();});
+      // Tap anywhere on a card toggles it (big target on phone)
+      overlay.querySelectorAll(".diff-stock").forEach(card=>{card.onclick=()=>{const b=card.querySelector(".diff-pick");if(b){b.checked=!b.checked;refresh();}};});
+      const all=document.getElementById("diff-pick-all"),none=document.getElementById("diff-pick-none");
+      if(all)all.onclick=()=>{boxes.forEach(b=>b.checked=true);refresh();};
+      if(none)none.onclick=()=>{boxes.forEach(b=>b.checked=false);refresh();};
+    }
+    applyBtn.onclick=()=>{
+      const skipped=boxes.filter(b=>!b.checked).map(b=>b.dataset.ticker);
+      overlay.remove();if(opts.onApply)opts.onApply(skipped);
+    };
     document.getElementById("diff-cancel-btn").onclick=()=>{overlay.remove();if(opts.onCancel)opts.onCancel();};
   }else{
     overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
@@ -3847,6 +3885,30 @@ function _csvImportDismissed(row,t){
   applyRecalcSticker(s);recalcConsTriggers(s);
   if(s.cons.eps==null||s.cons.pe==null){s.cons.sticker=s.cons.mos?s.cons.mos*2:s.cons.sticker;}
   s.lastCalcDate=Date.now();
+}
+// v5.12: undo a staged CSV import for ONE ticker (unticked in the preview). Restores the stock
+// record, its dismiss-list entry and its portfolio membership (positions/grid/risk) from the
+// pre-import backup; everything else the import staged is kept.
+function _revertImportTicker(t,bk){
+  const clone=o=>JSON.parse(JSON.stringify(o));
+  if(bk.stocks[t])stocks[t]=clone(bk.stocks[t]);else delete stocks[t];
+  const bi=bk.dismissed.findIndex(d=>d.ticker===t),ci=findDismissed(t);
+  if(bi>=0){const e=clone(bk.dismissed[bi]);if(ci>=0)dismissed[ci]=e;else dismissed.push(e);}
+  else if(ci>=0)dismissed.splice(ci,1);
+  ["personal","nl"].forEach(p=>{
+    const bp=bk.portfolios[p],cp=portfolios[p];if(!bp||!cp)return;
+    if(bp.positions&&bp.positions[t]){cp.positions=cp.positions||{};cp.positions[t]=clone(bp.positions[t]);}
+    else if(cp.positions)delete cp.positions[t];
+    ["gridStocks","riskStocks"].forEach(k=>{
+      const was=(bp[k]||[]).includes(t),is=(cp[k]||[]).includes(t);
+      if(was&&!is)cp[k]=[...(cp[k]||[]),t];else if(!was&&is)cp[k]=cp[k].filter(x=>x!==t);
+    });
+  });
+  // dismissStock/reconsiderStock edit the r1-deleted tombstone list while staging — undo that too.
+  try{const del=JSON.parse(localStorage.getItem("r1-deleted")||"[]");
+    // Was live → must not be tombstoned. Was dismissed (not live) → tombstoned. Otherwise leave as is.
+    if(bk.stocks[t])localStorage.setItem("r1-deleted",JSON.stringify(del.filter(x=>x!==t)));
+    else if(bi>=0&&!del.includes(t)){del.push(t);localStorage.setItem("r1-deleted",JSON.stringify(del));}}catch(e){}
 }
 function handleCSVImport(e){
   const f=e.target.files[0];if(!f)return;const r=new FileReader();
@@ -3988,7 +4050,14 @@ function handleCSVImport(e){
     const _beforeSignals={};Object.entries(JSON.parse(_stocksBackup)).forEach(([bt,bs])=>{_beforeSignals[bt]=bs.signals||{};});
     showImportDiffModal(changes,nUpd,nNew,{
       confirm:true,
-      onApply:()=>{
+      selectable:true, // v5.12: tick/untick per stock
+      onApply:(skipped)=>{
+        // v5.12: put every unticked stock back exactly as it was before the import.
+        if(skipped&&skipped.length){
+          const bk={stocks:JSON.parse(_stocksBackup),portfolios:JSON.parse(_pfBackup),dismissed:JSON.parse(_disBackup)};
+          skipped.forEach(t=>_revertImportTicker(t,bk));
+          ["personal","nl"].forEach(pk=>recomputeCapacityState(pk));
+        }
         save();render();
         // Fire buy modals for signals newly lit by this import (suppressed during staging).
         Object.entries(stocks).forEach(([at,as])=>{["mos","tenCap","pbt"].forEach(sig=>{
