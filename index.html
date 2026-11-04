@@ -291,7 +291,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.13</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.14</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1140,7 +1140,7 @@ function weightedLit(t,pfKey){
 // A lit tranche's current cost basis = Σ open(bought-sold)×buyPrice over matching tranche rows, in
 // stock ccy → base ccy. Room to deploy = max(0, target − current). A signal with no existing tranche
 // row is a fresh 0%-filled tranche with full room. Returns one entry per *lit* (firing/piggyback) slot.
-function litTrancheTopups(ticker,pfKey,base){
+function litTrancheTopups(ticker,pfKey,base,frac){ // v5.14: frac overrides the tranche % (risk = 2%)
   const s=stocks[ticker];if(!s?.cons||s.gate===false||s.block||base<=0)return [];
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];
   const bc=pfBaseCcy(pfKey);
@@ -1159,7 +1159,7 @@ function litTrancheTopups(ticker,pfKey,base){
     let curLocal=0;
     if(pos?.tranches){pos.tranches.forEach(tr=>{if(labelMap[sigKey].includes(tr.signal)){const sh=tr.bought-tr.sold;if(sh>0)curLocal+=sh*tr.buyPrice;}});}
     const curBase=fromEUR(toEUR(curLocal,s.currency),bc);
-    const targetFrac=slotWeight(ticker,sigKey,pfKey)*trancheFrac(pfKey);   // v4.72: flat 4% both portfolios
+    const targetFrac=slotWeight(ticker,sigKey,pfKey)*(frac??trancheFrac(pfKey));   // v4.72: flat 4% both portfolios
     const targetBase=targetFrac*base;
     const roomBase=Math.max(0,targetBase-curBase);
     const roomLocal=fromEUR(toEUR(roomBase,bc),s.currency);
@@ -2441,12 +2441,12 @@ function posProfitMarginPct(ticker,pfKey){
 // Target = (open non-trophy tranches) × 4% × trancheBase. trancheBase uses CURRENT cost basis
 // only (Pool1 cost + Pool3 cost + DP) — no future salary/income is added. Compares the position's
 // actual cost basis to that target and reports the gap, both in the base currency.
-function trancheAllocStatus(ticker,pfKey){
+function trancheAllocStatus(ticker,pfKey,frac){ // v5.14: frac overrides the tranche % (risk = 2%)
   const pf=portfolios[pfKey];const pos=pf?.positions?.[ticker];if(!pf||!pos)return null;
   const nNonTrophy=pos.tranches.filter(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0).length;
   if(nNonTrophy<=0)return null;                           // nothing deployed in the allocation pool
   const tb=trancheBase(pfKey);                            // current cost base, no future income
-  const target=nNonTrophy*trancheFrac(pfKey)*tb;          // v4.72: flat 4% both portfolios
+  const target=nNonTrophy*(frac??trancheFrac(pfKey))*tb;  // v4.72: flat 4% both portfolios
   const actual=posCostBasisBase(ticker,pfKey);
   const diff=actual-target;                               // +over / −under
   const pct=target>0?diff/target*100:0;
@@ -2514,11 +2514,11 @@ function capSlotCount(ticker,pfKey){
   });
   return n;
 }
-function litCapHeadroomBase(ticker,pfKey,base){
+function litCapHeadroomBase(ticker,pfKey,base,frac){
   if(deployCount(ticker,pfKey)<=0||base<=0)return 0;
   const slots=capSlotCount(ticker,pfKey);
   if(slots<=0)return 0;
-  return Math.max(0, slots*trancheFrac(pfKey)*base - posCostBasisBase(ticker,pfKey));
+  return Math.max(0, slots*(frac??trancheFrac(pfKey))*base - posCostBasisBase(ticker,pfKey));
 }
 // True when a lit stock's TOTAL cost basis is at/above its owned∪lit slot cap — deploys nothing.
 function atLitCap(ticker,pfKey,base){
@@ -2544,6 +2544,23 @@ function stockDeployRoomBase(ticker,pfKey,base,extraBase){
   if(isPaired(ticker))capHeadroom=Math.min(capHeadroom,Math.max(0,pairCapPct(ticker,pfKey)*base-pairCostBase(ticker,pfKey)));
   const litHeadroom=litCapHeadroomBase(ticker,pfKey,base);
   return{room:Math.min(rawRoom,capHeadroom,litHeadroom),capped:false,litCapped:atLitCap(ticker,pfKey,base),tops};
+}
+// v5.14: RISK (Pool 3) version of stockDeployRoomBase — identical logic, risk-sized:
+//   per-LIT-tranche target = 2% (riskTrancheFrac) matched by tranche label (dark tranches deploy nothing),
+//   hard cap = min(6% per-stock risk cap, valid slots × 2%), owned∪lit cap = slots × 2%.
+// The 20% risk-pool limit is applied by the caller across all risk stocks (shared headroom).
+const RISK_STOCK_CAP_PCT=6; // per-stock risk cap, % of P1+P3+DP cost (same as the Risk Bucket card)
+function riskDeployRoomBase(ticker,pfKey,base){
+  const f=riskTrancheFrac(pfKey);
+  const cost=posCostBasisBase(ticker,pfKey);
+  const hardPct=Math.min(RISK_STOCK_CAP_PCT/100,Math.max(2,validTriggerSlots(ticker,pfKey))*f);
+  const capHeadroom=Math.max(0,hardPct*base-cost);
+  if(capHeadroom<=0.5)return{room:0,capped:true,litCapped:false,tops:[],hardPct};
+  const tops=litTrancheTopups(ticker,pfKey,base,f);
+  const rawRoom=tops.reduce((a,x)=>a+x.roomBase,0);
+  const litHeadroom=litCapHeadroomBase(ticker,pfKey,base,f);
+  return{room:Math.min(rawRoom,capHeadroom,litHeadroom),capped:false,
+    litCapped:deployCount(ticker,pfKey)>0&&litHeadroom<=0.5,tops,hardPct};
 }
 // Performance snapshots: stored as array of {date, indexValue, indexCost, stockValue, stockCost}
 function recordSnapshot(){const snaps=JSON.parse(localStorage.getItem("r1-perfSnaps")||"[]");const today=new Date().toISOString().slice(0,10);if(snaps.length&&snaps[snaps.length-1].date===today)snaps.pop();snaps.push({date:today,indexValue:Math.round(indexValue()),indexCost:Math.round(indexCostBasis()),stockValue:Math.round(stockPickingValue()),stockCost:Math.round(stockPickingCostBasis())});if(snaps.length>365)snaps.splice(0,snaps.length-365);localStorage.setItem("r1-perfSnaps",JSON.stringify(snaps));}
@@ -6958,24 +6975,32 @@ function renderMonthlyBanner(){
 // The old owned-tranches×4% target is kept for the OVER/trim side (Layer 1/2 prompts) and for
 // the informational gap on dark (unlit) tranches, which deploy nothing until their signal fires.
 // Works for both Personal and Caca (pfKey).
-function renderTrancheBalanceCard(pfKey){
+// v5.14: opts.risk → same card for RISK (Pool 3) stocks only: 2% tranche (riskTrancheFrac),
+// room from riskDeployRoomBase (6% per-stock risk cap), and every row's room shares what is left
+// in the risk pool (riskBucketInfo — 20% of Pool 1+3 cost for Personal), shown on top.
+function renderTrancheBalanceCard(pfKey,opts){
   const pf=portfolios[pfKey];if(!pf)return"";
+  const RISK=!!opts?.risk;
   const bs=pfSym(pfKey);const tb=trancheBase(pfKey);const _bc=pfBaseCcy(pfKey);
-  const _tFrac=trancheFrac(pfKey);const _tPct=Math.round(_tFrac*100);
+  const _tFrac=RISK?riskTrancheFrac(pfKey):trancheFrac(pfKey);const _tPct=Math.round(_tFrac*100);
   const trancheVal=tb*_tFrac;
   // $500 transaction-cost floor (same constant as the Allocator), in base ccy.
   const _minDeployBase=fromEUR(toEUR(500,"USD"),_bc);
   const rows=[];
   Object.keys(pf.positions||{}).forEach(t=>{
-    if(isRisk(t,pfKey))return;                            // v4.13: risk bucket (Pool 3) excluded — it has its own card
-    const st=trancheAllocStatus(t,pfKey);if(!st)return;   // owned-tranche target (OVER/trim + dark-gap info)
-    const dr=stockDeployRoomBase(t,pfKey,tb,0);           // v4.84: allocator-identical room, DP-only base
+    if(isRisk(t,pfKey)!==RISK)return;                     // v4.13: risk bucket (Pool 3) has its own (risk-mode) card
+    const st=trancheAllocStatus(t,pfKey,_tFrac);if(!st)return; // owned-tranche target (OVER/trim + dark-gap info)
+    const dr=RISK?riskDeployRoomBase(t,pfKey,tb):stockDeployRoomBase(t,pfKey,tb,0); // v4.84: allocator-identical room, DP-only base
     const buyable=dr.room>_minDeployBase;                 // green threshold: room > $500
-    rows.push({ticker:t,...st,room:dr.room,tops:dr.tops,litCapped:dr.litCapped,hardCapped:dr.capped,buyable});
+    rows.push({ticker:t,...st,room:dr.room,rawRoom:dr.room,tops:dr.tops,litCapped:dr.litCapped,hardCapped:dr.capped,buyable});
   });
-  if(!rows.length)return"";
+  const rbi=RISK?riskBucketInfo(pfKey):null;
+  if(!rows.length&&!RISK)return"";
   // v5.07 linked seat: members share one headroom — clamp first-come so two green rows can't both claim it.
   {const rm={};rows.forEach(r=>{rm[r.ticker]=r.room;});applyPairRoomClamp(rm,pfKey,tb);rows.forEach(r=>{r.room=rm[r.ticker];r.buyable=r.room>_minDeployBase;});}
+  // v5.14 risk mode: all risk rows share what is left in the risk pool — largest room first.
+  if(RISK){let pool=rbi.available;
+    [...rows].sort((a,b)=>b.room-a.room).forEach(r=>{const x=Math.max(0,Math.min(r.room,pool));r.poolLimited=x<r.room-0.5;r.room=x;pool-=x;r.buyable=r.room>_minDeployBase;});}
   // Actionable first: green BUY rows (largest room first), then OVER rows (largest excess), then rest.
   rows.sort((a,b)=>{
     if(a.buyable!==b.buyable)return a.buyable?-1:1;
@@ -6984,13 +7009,37 @@ function renderTrancheBalanceCard(pfKey){
     if(aOver!==bOver)return aOver?-1:1;
     return b.diff-a.diff;
   });
-  let h=`<div class="alloc-card" style="margin-top:12px;border:1px solid #60a5fa33">
+  let h;
+  if(RISK){
+    const capPct=Math.round((rbi.capPct||0.20)*100);const money=v=>`${bs}${Math.round(v).toLocaleString()}`;
+    const nLeft=trancheVal>0?Math.floor(rbi.available/trancheVal+1e-9):0;
+    const usedPct=Math.min(100,rbi.pct||0);
+    const barCol=usedPct>=100?"var(--red)":usedPct>=85?"var(--amber)":"#d97706";
+    h=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Tranche Balance</span>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_tPct}%/tranche · ${capPct}% pool</span></div>
+    <div style="background:var(--bg);border-radius:6px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:11px;color:var(--muted)">Left in risk pool to hit ${capPct}%</span>
+        <span style="font-size:18px;font-weight:700;font-family:var(--mono);color:${rbi.available>0.5?"var(--green)":"var(--red)"}">${money(rbi.available)}</span></div>
+      <div style="height:6px;background:var(--card);border-radius:3px;margin:6px 0 4px;overflow:hidden"><div style="height:100%;width:${usedPct.toFixed(1)}%;background:${barCol}"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);font-family:var(--mono)">
+        <span>deployed ${money(rbi.used)} of ${money(rbi.cap)} (${(rbi.pct||0).toFixed(0)}%)</span>
+        <span>≈ ${nLeft} tranche${nLeft!==1?"s":""} left</span></div></div>
+    <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:10px;color:var(--muted)">1 risk tranche = ${_tPct}% of P1+P3+DP cost (${money(tb)}) · max ${RISK_STOCK_CAP_PCT}% per stock · lit triggers only</span>
+      <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${money(trancheVal)}</span></div>`;
+    if(!rows.length)return h+`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions yet.</div></div>`;
+  }else{
+  h=`<div class="alloc-card" style="margin-top:12px;border:1px solid #60a5fa33">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <span style="font-size:14px;font-weight:700;color:var(--accent)">⚖️ Tranche Balance</span>
       <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_tPct}%/tranche · from current DP</span></div>
     <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:10px;color:var(--muted)">1 tranche = ${_tPct}% of P1+P3+DP cost (${bs}${Math.round(tb).toLocaleString()}) · allocator adds salary, this card doesn't</span>
       <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${bs}${Math.round(trancheVal).toLocaleString()}</span></div>`;
+  }
   rows.forEach(r=>{
     const s=stocks[r.ticker];const flag=s?.flag||"";
     const ccy=s?.currency||pfBaseCcy(pfKey);
@@ -7020,7 +7069,7 @@ function renderTrancheBalanceCard(pfKey){
     const smallRoom=!buy&&r.status!=="over"&&r.room>0.5;  // lit room exists but ≤ $500 floor
     // Dark-tranche gap: shortfall vs the owned-tranche target that sits in UNLIT tranches —
     // informational only, deploys nothing until the signal fires. Netting via max(0,…).
-    const darkGap=Math.max(0,(r.target-r.actual)-r.room);
+    const darkGap=Math.max(0,(r.target-r.actual)-(RISK?r.rawRoom:r.room)); // v5.14: risk → gap before pool clamp
     const dimmed=overUnderwater||((mutedHigh||unlit)&&!overInProfit);
     const col=buy?"var(--green)":dimmed?"var(--muted)":overInProfit?"var(--amber)":"var(--muted)";
     const bg=buy?"#0d332060":dimmed?"var(--bg)":overInProfit?"#332d0d":"var(--bg)";
@@ -7033,7 +7082,9 @@ function renderTrancheBalanceCard(pfKey){
     const buyLines=buy?r.tops.filter(x=>x.roomBase>0.5).map(x=>`${x.label} ${fmt(Math.round(x.roomLocal),x.ccy)}`).join(" · "):"";
     const action=overUnderwater?"over target but below avg cost — trim would book a loss"
       :overInProfit?`over target, in profit${marginPct!=null?" ("+marginPct.toFixed(0)+"% above avg cost)":""} — trim possible without loss`
-      :buy?`deployable from current DP now${darkGap>0.5?` · dark-tranche gap ${dual(darkGap)} waits for signal`:""}`
+      :buy?`deployable from current DP now${RISK&&r.poolLimited?" (limited by risk pool)":""}${darkGap>0.5?` · dark-tranche gap ${dual(darkGap)} waits for signal`:""}`
+      :RISK&&r.poolLimited&&r.room<=0.5&&!unlit?`risk pool full — lit ${dual(r.rawRoom)} waits for room`
+      :RISK&&r.hardCapped?`at ${RISK_STOCK_CAP_PCT}% per-stock risk cap 🔒`
       :smallRoom?`lit room ${dual(r.room)} below $500 floor — hold`
       :r.litCapped&&!unlit?`total cost ≥ owned∪lit × ${_tPct}% — waits for base growth or new signal`
       :mutedHigh?"price above sticker — all triggers muted"
@@ -7052,82 +7103,8 @@ function renderTrancheBalanceCard(pfKey){
   h+=`</div>`;
   return h;
 }
-// === v5.13: Risk Tranche Balance card (Personal) — the Tranche Balance idea for Pool 3 only. ===
-// Tranche = riskTrancheFrac (2%) of the P1+P3+DP cost base. Per risk stock: target = open
-// tranches × 2%, compared with its cost basis (±10% = balanced). Top-ups are clamped by the
-// 6% per-stock risk cap and by what is left in the risk pool. Header shows how much is left
-// in the pool before it hits the cap (riskBucketInfo: 20% of Pool 1+3 cost for Personal).
-const RISK_STOCK_CAP_PCT=6; // per-stock risk cap, % of P1+P3+DP cost (same as the Risk Bucket card)
-function renderRiskTrancheBalanceCard(pfKey){
-  const pf=portfolios[pfKey];if(!pf)return"";
-  const risk=getSpeculative(pfKey).filter(t=>pf.positions?.[t]&&posShares(pf.positions[t])>0&&stocks[t]);
-  const rbi=riskBucketInfo(pfKey);const capPct=Math.round((rbi.capPct||0.20)*100);
-  const bs=pfSym(pfKey);const baseC=pfBaseCcy(pfKey);const tb=trancheBase(pfKey);
-  const rFrac=riskTrancheFrac(pfKey);const rPct=Math.round(rFrac*100);const tVal=tb*rFrac;
-  const money=v=>`${bs}${Math.round(v).toLocaleString()}`;
-  const left=rbi.available;const nLeft=tVal>0?Math.floor(left/tVal+1e-9):0;
-  const usedPct=Math.min(100,rbi.pct||0);
-  const barCol=usedPct>=100?"var(--red)":usedPct>=85?"var(--amber)":"#d97706";
-  let h=`<div class="alloc-card" style="margin-top:12px;border:1px solid #d9770633">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:14px;font-weight:700;color:#d97706">⚡ Risk Tranche Balance</span>
-      <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${rPct}%/tranche · ${capPct}% pool</span></div>
-    <div style="background:var(--bg);border-radius:6px;padding:10px;margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span style="font-size:11px;color:var(--muted)">Left in risk pool to hit ${capPct}%</span>
-        <span style="font-size:18px;font-weight:700;font-family:var(--mono);color:${left>0.5?"var(--green)":"var(--red)"}">${money(left)}</span></div>
-      <div style="height:6px;background:var(--card);border-radius:3px;margin:6px 0 4px;overflow:hidden"><div style="height:100%;width:${usedPct.toFixed(1)}%;background:${barCol}"></div></div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);font-family:var(--mono)">
-        <span>deployed ${money(rbi.used)} of ${money(rbi.cap)} (${(rbi.pct||0).toFixed(0)}%)</span>
-        <span>≈ ${nLeft} tranche${nLeft!==1?"s":""} left</span></div></div>
-    <div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:10px;color:var(--muted)">1 risk tranche = ${rPct}% of P1+P3+DP cost (${money(tb)}) · max ${RISK_STOCK_CAP_PCT}% per stock</span>
-      <span style="font-size:11px;font-weight:700;font-family:var(--mono)">${money(tVal)}</span></div>`;
-  if(!risk.length){
-    h+=`<div style="font-size:11px;color:var(--muted);padding:4px 0">No risk positions yet.</div></div>`;return h;
-  }
-  const rows=risk.map(t=>{
-    const pos=pf.positions[t];
-    const n=pos.tranches.filter(tr=>tr.signal!=="trophy"&&(tr.bought-tr.sold)>0).length||1;
-    const target=n*rFrac*tb;const actual=posCostBasisBase(t,pfKey);
-    const diff=actual-target;const pct=target>0?diff/target*100:0;
-    const status=Math.abs(pct)<=10?"balanced":diff>0?"over":"under";
-    const capRoom=Math.max(0,RISK_STOCK_CAP_PCT/100*tb-actual);
-    return{t,n,target,actual,diff,pct,status,capRoom,costPct:tb>0?actual/tb*100:0};
-  });
-  // Top-ups share the pool: hand out what's left, biggest shortfall first.
-  let pool=left;
-  rows.filter(r=>r.status==="under").sort((a,b)=>a.diff-b.diff).forEach(r=>{
-    r.topUp=Math.max(0,Math.min(-r.diff,r.capRoom,pool));pool-=r.topUp;
-  });
-  rows.sort((a,b)=>{const o={under:0,over:1,balanced:2};return o[a.status]-o[b.status]||Math.abs(b.diff)-Math.abs(a.diff);});
-  rows.forEach(r=>{
-    const s=stocks[r.t];const ccy=s.currency||baseC;
-    const nSym=ccy==="EUR"?"€":ccy==="GBp"?"£":ccy==="CAD"?"C$":ccy==="JPY"?"¥":ccy==="GBP"?"£":"$";
-    const sameCcy=ccy===baseC||(ccy==="GBp"&&baseC==="GBP")||(ccy==="GBP"&&baseC==="GBp");
-    const nat=v=>{const x=fromEUR(toEUR(v,baseC),ccy);return nSym+Math.round(ccy==="GBp"?x/100:x).toLocaleString();};
-    const dual=v=>sameCcy?money(v):`${money(v)} · ${nat(v)}`;
-    const atCap=r.costPct>=RISK_STOCK_CAP_PCT-0.005;
-    const canTop=r.status==="under"&&r.topUp>0.5;
-    const col=canTop?"var(--green)":r.status==="over"?"var(--amber)":"var(--muted)";
-    const bg=canTop?"#0d332060":r.status==="over"?"#332d0d":"var(--bg)";
-    const tag=r.status==="over"?"OVER":r.status==="under"?(canTop?"🟢 UNDER":"UNDER"):"✓ balanced";
-    const gap=r.status==="balanced"?"within 10%":`${r.diff>0?"+":"−"}${dual(Math.abs(r.diff))} (${r.diff>0?"+":"−"}${Math.abs(r.pct).toFixed(0)}%)`;
-    const note=r.status==="over"?`over ${r.n}×${rPct}% target${atCap?" · at "+RISK_STOCK_CAP_PCT+"% cap 🔒":""}`
-      :r.status==="under"?(canTop?`top up ${dual(r.topUp)} to reach ${r.n}×${rPct}%${r.topUp<-r.diff-0.5?" (limited by "+(r.capRoom<=r.topUp+0.5?RISK_STOCK_CAP_PCT+"% cap":"pool")+")":""}`
-        :atCap?`at ${RISK_STOCK_CAP_PCT}% cap 🔒`:"risk pool full — no room to top up")
-      :"on target";
-    h+=`<div style="padding:7px 8px;background:${bg};border-radius:6px;margin-bottom:4px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><span style="font-size:13px;font-weight:600">${s.flag||""} ${r.t}</span><span style="font-size:10px;color:var(--muted);margin-left:6px">${r.n} tranche${r.n!==1?"s":""} · target ${dual(r.target)}</span></div>
-        <span style="font-size:10px;font-weight:700;color:${col}">${tag}</span></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
-        <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">have ${dual(r.actual)} · ${r.costPct.toFixed(2)}%/${RISK_STOCK_CAP_PCT}%</span>
-        <span style="font-size:10px;font-family:var(--mono);color:${col}">${gap}</span></div>
-      <div style="font-size:9px;color:var(--muted);margin-top:2px">${note}</div></div>`;
-  });
-  h+=`</div>`;return h;
-}
+// v5.13→v5.14: Risk Tranche Balance = the Tranche Balance card in risk mode (see opts.risk).
+function renderRiskTrancheBalanceCard(pfKey){return renderTrancheBalanceCard(pfKey,{risk:true});}
 function renderAllocator(c){
   const pf=portfolios[currentPf];const GRID=getGrid(currentPf);const gs=gridSize(currentPf);
   let h=`<div class="section-pad">
