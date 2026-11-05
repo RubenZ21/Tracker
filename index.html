@@ -291,7 +291,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.15</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.16</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -5618,6 +5618,23 @@ function dismissEarningsBanner(t){
   settings.earningsBannerDismissed[t]=Date.now();
   localStorage.setItem("r1-settings",JSON.stringify(settings));render();
 }
+// v5.16: copy text to the clipboard with a short "Copied" toast. Falls back to a hidden
+// textarea + execCommand where the async Clipboard API is unavailable.
+function copyText(txt){
+  const done=ok=>showToast(ok?`📋 Copied: ${txt}`:"Couldn't copy");
+  const fallback=()=>{try{const ta=document.createElement("textarea");ta.value=txt;ta.setAttribute("readonly","");
+    ta.style.cssText="position:fixed;top:0;left:0;opacity:0";document.body.appendChild(ta);ta.select();
+    const ok=document.execCommand("copy");ta.remove();done(ok);}catch(e){done(false);}};
+  if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(txt).then(()=>done(true),fallback);else fallback();
+}
+function showToast(msg){
+  let el=document.getElementById("app-toast");
+  if(!el){el=document.createElement("div");el.id="app-toast";
+    el.style.cssText="position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#1f2937;color:#e5e7eb;border:1px solid #374151;border-radius:8px;padding:8px 14px;font-size:12px;z-index:9999;max-width:90vw;box-shadow:0 4px 14px #0008;transition:opacity .25s;pointer-events:none";
+    document.body.appendChild(el);}
+  el.textContent=msg;el.style.opacity="1";
+  clearTimeout(el._t);el._t=setTimeout(()=>{el.style.opacity="0";},1600);
+}
 function renderEarningsBanner(){
   const upcoming=[];
   Object.entries(stocks).forEach(([t,s])=>{
@@ -5646,7 +5663,9 @@ function renderEarningsBanner(){
     // v4.83: ✓ Reviewed permanently clears the stale/pending flag (× only snoozes a day)
     const reviewBtn=ei.status==="stale"?` <span class="alert-dismiss" style="color:var(--green)" onclick="event.stopPropagation();markEarningsReviewed('${t}')" title="Mark earnings call reviewed — clears this flag">✓</span>`:"";
     const dismissBtn=` <span class="alert-dismiss" onclick="event.stopPropagation();dismissEarningsBanner('${t}')" title="${dismissTitle}">×</span>`;
-    h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px;display:flex;align-items:center"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px;flex:1">${msg}</span>${reviewBtn}${dismissBtn}</div>`;
+    // v5.16: tap the banner → copy "TICKER Company name" to the clipboard (✓/× stop propagation)
+    const _copy=s.name&&s.name!==t?`${t} ${s.name}`:t;
+    h+=`<div class="alert-item ${cls}" style="padding:8px 12px;margin-bottom:4px;display:flex;align-items:center;cursor:pointer" data-copy="${esc(_copy)}" onclick="copyText(this.dataset.copy)" title="Tap to copy ticker + name"><span class="alert-icon">${icon}</span><span class="alert-text" style="font-size:12px;flex:1">${msg}</span>${reviewBtn}${dismissBtn}</div>`;
   });
   h+='</div>';return h;
 }
