@@ -291,7 +291,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.16</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.17</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1535,6 +1535,8 @@ const INDEX_EQUITY_REGIONS=["us","eu"]; // CAPE gate/ladder apply only to these
 // adjust each EQUITY leg's deploy-vs-park WITHIN its own share; XFFE receives the parked flow.
 const INDEX_REGION_WEIGHT={us:0.25,eu:0.50,ffe:0.25};
 function indexRegionBudgetUSD(region){return Math.round((indexAllocationUSD()||0)*(INDEX_REGION_WEIGHT[region]||0));}
+// v5.17: this month's XFFE buy = its own 25% leg + whatever the CAPE gate parks from XZEU/XZMU.
+function indexFfeMonthlyUSD(){return indexRegionBudgetUSD("ffe")+INDEX_EQUITY_REGIONS.reduce((a,r)=>a+capeGate(r).park,0);}
 const _emptyIx=(ccy)=>({shares:0,avgCost:0,currency:ccy||"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
 function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR"),ffe:_emptyIx("USD")};if(!pf.indexPositions)pf.indexPositions={};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx("USD");if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");if(!pf.indexPositions.ffe)pf.indexPositions.ffe=_emptyIx("USD");return pf.indexPositions;}
 function getIndexPos(pfKey,region){return getIndexPositions(pfKey)[region||"us"];}
@@ -1684,6 +1686,11 @@ const CAPE_BAND_HIGH=40;     // 30 ≤ CAPE < 40      → mid deploy ; CAPE ≥ 
 const CAPE_DEPLOY_BELOW=3000;   // deploy when CAPE < CAPE_BAND_LOW   (park budget − this)
 const CAPE_DEPLOY_MID=2000;     // deploy when CAPE_BAND_LOW ≤ CAPE < CAPE_BAND_HIGH
 const CAPE_DEPLOY_HIGH=1500;    // deploy when CAPE ≥ CAPE_BAND_HIGH
+// v5.17: the three amounts above were written for a $3,000 budget PER ETF, but the real budget is
+// the ETF's share of the index allocation (XZEU 50% / XZMU 25% of income × index %). They are now
+// used as FRACTIONS of that leg budget: <30 → 100%, 30–40 → 2/3, ≥40 → 1/2 (park = the rest → XFFE).
+const CAPE_REF_BUDGET=3000;
+function capeDeployFrac(band){return band==="<30"?CAPE_DEPLOY_BELOW/CAPE_REF_BUDGET:band==="30–40"?CAPE_DEPLOY_MID/CAPE_REF_BUDGET:band==="≥40"?CAPE_DEPLOY_HIGH/CAPE_REF_BUDGET:1;}
 let capeState={};
 try{capeState=JSON.parse(localStorage.getItem("r1-capeState")||"{}")||{};}catch(e){capeState={};}
 function saveCapeState(){localStorage.setItem("r1-capeState",JSON.stringify(capeState));}
@@ -1730,18 +1737,17 @@ function capeRecordMonthly(region,cape,month,source){
 // With no reading yet (cape 0) → deploy full, park 0 (nothing to gate on).
 function capeGate(region){
   const c=_capeRec(region);
-  const budget=c.monthlyBudget||3000;
+  // v5.17: budget = this ETF's leg of the monthly index allocation (same number the Allocator's
+  // Income Split shows). Falls back to the stored monthlyBudget only when no index % is set.
+  const budget=indexRegionBudgetUSD(region)||c.monthlyBudget||3000;
   const cape=capeReadCurrent(region);
-  let deploy,park,band;
-  if(!(cape>0)){deploy=budget;park=0;band="no-reading";}
-  else if(cape<CAPE_BAND_LOW){deploy=CAPE_DEPLOY_BELOW;band="<30";}
-  else if(cape<CAPE_BAND_HIGH){deploy=CAPE_DEPLOY_MID;band="30–40";}
-  else{deploy=CAPE_DEPLOY_HIGH;band="≥40";}
-  // deploy comes from the band table; park is the remainder of the monthly budget.
-  if(deploy==null)deploy=budget;
-  if(deploy>budget)deploy=budget;            // never deploy more than the budget
-  park=Math.max(0,budget-deploy);
-  return {cape,band,deploy,park,budget,penAfter:(c.pen||0)+park};
+  const band=!(cape>0)?"no-reading":cape<CAPE_BAND_LOW?"<30":cape<CAPE_BAND_HIGH?"30–40":"≥40";
+  const frac=capeDeployFrac(band);
+  const deploy=Math.round(budget*frac);
+  const park=Math.max(0,budget-deploy);
+  // Already applied this month → this month's park is already inside c.pen; don't add it twice.
+  const applied=c._gateApplied===getMonthKey();
+  return {cape,band,frac,deploy,park,budget,penAfter:(c.pen||0)+(applied?0:park)};
 }
 // Apply this month's gate: divert `park` into the pen. Idempotent per month via a stamp so
 // re-running the monthly flow doesn't double-add. Returns the gate result.
@@ -1751,11 +1757,26 @@ function capeApplyGate(region,monthKey){
   const g=capeGate(region);
   if(c._gateApplied!==m){
     c.pen=(c.pen||0)+g.park;
-    c._gateApplied=m;
+    c._gateApplied=m;c._gatePark=g.park; // v5.17: remember what was parked so it can be corrected
     saveCapeState();
   }
   return g;
 }
+// v5.17: keep this month's park in the pen equal to the CURRENT gate (income / index % changes
+// mid-month, or a month parked with the pre-v5.17 $3,000-per-ETF amounts). Adjusts the pen by the
+// difference once; no-op when nothing changed. Old state without _gatePark is assumed to have
+// parked the legacy amount ($3,000 budget − legacy band deploy).
+function capeSyncMonth(region){
+  const c=_capeRec(region);const m=getMonthKey();
+  if(c._gateApplied!==m)return;
+  const g=capeGate(region);
+  let prev=c._gatePark;
+  if(typeof prev!=="number"){const legacy={"<30":CAPE_DEPLOY_BELOW,"30–40":CAPE_DEPLOY_MID,"≥40":CAPE_DEPLOY_HIGH}[g.band];prev=legacy!=null?Math.max(0,CAPE_REF_BUDGET-legacy):0;}
+  else if(Math.abs(prev-g.park)<0.5)return;
+  c.pen=Math.max(0,(c.pen||0)-prev+g.park);c._gatePark=g.park;
+  saveCapeState();
+}
+function capeSyncAll(){INDEX_EQUITY_REGIONS.forEach(capeSyncMonth);}
 // Aggregate holding-pen balance (USD) across both equity legs. This is the INTENT ledger: it
 // says how much money is "parked" awaiting deployment. The XFFE leg is where that money physically
 // sits — XFFE shares/avgCost are driven by the Holdings CSV (source of truth), and this counter is
@@ -1838,6 +1859,7 @@ function capeLadderStatus(region,price){
 // One clear line per ETF per month. Uses live price from the index position.
 // Reads "CAPE 41.3 · band ≥40 → Buy $1,500 into XZMU, park $1,500 in pen, pen now $X || [drawdown]".
 function capeMonthlyLine(region){
+  capeSyncMonth(region); // v5.17
   const c=_capeRec(region);
   const ip=getIndexPos("personal",region);
   const px=ip.currentPrice||0;
@@ -1846,7 +1868,8 @@ function capeMonthlyLine(region){
   const st=capeLadderStatus(region,px);
   const capeTxt=g.cape>0?g.cape.toFixed(1):"—";
   const bandTxt=g.band==="no-reading"?"no reading yet":`band ${g.band}`;
-  let line=`CAPE ${capeTxt} · ${bandTxt} → Buy $${Math.round(g.deploy).toLocaleString()} into ${label}, park $${Math.round(g.park).toLocaleString()} in pen, pen now $${Math.round(g.penAfter).toLocaleString()}`;
+  const fracTxt=g.frac>=1?"all":g.frac===0.5?"½":Math.abs(g.frac-2/3)<1e-6?"⅔":Math.round(g.frac*100)+"%";
+  let line=`CAPE ${capeTxt} · ${bandTxt} → Buy $${Math.round(g.deploy).toLocaleString()} into ${label} (${fracTxt} of its $${Math.round(g.budget).toLocaleString()}), park $${Math.round(g.park).toLocaleString()} in pen, pen now $${Math.round(g.penAfter).toLocaleString()}`;
   if(st.activeRung>0){
     const frac=capeRungFraction(st.activeRung);
     const wouldDeploy=st.activeRung>=50?st.pen:st.pen*frac;
@@ -1867,7 +1890,8 @@ function promptCapeEntry(region){
   const label=region==="us"?"XZMU (US CAPE)":"XZEU (Europe CAPE)";
   const cur=capeReadCurrent(region);
   const c=_capeRec(region);
-  const v=prompt(`Enter current CAPE for ${label}.\nStored as this month's reading (${getMonthKey()}) in ${label.split(" ")[0]}'s history (record only).\nThe gate reads this single latest value against the fixed band:\n  CAPE < 30 → buy $3,000 · 30–40 → buy $2,000 · ≥40 → buy $1,500.\nMonthly budget per ETF: $${(c.monthlyBudget||3000).toLocaleString()}.`,cur>0?cur:"");
+  const _b=capeGate(region).budget,_f=x=>"$"+Math.round(_b*x).toLocaleString();
+  const v=prompt(`Enter current CAPE for ${label}.\nStored as this month's reading (${getMonthKey()}) in ${label.split(" ")[0]}'s history (record only).\nThe gate reads this single latest value against the fixed band:\n  CAPE < 30 → buy all ${_f(1)} · 30–40 → buy ⅔ ${_f(2/3)} · ≥40 → buy ½ ${_f(0.5)} (rest → pen).\nThis ETF's monthly budget: $${Math.round(_b).toLocaleString()} (its share of the index allocation).`,cur>0?cur:"");
   if(v===null)return;
   const num=Number(v);
   if(!(num>0)){alert("Enter a positive number.");return;}
@@ -1875,9 +1899,9 @@ function promptCapeEntry(region){
   // Overwrite-safe re-entry: if re-entering the current month after the gate already parked,
   // roll back this month's park before re-recording + re-applying, so park isn't double-counted.
   if(c._gateApplied===m){
-    const prev=capeGate(region); // gate from the reading currently on file
-    c.pen=Math.max(0,(c.pen||0)-prev.park);
-    c._gateApplied=null;
+    capeSyncMonth(region); // v5.17: make the stored park match the current gate first
+    c.pen=Math.max(0,(c.pen||0)-(typeof c._gatePark==="number"?c._gatePark:capeGate(region).park));
+    c._gateApplied=null;delete c._gatePark;
   }
   capeRecordMonthly(region,num,m);
   const g=capeApplyGate(region,m);
@@ -7268,7 +7292,10 @@ function renderAllocator(c){
 
     // === INDEX / STOCK-PICKING SPLIT ===
     if(idxAlloc>0){
-      const euB=indexRegionBudgetUSD("eu"),usB=indexRegionBudgetUSD("us"),ffeB=indexRegionBudgetUSD("ffe");
+      capeSyncAll(); // v5.17: pen reflects the current gate before we show it
+      const gEU=capeGate("eu"),gUS=capeGate("us");
+      const euB=gEU.deploy,usB=gUS.deploy,ffeB=indexFfeMonthlyUSD(),ffeBase=indexRegionBudgetUSD("ffe");
+      const _cTag=g=>g.band==="no-reading"?"no CAPE":`CAPE ${g.cape.toFixed(1)}${g.park>0?` · $${Math.round(g.park).toLocaleString()} → pen`:""}`;
       h+=`<div class="alloc-card" style="border-color:#0e7490;margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:700">Income Split</span><span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${idxPct}% index · ${ptPct}% stocks</span></div>
         <div style="display:flex;gap:3px;height:8px;border-radius:4px;overflow:hidden;margin-bottom:10px">
@@ -7278,13 +7305,13 @@ function renderAllocator(c){
           <span style="font-size:11px;color:#67e8f9">📈 Index</span>
           <span style="font-size:13px;font-family:var(--mono);color:#67e8f9;font-weight:600">${_bs}${idxAlloc.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:2px;padding-left:12px">
-          <span style="font-size:10px;color:var(--muted)">🇪🇺 XZEU <span style="opacity:.6">50%</span></span>
+          <span style="font-size:10px;color:var(--muted)">🇪🇺 XZEU <span style="opacity:.6">50% · ${_cTag(gEU)}</span></span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${euB.toLocaleString()}/mo <span style="opacity:.55">≈ €${Math.round(euB/(settings.fxRate||1.185)).toLocaleString()}/mo</span></span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:2px;padding-left:12px">
-          <span style="font-size:10px;color:var(--muted)">🇺🇸 XZMU <span style="opacity:.6">25%</span></span>
+          <span style="font-size:10px;color:var(--muted)">🇺🇸 XZMU <span style="opacity:.6">25% · ${_cTag(gUS)}</span></span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${usB.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;padding-left:12px">
-          <span style="font-size:10px;color:var(--muted)">🏦 XFFE <span style="opacity:.6">25% · pen</span></span>
+          <span style="font-size:10px;color:var(--muted)">🏦 XFFE <span style="opacity:.6">25%${ffeB>ffeBase?` + $${Math.round(ffeB-ffeBase).toLocaleString()} parked`:""} · pen</span></span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${ffeB.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
           <span style="font-size:11px;color:var(--accent)">📊 Stocks</span>
@@ -8452,8 +8479,9 @@ function logIndexBuy(pfKey,region){
     // Personal: weighted leg budget (XZEU 50% / XZMU 25% / XFFE 25%). EU is EUR-denominated → convert.
     // XFFE is the pen vehicle — default its buy to the current parked pen balance (USD) so the held
     // XFFE position tracks the intent ledger; falls back to the 25% weight if the pen is empty.
-    if(region==="ffe"){const pen=penTotalUSD();defAmt=pen>0?Math.round(pen):Math.round(indexRegionBudgetUSD("ffe")||(indexAllocationUSD()||6000)*0.25);}
-    else{const legUSD=indexRegionBudgetUSD(region)||(indexAllocationUSD()||6000)*(INDEX_REGION_WEIGHT[region]||0.25);
+    // v5.17: amounts follow the CAPE gate, same as the Allocator's Income Split.
+    if(region==="ffe"){defAmt=Math.round(indexFfeMonthlyUSD()||(indexAllocationUSD()||6000)*0.25);}
+    else{const legUSD=capeGate(region).deploy||(indexAllocationUSD()||6000)*(INDEX_REGION_WEIGHT[region]||0.25);
     defAmt=region==="eu"?Math.round(legUSD/settings.fxRate):Math.round(legUSD);}
   }
   // Caca cap check
