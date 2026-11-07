@@ -291,7 +291,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 <div class="header">
   <div class="header-top">
     <!-- FIX #1: Dynamic denominator -->
-    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.17</span></div></div>
+    <span id="header-ringmark"></span><div style="flex:1"><h1 id="app-title">Triple Trigger Tracker</h1><div class="header-sub">Grid: <span id="grid-count">0</span>/<span id="grid-total">9</span> signals <span id="filing-13f" style="margin-left:8px"></span><span style="opacity:.4;margin-left:6px">v5.18</span></div></div>
     <div id="market-strip" style="display:flex;gap:6px;align-items:center;margin-right:8px"></div>
     <div id="grid-badge" class="signal-badge">0/9</div>
   </div>
@@ -1533,9 +1533,11 @@ const INDEX_REGIONS=["us","eu","ffe"];
 const INDEX_EQUITY_REGIONS=["us","eu"]; // CAPE gate/ladder apply only to these
 // Fixed strategic budget weights (fraction of the index budget per leg). CAPE bands then
 // adjust each EQUITY leg's deploy-vs-park WITHIN its own share; XFFE receives the parked flow.
-const INDEX_REGION_WEIGHT={us:0.25,eu:0.50,ffe:0.25};
+// v5.18: index money splits 50/50 between XZEU and XZMU. XFFE has no budget of its own — it only
+// receives what the CAPE gate parks from the equity legs (high CAPE → part of a leg goes to the pen).
+const INDEX_REGION_WEIGHT={us:0.50,eu:0.50,ffe:0};
 function indexRegionBudgetUSD(region){return Math.round((indexAllocationUSD()||0)*(INDEX_REGION_WEIGHT[region]||0));}
-// v5.17: this month's XFFE buy = its own 25% leg + whatever the CAPE gate parks from XZEU/XZMU.
+// v5.17/v5.18: this month's XFFE buy = whatever the CAPE gate parks from XZEU/XZMU (no own leg).
 function indexFfeMonthlyUSD(){return indexRegionBudgetUSD("ffe")+INDEX_EQUITY_REGIONS.reduce((a,r)=>a+capeGate(r).park,0);}
 const _emptyIx=(ccy)=>({shares:0,avgCost:0,currency:ccy||"USD",currentPrice:0,lastUpdate:null,priceSource:null,deployLog:[]});
 function getIndexPositions(pfKey){const pf=pfKey==="nl"?portfolios.nl:portfolios.personal;if(!pf)return{us:_emptyIx("USD"),eu:_emptyIx("EUR"),ffe:_emptyIx("USD")};if(!pf.indexPositions)pf.indexPositions={};if(!pf.indexPositions.us)pf.indexPositions.us=_emptyIx("USD");if(!pf.indexPositions.eu)pf.indexPositions.eu=_emptyIx("EUR");if(!pf.indexPositions.ffe)pf.indexPositions.ffe=_emptyIx("USD");return pf.indexPositions;}
@@ -1687,7 +1689,7 @@ const CAPE_DEPLOY_BELOW=3000;   // deploy when CAPE < CAPE_BAND_LOW   (park budg
 const CAPE_DEPLOY_MID=2000;     // deploy when CAPE_BAND_LOW ≤ CAPE < CAPE_BAND_HIGH
 const CAPE_DEPLOY_HIGH=1500;    // deploy when CAPE ≥ CAPE_BAND_HIGH
 // v5.17: the three amounts above were written for a $3,000 budget PER ETF, but the real budget is
-// the ETF's share of the index allocation (XZEU 50% / XZMU 25% of income × index %). They are now
+// the ETF's share of the index allocation (XZEU 50% / XZMU 50% of income × index %). They are now
 // used as FRACTIONS of that leg budget: <30 → 100%, 30–40 → 2/3, ≥40 → 1/2 (park = the rest → XFFE).
 const CAPE_REF_BUDGET=3000;
 function capeDeployFrac(band){return band==="<30"?CAPE_DEPLOY_BELOW/CAPE_REF_BUDGET:band==="30–40"?CAPE_DEPLOY_MID/CAPE_REF_BUDGET:band==="≥40"?CAPE_DEPLOY_HIGH/CAPE_REF_BUDGET:1;}
@@ -6850,7 +6852,7 @@ ${pf.type==="closed"?"Closed":"Rolling "+dpCcy+pfIncome(currentPf).toLocaleStrin
       <div class="pos-header"><div style="display:flex;align-items:center;gap:10px">
         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0e7490,#164e63);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#67e8f9;flex-shrink:0">IDX</div>
         <div><div style="display:flex;align-items:center;gap:6px"><span class="pos-ticker">🌍 XZEU + XZMU + XFFE</span><span class="pos-badge" style="background:#164e63;color:#67e8f9">INDEX</span></div>
-          <div class="pos-sub">MSCI ESG · 50 EU / 25 US / 25 bond-pen</div></div></div>
+          <div class="pos-sub">MSCI ESG · 50 EU / 50 US · bond-pen gets high-CAPE overflow</div></div></div>
         <div style="text-align:right"><div class="pos-price-val">${hideValues?"•••":baseSym+Math.round(totalIxVal).toLocaleString()}</div>
           ${totalIxPnl?`<div class="pos-pnl" style="color:${totalIxPnl>=0?"var(--accent)":"var(--green)"}">${totalIxPnl>=0?"+":""}${totalIxPnl.toFixed(1)}%</div>`:""}</div></div>`;
     INDEX_REGIONS.forEach(region=>{
@@ -7308,10 +7310,10 @@ function renderAllocator(c){
           <span style="font-size:10px;color:var(--muted)">🇪🇺 XZEU <span style="opacity:.6">50% · ${_cTag(gEU)}</span></span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${euB.toLocaleString()}/mo <span style="opacity:.55">≈ €${Math.round(euB/(settings.fxRate||1.185)).toLocaleString()}/mo</span></span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:2px;padding-left:12px">
-          <span style="font-size:10px;color:var(--muted)">🇺🇸 XZMU <span style="opacity:.6">25% · ${_cTag(gUS)}</span></span>
+          <span style="font-size:10px;color:var(--muted)">🇺🇸 XZMU <span style="opacity:.6">50% · ${_cTag(gUS)}</span></span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${usB.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;padding-left:12px">
-          <span style="font-size:10px;color:var(--muted)">🏦 XFFE <span style="opacity:.6">25%${ffeB>ffeBase?` + $${Math.round(ffeB-ffeBase).toLocaleString()} parked`:""} · pen</span></span>
+          <span style="font-size:10px;color:var(--muted)">🏦 XFFE <span style="opacity:.6">pen · ${ffeB>0.5?"parked from high-CAPE legs":"nothing parked"}</span></span>
           <span style="font-size:11px;font-family:var(--mono);color:var(--muted)">${_bs}${ffeB.toLocaleString()}/mo</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px">
           <span style="font-size:11px;color:var(--accent)">📊 Stocks</span>
@@ -8476,12 +8478,12 @@ function logIndexBuy(pfKey,region){
     const perTrancheEUR=(settings.nlIndexTranche||1000)/2;
     defAmt=ccy==="USD"?Math.round(perTrancheEUR*(settings.fxRate||1)):perTrancheEUR;
   }else{
-    // Personal: weighted leg budget (XZEU 50% / XZMU 25% / XFFE 25%). EU is EUR-denominated → convert.
+    // Personal: weighted leg budget (XZEU 50% / XZMU 50%; XFFE = parked overflow). EU is EUR-denominated → convert.
     // XFFE is the pen vehicle — default its buy to the current parked pen balance (USD) so the held
     // XFFE position tracks the intent ledger; falls back to the 25% weight if the pen is empty.
     // v5.17: amounts follow the CAPE gate, same as the Allocator's Income Split.
-    if(region==="ffe"){defAmt=Math.round(indexFfeMonthlyUSD()||(indexAllocationUSD()||6000)*0.25);}
-    else{const legUSD=capeGate(region).deploy||(indexAllocationUSD()||6000)*(INDEX_REGION_WEIGHT[region]||0.25);
+    if(region==="ffe"){defAmt=Math.round(indexFfeMonthlyUSD());}
+    else{const legUSD=capeGate(region).deploy||(indexAllocationUSD()||6000)*(INDEX_REGION_WEIGHT[region]||0.5);
     defAmt=region==="eu"?Math.round(legUSD/settings.fxRate):Math.round(legUSD);}
   }
   // Caca cap check
